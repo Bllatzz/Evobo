@@ -4,7 +4,7 @@ import { normalizeMarket } from "./marketNormalizer.js";
 
 /**
  * Proxies robotip's own live alerts API (~/desenvolvimento/robotip/backend,
- * deployed at ROBOTIP_API_URL, no auth) instead of reading a local snapshot —
+ * deployed at ROBOTIP_API_URL) instead of reading a local snapshot —
  * a one-time CSV import was tried first, but it was a static export (all
  * rows from a single day months ago, permanently stuck at whatever "result"
  * they had at export time), so it looked like fake/stale alerts next to the
@@ -28,6 +28,14 @@ import { normalizeMarket } from "./marketNormalizer.js";
  */
 
 const ROBOTIP_API_URL = process.env.ROBOTIP_API_URL ?? "https://robotip-analyzer.fly.dev";
+// robotip's backend used to have zero auth on every route (fixed after a
+// review found it let anyone on the internet read/edit/delete the whole
+// alerts + gestao_banca tables) — it now requires this header. Left
+// optional here (not in config/env.ts's strict schema) so a missing key
+// degrades to the existing "upstream unavailable" handling below instead of
+// failing the whole API to boot.
+const ROBOTIP_API_KEY = process.env.ROBOTIP_API_KEY;
+const robotipHeaders: Record<string, string> = ROBOTIP_API_KEY ? { "X-API-Key": ROBOTIP_API_KEY } : {};
 
 /** Shape returned by GET /api/alerts on robotip's backend (backend/src/routes/alerts.js) — snake_case, straight off the `alerts` table. */
 type RobotipAlert = {
@@ -190,6 +198,7 @@ async function fetchGestaoRows(
   try {
     const res = await fetch(`${ROBOTIP_API_URL}/api/gestao`, {
       signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+      headers: robotipHeaders,
     });
     if (!res.ok) throw new Error(`robotip API responded ${res.status}`);
     const rows = (await res.json()) as unknown;
@@ -279,6 +288,7 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
     try {
       const res = await fetch(`${ROBOTIP_API_URL}/api/alerts?${params}`, {
         signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+        headers: robotipHeaders,
       });
       if (!res.ok) throw new Error(`robotip API responded ${res.status}`);
       const body = (await res.json()) as { data: RobotipAlert[] };
