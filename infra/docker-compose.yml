@@ -1,0 +1,15 @@
+# Postgres/Auth are provided by the Supabase CLI local stack (`supabase start`
+# in apps/api/supabase), not here — that stack includes GoTrue + PostgREST,
+# which plain Postgres wouldn't give us, and RLS testing needs auth.uid() to work.
+# This file only covers infra Supabase doesn't provide.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

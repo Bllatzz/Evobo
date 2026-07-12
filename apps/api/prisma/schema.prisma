@@ -1,0 +1,378 @@
+// Schema owns table/enum/index migrations via `prisma migrate`. RLS policies
+// are NOT expressed here (Prisma can't model them) — they live as raw SQL
+// appended to the generated migration files. See apps/api/supabase/ for the
+// local Postgres+Auth+Storage runtime (via `supabase start`), which this
+// schema's DATABASE_URL points at; Supabase's own migration CLI is not used
+// so there is a single source of truth for schema changes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Role {
+  id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String             @unique
+  description  String?
+  isSystem     Boolean            @default(false) @map("is_system")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  users        User[]
+  screenAccess RoleScreenAccess[]
+
+  @@map("roles")
+}
+
+/// screenKey is validated against @evobo/shared-types' ScreenKey enum at the
+/// application layer, not a DB enum — the set of screens changes more often
+/// than we want to run a migration for.
+model RoleScreenAccess {
+  roleId    String     @map("role_id") @db.Uuid
+  screenKey String     @map("screen_key")
+  tier      ScreenTier @default(free)
+  role      Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, screenKey])
+  @@map("role_screen_access")
+}
+
+/// "vip" rows only count toward a user's accessibleScreens if they hold an
+/// active VipSubscription to any group — see GET /me. Default "free" keeps
+/// every pre-existing row (and every other role) behaving exactly as before.
+enum ScreenTier {
+  free
+  vip
+
+  @@map("screen_tier")
+}
+
+/// id == auth.users.id (Supabase Auth owns credentials/sessions; this is the
+/// public profile row). No default — the id is assigned by Auth on
+/// signup via a DB trigger, not by Prisma.
+model User {
+  id                  String    @id @db.Uuid
+  username            String    @unique
+  displayName         String    @map("display_name")
+  avatarUrl           String?   @map("avatar_url")
+  bio                 String?
+  favoriteSports      String[]  @default([]) @map("favorite_sports")
+  roleId              String    @map("role_id") @db.Uuid
+  role                Role      @relation(fields: [roleId], references: [id])
+  verifiedAt          DateTime? @map("verified_at")
+  verifiedBadgeReason String?   @map("verified_badge_reason")
+  isActive            Boolean   @default(true) @map("is_active")
+  lastLoginAt         DateTime? @map("last_login_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  tips             Tip[]
+  vipGroupsOwned   VipGroup[]
+  vipSubscriptions VipSubscription[]
+  payments         Payment[]      @relation("PaymentUser")
+  paymentsReviewed Payment[]      @relation("PaymentReviewer")
+  followers        Follow[]       @relation("Followed")
+  following        Follow[]       @relation("Follower")
+  comments         Comment[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  tipTakes         TipTake[]
+
+  @@map("users")
+}
+
+enum GameStatus {
+  scheduled
+  live
+  finished
+
+  @@map("game_status")
+}
+
+model Game {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  externalId String?    @unique @map("external_id")
+  homeTeam   String     @map("home_team")
+  awayTeam   String     @map("away_team")
+  league     String
+  startsAt   DateTime   @map("starts_at")
+  status     GameStatus @default(scheduled)
+  scoreHome  Int?       @map("score_home")
+  scoreAway  Int?       @map("score_away")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  tips Tip[]
+
+  @@index([startsAt, status])
+  @@map("games")
+}
+
+enum TipStatus {
+  pending
+  green
+  red
+  void
+
+  @@map("tip_status")
+}
+
+enum TipVisibility {
+  public
+  vip_only
+
+  @@map("tip_visibility")
+}
+
+enum TipConfidence {
+  baixa
+  media
+  alta
+
+  @@map("tip_confidence")
+}
+
+model Tip {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  authorId        String        @map("author_id") @db.Uuid
+  author          User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  matchId         String        @map("match_id") @db.Uuid
+  match           Game          @relation(fields: [matchId], references: [id], onDelete: Restrict)
+  market          String
+  odds            Decimal       @db.Decimal(6, 2)
+  stakeUnits      Decimal       @map("stake_units") @db.Decimal(4, 1)
+  house           String
+  confidence      TipConfidence?
+  analysisText    String?       @map("analysis_text")
+  imageUrl        String?       @map("image_url")
+  status          TipStatus     @default(pending)
+  resultSettledAt DateTime?     @map("result_settled_at")
+  visibility      TipVisibility @default(public)
+  vipGroupId      String?       @map("vip_group_id") @db.Uuid
+  vipGroup        VipGroup?     @relation(fields: [vipGroupId], references: [id], onDelete: SetNull)
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  comments Comment[]
+  takes    TipTake[]
+
+  @@index([authorId])
+  @@index([matchId])
+  @@index([status])
+  @@map("tips")
+}
+
+/// "Peguei" — a viewer marking they took a tip. Not in the originally
+/// approved schema; added because the Feed/Tip aberta "Peguei" button and
+/// Meu Perfil's "Minhas apostas" tab both require it and there was no other
+/// table to back them.
+model TipTake {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipId     String   @map("tip_id") @db.Uuid
+  tip       Tip      @relation(fields: [tipId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tipId, userId])
+  @@index([userId])
+  @@map("tip_takes")
+}
+
+enum BillingPeriod {
+  monthly
+  quarterly
+  yearly
+
+  @@map("billing_period")
+}
+
+model VipGroup {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId       String        @map("owner_id") @db.Uuid
+  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  price         Decimal       @db.Decimal(10, 2)
+  currency      String        @default("BRL")
+  billingPeriod BillingPeriod @map("billing_period")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  tips          Tip[]
+  subscriptions VipSubscription[]
+  payments      Payment[]
+
+  @@map("vip_groups")
+}
+
+enum VipSubscriptionStatus {
+  active
+  expired
+  canceled
+
+  @@map("vip_subscription_status")
+}
+
+model VipSubscription {
+  id         String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String                 @map("user_id") @db.Uuid
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vipGroupId String                 @map("vip_group_id") @db.Uuid
+  vipGroup   VipGroup               @relation(fields: [vipGroupId], references: [id], onDelete: Cascade)
+  status     VipSubscriptionStatus  @default(active)
+  startedAt  DateTime               @default(now()) @map("started_at")
+  expiresAt  DateTime               @map("expires_at")
+
+  payments Payment[]
+
+  @@index([userId, status])
+  @@map("vip_subscriptions")
+}
+
+enum PaymentMethod {
+  pix_manual
+
+  @@map("payment_method")
+}
+
+/// Manual Pix reconciliation, no PSP: awaiting_proof (QR generated, waiting
+/// on the user) -> pending_review (proof uploaded, waiting on an admin) ->
+/// approved | rejected. vip_subscription_id is null until approval, since
+/// the subscription doesn't exist yet at awaiting_proof/pending_review.
+model Payment {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String           @map("user_id") @db.Uuid
+  user              User             @relation("PaymentUser", fields: [userId], references: [id], onDelete: Restrict)
+  vipGroupId        String           @map("vip_group_id") @db.Uuid
+  vipGroup          VipGroup         @relation(fields: [vipGroupId], references: [id], onDelete: Restrict)
+  vipSubscriptionId String?          @map("vip_subscription_id") @db.Uuid
+  vipSubscription   VipSubscription? @relation(fields: [vipSubscriptionId], references: [id], onDelete: SetNull)
+  billingPeriod     BillingPeriod    @map("billing_period")
+  amount            Decimal          @db.Decimal(10, 2)
+  currency          String           @default("BRL")
+  method            PaymentMethod    @default(pix_manual)
+  qrCodePayload     String           @map("qr_code_payload")
+  proofImageUrl     String?          @map("proof_image_url")
+  status            PaymentStatus    @default(awaiting_proof)
+  reviewedBy        String?          @map("reviewed_by") @db.Uuid
+  reviewer          User?            @relation("PaymentReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt        DateTime?        @map("reviewed_at")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([userId])
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  awaiting_proof
+  pending_review
+  approved
+  rejected
+
+  @@map("payment_status")
+}
+
+model Follow {
+  followerId String   @map("follower_id") @db.Uuid
+  follower   User     @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followedId String   @map("followed_id") @db.Uuid
+  followed   User     @relation("Followed", fields: [followedId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@id([followerId, followedId])
+  @@index([followerId])
+  @@index([followedId])
+  @@map("follows")
+}
+
+model Comment {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipId     String   @map("tip_id") @db.Uuid
+  tip       Tip      @relation(fields: [tipId], references: [id], onDelete: Cascade)
+  authorId  String   @map("author_id") @db.Uuid
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content   String
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("comments")
+}
+
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  payload   Json      @default("{}")
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  targetType String   @map("target_type")
+  targetId   String?  @map("target_id") @db.Uuid
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}
+
+/// UNUSED — robot-signals/routes.ts now proxies robotip's live alerts API
+/// (ROBOTIP_API_URL) directly instead of reading a local snapshot; a CSV
+/// import here turned out to always be stale (pinned to whatever "result"
+/// rows had at export time). Kept only so migration history isn't rewritten;
+/// safe to drop this model/table/migration in a follow-up.
+model RobotSignal {
+  id                   Int       @id
+  botName              String?   @map("bot_name")
+  odds                 Decimal?  @db.Decimal(6, 2)
+  homeTeam             String?   @map("home_team")
+  awayTeam             String?   @map("away_team")
+  robotipUrl           String?   @map("robotip_url")
+  gameMinute           Int?      @map("game_minute")
+  homeOdds             Decimal?  @map("home_odds") @db.Decimal(6, 2)
+  drawOdds             Decimal?  @map("draw_odds") @db.Decimal(6, 2)
+  awayOdds             Decimal?  @map("away_odds") @db.Decimal(6, 2)
+  competition          String?
+  scoreHome            Int?      @map("score_home")
+  scoreAway            Int?      @map("score_away")
+  lastGoalMinute       Int?      @map("last_goal_minute")
+  cornersHome          Int?      @map("corners_home")
+  cornersAway          Int?      @map("corners_away")
+  lastCornerMinute     Int?      @map("last_corner_minute")
+  goalsOverOdds        Decimal?  @map("goals_over_odds") @db.Decimal(6, 2)
+  stakePct             Decimal?  @map("stake_pct") @db.Decimal(5, 1)
+  dangerousHome        Int?      @map("dangerous_home")
+  dangerousAway        Int?      @map("dangerous_away")
+  dangerousPerMin5     String?   @map("dangerous_per_min_5")
+  dangerousPerMinTotal String?   @map("dangerous_per_min_total")
+  yellowHome           Int?      @map("yellow_home")
+  yellowAway           Int?      @map("yellow_away")
+  redHome              Int?      @map("red_home")
+  redAway              Int?      @map("red_away")
+  shotsSideHome        Int?      @map("shots_side_home")
+  shotsSideAway        Int?      @map("shots_side_away")
+  shotsTargetHome      Int?      @map("shots_target_home")
+  shotsTargetAway      Int?      @map("shots_target_away")
+  possessionHome       Decimal?  @map("possession_home") @db.Decimal(5, 1)
+  possessionAway       Decimal?  @map("possession_away") @db.Decimal(5, 1)
+  pi1                  Decimal?  @db.Decimal(6, 2)
+  pi2                  Decimal?  @db.Decimal(6, 2)
+  receivedAt           DateTime  @map("received_at")
+  result               String    @default("pending")
+  rawMessage           String?   @map("raw_message")
+
+  @@map("robot_signals")
+}

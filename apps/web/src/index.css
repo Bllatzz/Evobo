@@ -1,0 +1,148 @@
+@import url("https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=Sora:wght@800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+/*
+  Evobo design tokens — extracted from the Claude Design handoff
+  (handoff_prototype/BANCA App.dc.html). Dark is the default; the
+  `[data-theme="light"]` block below overrides these same custom properties
+  for light mode (toggled via stores/theme.tsx). Brand/CTA colors that are
+  always paired with their own fixed contrasting text (button gradients,
+  logo tiles) stay as literal hex values in components and don't need a
+  theme-aware token.
+*/
+@theme {
+  --font-sans: "Nunito", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* Closest free match to the lettering in the actual logo file
+     (public/evobo.png) at its heaviest weight (900) — the logo's squarish,
+     rounded-rectangle "o"/"b" shapes are a Sora hallmark. Used only for the
+     "Evobo" brand wordmark next to the icon, not general UI text (Nunito
+     stays the site's reading font). */
+  --font-brand: "Sora", system-ui, sans-serif;
+
+  /* surfaces */
+  --color-bg: #08090a;
+  --color-surface: #111315;
+  --color-surface-alt: #16181b;
+  --color-surface-input: #121417;
+  --color-surface-chip: #0e1013;
+
+  /* text */
+  --color-text: #f2f4f3;
+  --color-text-secondary: #8a9097;
+  --color-text-tertiary: #868c94;
+  --color-text-quaternary: #797e86;
+  --color-text-muted: #c7ccd1;
+
+  /* borders */
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-subtle: rgba(255, 255, 255, 0.05);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+
+  /* accent: green (brand / positive) */
+  --color-accent: #2be08a;
+  --color-accent-strong: #16b978;
+  --color-accent-soft: rgba(43, 224, 138, 0.1);
+  --color-accent-border: rgba(43, 224, 138, 0.3);
+
+  /* live / negative */
+  --color-live: #ff4d5e;
+  --color-live-soft: rgba(255, 77, 94, 0.1);
+
+  /* VIP / gold */
+  --color-vip: #f6c453;
+  --color-vip-strong: #b8860b;
+  --color-vip-soft: rgba(246, 196, 83, 0.1);
+  --color-vip-border: rgba(246, 196, 83, 0.4);
+
+  /* verified badge / info */
+  --color-verified: #3d9df6;
+  --color-verified-strong: #1d4ed8;
+  --color-verified-soft: rgba(61, 157, 246, 0.08);
+
+  /* "risco alto" + danger/attack stat icons — Robô de Apostas */
+  --color-orange: #ff6a3d;
+  --color-orange-soft: rgba(255, 106, 61, 0.08);
+  --color-orange-border: rgba(255, 106, 61, 0.4);
+
+  --radius-phone: 38px;
+  --radius-card: 20px;
+  --radius-control: 14px;
+  --radius-chip: 11px;
+  --radius-badge: 7px;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+/* Light mode overrides — same custom properties as the @theme block above,
+   re-pointed to a light-on-white palette. Brand hues (green/red/gold/blue/
+   orange) are darkened from their dark-mode values where they're used as
+   direct text/icon color on the page background, since the vivid dark-mode
+   tones don't have enough contrast against white. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg: #f4f5f6;
+  --color-surface: #ffffff;
+  --color-surface-alt: #eef0f2;
+  --color-surface-input: #ffffff;
+  --color-surface-chip: #eceef0;
+
+  --color-text: #12151a;
+  --color-text-secondary: #565c64;
+  --color-text-tertiary: #6b7178;
+  --color-text-quaternary: #7b8188;
+  --color-text-muted: #33383e;
+
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-subtle: rgba(0, 0, 0, 0.05);
+  --color-border-strong: rgba(0, 0, 0, 0.16);
+
+  --color-accent: #0e9d63;
+  --color-accent-strong: #0b7d4f;
+  --color-accent-soft: rgba(14, 157, 99, 0.12);
+  --color-accent-border: rgba(14, 157, 99, 0.35);
+
+  --color-live: #d6303f;
+  --color-live-soft: rgba(214, 48, 63, 0.1);
+
+  --color-vip: #8a6008;
+  --color-vip-strong: #6b4a06;
+  --color-vip-soft: rgba(138, 96, 8, 0.12);
+  --color-vip-border: rgba(138, 96, 8, 0.4);
+
+  --color-verified: #1d4ed8;
+  --color-verified-strong: #16309e;
+  --color-verified-soft: rgba(29, 78, 216, 0.08);
+
+  --color-orange: #b8460f;
+  --color-orange-soft: rgba(184, 70, 15, 0.08);
+  --color-orange-border: rgba(184, 70, 15, 0.4);
+}
+
+@keyframes blip {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100svh;
+}

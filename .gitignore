@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+*.log
+dist/
+build/
+uploads/
+.turbo/
+coverage/
+.DS_Store
+handoff_prototype/
+apps/api/prisma/local-only/
