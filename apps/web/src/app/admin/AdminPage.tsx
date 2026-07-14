@@ -11,13 +11,13 @@ const navCards = [
     description: "Papéis, permissões por tela e atribuição de usuários",
   },
   {
-    to: "/admin/telas",
+    to: "/admin/screens",
     Icon: IconSparkle,
     label: "Telas & Permissões",
     description: "Controle o que usuários comuns veem no app",
   },
   {
-    to: "/admin/pagamentos",
+    to: "/admin/payments",
     Icon: IconCheck,
     label: "Aprovação de Pagamentos",
     description: "Revisar comprovantes de Pix e aprovar assinaturas VIP",

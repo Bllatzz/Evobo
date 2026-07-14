@@ -132,7 +132,7 @@ export function TipCard({ tip, onChange }: { tip: FeedTip; onChange?: () => void
           <span className="hidden font-mono lg:inline">· {tip._count.takes}</span>
         </button>
         <Link
-          to={`/tip/${tip.id}/analise-ia`}
+          to={`/tip/${tip.id}/ai-analysis`}
           onClick={(e) => e.stopPropagation()}
           className="flex h-11 w-12 flex-none items-center justify-center gap-1.5 rounded-[13px] border border-verified/40 bg-verified-soft font-mono text-[13px] font-bold text-verified lg:w-auto lg:px-4"
         >

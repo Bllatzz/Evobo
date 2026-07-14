@@ -39,7 +39,7 @@ export function RegisterPage() {
       return;
     }
     // If e-mail confirmation is required, signUp succeeds but returns no
-    // session — navigating to "/" would just bounce back to /entrar via
+    // session — navigating to "/" would just bounce back to /login via
     // RouteGuard with no explanation of what happened.
     if (!data.session) {
       setError("Cadastro criado! Confirme seu e-mail para poder entrar.");
@@ -61,7 +61,7 @@ export function RegisterPage() {
         />
 
         <div className="relative z-10 flex items-center gap-3 pt-4 lg:hidden">
-          <Link to="/entrar" className="text-2xl leading-none text-text" aria-label="Voltar">
+          <Link to="/login" className="text-2xl leading-none text-text" aria-label="Voltar">
             ‹
           </Link>
         </div>
@@ -177,7 +177,7 @@ export function RegisterPage() {
 
         <p className="pb-6 pt-6 text-center text-[14px] text-text-secondary">
           Já tem conta?{" "}
-          <Link to="/entrar" className="font-semibold text-accent">
+          <Link to="/login" className="font-semibold text-accent">
             Entrar
           </Link>
         </p>

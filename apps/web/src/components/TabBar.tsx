@@ -9,12 +9,12 @@ import { IconHome, IconLive, IconRanking, IconProfile, IconRobot } from "./Icon"
  */
 const items = [
   { to: "/", label: "Home", Icon: IconHome },
-  { to: "/ao-vivo", label: "Ao Vivo", Icon: IconLive },
+  { to: "/live", label: "Ao Vivo", Icon: IconLive },
 ] as const;
 
 const trailingItems = [
   { to: "/ranking", label: "Ranking", Icon: IconRanking },
-  { to: "/perfil", label: "Perfil", Icon: IconProfile },
+  { to: "/profile", label: "Perfil", Icon: IconProfile },
 ] as const;
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -33,7 +33,7 @@ export function TabBar() {
       ))}
       <div className="flex flex-1 flex-col items-center gap-1 text-[10.5px] font-medium text-accent">
         <NavLink
-          to="/robo"
+          to="/robot"
           className="-mt-2.5 flex h-[46px] w-[46px] items-center justify-center rounded-[15px] bg-accent text-bg shadow-[0_10px_22px_rgba(43,224,138,0.4)]"
           aria-label="Robô de Apostas"
         >

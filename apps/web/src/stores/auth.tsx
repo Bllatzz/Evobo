@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // `session` starts as null before the initial `getSession()` (which reads
   // localStorage) resolves — without this flag, the effect below sees that
   // placeholder null, concludes "logged out" and flips `loading` false
-  // before the real session loads, bouncing every reload to /entrar.
+  // before the real session loads, bouncing every reload to /login.
   const [sessionChecked, setSessionChecked] = useState(false);
 
   useEffect(() => {
@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Only a real auth failure (401/403 — token rejected by the backend)
         // means "logged out". A network blip, timeout, or 5xx during a
         // backend deploy must not wipe `me` — that would bounce a user with
-        // a perfectly valid session back to /entrar over a transient error.
+        // a perfectly valid session back to /login over a transient error.
         const isAuthFailure = err instanceof ApiError && (err.status === 401 || err.status === 403);
         if (!cancelled && isAuthFailure) setMe(null);
       } finally {

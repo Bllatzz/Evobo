@@ -14,7 +14,7 @@ export function RouteGuard({ screen, children }: { screen: ScreenKey; children: 
   if (loading) {
     return <div className="min-h-dvh bg-bg" />;
   }
-  if (!isAuthenticated) return <Navigate to="/entrar" replace />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (!canAccess(screen)) return <Navigate to="/" replace />;
 
   return <>{children}</>;

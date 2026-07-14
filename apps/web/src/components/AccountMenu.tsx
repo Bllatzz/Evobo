@@ -33,7 +33,7 @@ export function AccountMenu({ placement = "bottom" }: { placement?: "top" | "bot
   async function handleSignOut() {
     setOpen(false);
     await signOut();
-    navigate("/entrar", { replace: true });
+    navigate("/login", { replace: true });
   }
 
   return (
@@ -59,11 +59,11 @@ export function AccountMenu({ placement = "bottom" }: { placement?: "top" | "bot
           }`}
         >
           <a
-            href="/perfil/editar"
+            href="/profile/edit"
             onClick={(e) => {
               e.preventDefault();
               setOpen(false);
-              navigate("/perfil/editar");
+              navigate("/profile/edit");
             }}
             className="flex items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-[13.5px] font-medium text-text hover:bg-surface-chip"
           >

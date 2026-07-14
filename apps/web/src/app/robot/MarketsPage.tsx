@@ -7,7 +7,7 @@ import { RobotTabs } from "./RobotTabs";
 function MarketRow({ market }: { market: RobotMarketSummary }) {
   return (
     <Link
-      to={`/robo/mercado/${encodeURIComponent(market.groupKey)}`}
+      to={`/robot/market/${encodeURIComponent(market.groupKey)}`}
       className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface p-4 hover:border-border-strong"
     >
       <div className="min-w-0 flex-1">

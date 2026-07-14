@@ -16,7 +16,7 @@ export function ForgotPasswordPage() {
     setError(null);
     setSubmitting(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/redefinir-senha`,
+      redirectTo: `${window.location.origin}/reset-password`,
     });
     setSubmitting(false);
     if (error) {
@@ -39,7 +39,7 @@ export function ForgotPasswordPage() {
         />
 
         <div className="relative z-10 flex items-center gap-3 pt-4 lg:hidden">
-          <Link to="/entrar" className="text-2xl leading-none text-text" aria-label="Voltar">
+          <Link to="/login" className="text-2xl leading-none text-text" aria-label="Voltar">
             ‹
           </Link>
         </div>
@@ -47,7 +47,7 @@ export function ForgotPasswordPage() {
         <div className="relative z-10 flex flex-1 flex-col lg:w-full lg:max-w-[400px] lg:flex-none">
           <div className="hidden lg:mb-2 lg:flex lg:items-center">
             <Link
-              to="/entrar"
+              to="/login"
               className="flex items-center gap-1 text-[13px] text-text-secondary hover:text-text"
             >
               <IconChevronLeft size={16} />
@@ -97,7 +97,7 @@ export function ForgotPasswordPage() {
 
           <p className="pb-6 pt-6 text-center text-[14px] text-text-secondary">
             Lembrou a senha?{" "}
-            <Link to="/entrar" className="font-semibold text-accent">
+            <Link to="/login" className="font-semibold text-accent">
               Entrar
             </Link>
           </p>

@@ -97,7 +97,7 @@ export function LoginPage() {
             </button>
           </div>
           <div className="mt-2 text-right">
-            <Link to="/esqueci-senha" className="text-[11px] text-accent">
+            <Link to="/forgot-password" className="text-[11px] text-accent">
               Esqueci a senha
             </Link>
           </div>
@@ -130,7 +130,7 @@ export function LoginPage() {
 
         <p className="pb-6 pt-6 text-center text-[14px] text-text-secondary">
           Não tem conta?{" "}
-          <Link to="/criar-conta" className="font-semibold text-accent">
+          <Link to="/register" className="font-semibold text-accent">
             Criar conta
           </Link>
         </p>

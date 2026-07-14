@@ -76,10 +76,10 @@ function App() {
       <AuthProvider>
         <DocumentTitle />
         <Routes>
-          <Route path="/entrar" element={<LoginPage />} />
-          <Route path="/criar-conta" element={<RegisterPage />} />
-          <Route path="/esqueci-senha" element={<ForgotPasswordPage />} />
-          <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
 
           {/* Tab-bar screens share the AppShell chrome (header + bottom nav
               on mobile, sidebar rail on desktop) */}
@@ -94,7 +94,7 @@ function App() {
             }
           />
           <Route
-            path="/ao-vivo"
+            path="/live"
             element={
               <RouteGuard screen="ao_vivo">
                 <AppShell>
@@ -114,7 +114,7 @@ function App() {
             }
           />
           <Route
-            path="/perfil"
+            path="/profile"
             element={
               <RouteGuard screen="meu_perfil">
                 <AppShell>
@@ -125,7 +125,7 @@ function App() {
           />
 
           <Route
-            path="/perfil/editar"
+            path="/profile/edit"
             element={
               <RouteGuard screen="meu_perfil">
                 <SidebarFrame>
@@ -136,7 +136,7 @@ function App() {
           />
 
           <Route
-            path="/jogos"
+            path="/games"
             element={
               <RouteGuard screen="jogos">
                 <AppShell>
@@ -159,7 +159,7 @@ function App() {
             }
           />
           <Route
-            path="/busca"
+            path="/search"
             element={
               <RouteGuard screen="busca">
                 <SidebarFrame>
@@ -179,7 +179,7 @@ function App() {
             }
           />
           <Route
-            path="/tip/:tipId/analise-ia"
+            path="/tip/:tipId/ai-analysis"
             element={
               <RouteGuard screen="analise_ia">
                 <SidebarFrame>
@@ -219,7 +219,7 @@ function App() {
             }
           />
           <Route
-            path="/nova-tip"
+            path="/new-tip"
             element={
               <RouteGuard screen="nova_tip">
                 <SidebarFrame>
@@ -229,7 +229,7 @@ function App() {
             }
           />
           <Route
-            path="/robo"
+            path="/robot"
             element={
               <RouteGuard screen="robo_apostas">
                 <AppShell>
@@ -239,7 +239,7 @@ function App() {
             }
           />
           <Route
-            path="/robo/historico"
+            path="/robot/history"
             element={
               <RouteGuard screen="robo_apostas">
                 <AppShell>
@@ -249,7 +249,7 @@ function App() {
             }
           />
           <Route
-            path="/robo/mercado/:groupKey"
+            path="/robot/market/:groupKey"
             element={
               <RouteGuard screen="robo_apostas">
                 <SidebarFrame>
@@ -279,7 +279,7 @@ function App() {
             }
           />
           <Route
-            path="/admin/pagamentos"
+            path="/admin/payments"
             element={
               <RouteGuard screen="admin_payments">
                 <MobileFrame>
@@ -289,7 +289,7 @@ function App() {
             }
           />
           <Route
-            path="/admin/telas"
+            path="/admin/screens"
             element={
               <RouteGuard screen="admin_screens">
                 <SidebarFrame>

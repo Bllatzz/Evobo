@@ -1,8 +1,8 @@
 import { Link } from "react-router-dom";
 
 const TABS = [
-  { to: "/robo", key: "tips", label: "Tips" },
-  { to: "/robo/historico", key: "historico", label: "Histórico" },
+  { to: "/robot", key: "tips", label: "Tips" },
+  { to: "/robot/history", key: "historico", label: "Histórico" },
 ] as const;
 
 /** Segmented tab switcher shared by RobotPage ("Tips") and MarketsPage

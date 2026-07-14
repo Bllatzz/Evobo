@@ -18,12 +18,12 @@ import {
 
 const navItems = [
   { to: "/", label: "Feed", Icon: IconHome, end: true, screen: "feed" },
-  { to: "/ao-vivo", label: "Ao Vivo", Icon: IconLive, end: false, screen: "ao_vivo" },
-  { to: "/robo", label: "Robô", Icon: IconRobot, end: false, screen: "robo_apostas" },
+  { to: "/live", label: "Ao Vivo", Icon: IconLive, end: false, screen: "ao_vivo" },
+  { to: "/robot", label: "Robô", Icon: IconRobot, end: false, screen: "robo_apostas" },
   { to: "/ev", label: "EV+", Icon: IconTrendingUp, end: false, screen: "ev_plus" },
   { to: "/ranking", label: "Ranking", Icon: IconRanking, end: false, screen: "ranking" },
-  { to: "/jogos", label: "Jogos", Icon: IconCalendar, end: false, screen: "jogos" },
-  { to: "/busca", label: "Buscar", Icon: IconSearch, end: false, screen: "busca" },
+  { to: "/games", label: "Jogos", Icon: IconCalendar, end: false, screen: "jogos" },
+  { to: "/search", label: "Buscar", Icon: IconSearch, end: false, screen: "busca" },
 ] as const;
 
 /**
@@ -64,7 +64,7 @@ export function DesktopSidebar() {
           >
             <Icon size={21} />
             {label}
-            {to === "/ao-vivo" && liveCount !== null && liveCount > 0 && (
+            {to === "/live" && liveCount !== null && liveCount > 0 && (
               <span className="ml-auto flex items-center gap-1.5 font-mono text-[11px] text-live">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />
                 {liveCount}
@@ -75,7 +75,7 @@ export function DesktopSidebar() {
       </nav>
 
       <NavLink
-        to="/nova-tip"
+        to="/new-tip"
         className="mx-1 mt-4 flex h-[50px] items-center justify-center gap-2.5 rounded-[15px] bg-accent text-[15px] font-bold text-[#08090A] shadow-[0_12px_26px_rgba(43,224,138,0.35)]"
       >
         <IconPlus size={18} />
@@ -84,7 +84,7 @@ export function DesktopSidebar() {
 
       {me && (
         <div className="mt-auto flex items-center gap-2.5 rounded-[14px] border border-border bg-surface p-2.5">
-          <Link to="/perfil" className="flex min-w-0 flex-1 items-center gap-2.5">
+          <Link to="/profile" className="flex min-w-0 flex-1 items-center gap-2.5">
             <Avatar name={me.displayName} seed={me.id} src={me.avatarUrl} size={38} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-[14px] font-semibold">{me.displayName}</div>

@@ -23,7 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="font-brand text-[23px] font-black tracking-[-0.03em]">Evobo</span>
           </Link>
           <div className="flex items-center gap-4 text-text-secondary">
-            <Link to="/busca" aria-label="Buscar">
+            <Link to="/search" aria-label="Buscar">
               <IconSearch />
             </Link>
           </div>
@@ -37,7 +37,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="pointer-events-none fixed inset-x-0 bottom-[88px] z-10 flex justify-center lg:hidden">
           <div className="relative w-full max-w-[430px]">
             <Link
-              to="/nova-tip"
+              to="/new-tip"
               className="pointer-events-auto absolute right-[18px] flex h-13 items-center gap-2 rounded-full bg-accent pl-[17px] pr-5 text-[15px] font-bold text-[#08090A] shadow-[0_12px_28px_rgba(43,224,138,0.42)]"
             >
               <IconPlus size={20} />

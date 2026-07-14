@@ -29,7 +29,7 @@ export function DesktopFeedRail() {
             <span className="h-2 w-2 animate-pulse rounded-full bg-live" />
             <span className="text-[15px] font-bold">Ao Vivo</span>
           </div>
-          <Link to="/ao-vivo" className="font-mono text-[11px] text-text-tertiary">
+          <Link to="/live" className="font-mono text-[11px] text-text-tertiary">
             ver todos
           </Link>
         </div>

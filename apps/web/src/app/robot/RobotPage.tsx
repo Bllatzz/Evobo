@@ -99,7 +99,7 @@ function DesktopRobotCard({ signal }: { signal: RobotSignal }) {
           {signal.homeTeam} <span className="text-text-quaternary">×</span> {signal.awayTeam}
         </div>
         <Link
-          to={`/robo/mercado/${encodeURIComponent(signal.marketGroupKey)}`}
+          to={`/robot/market/${encodeURIComponent(signal.marketGroupKey)}`}
           className="flex-none font-mono text-[11px] text-accent"
         >
           Gráfico ›
@@ -256,7 +256,7 @@ export function RobotPage() {
               <p className="py-10 text-center text-sm text-text-tertiary">
                 Nenhuma aposta pendente no momento, só vai aparecer caso tenha alguma pendente.
                 <br />
-                <Link to="/robo/historico" className="font-semibold text-accent">
+                <Link to="/robot/history" className="font-semibold text-accent">
                   Clique aqui pra ver o histórico
                 </Link>
               </p>
@@ -313,7 +313,7 @@ export function RobotPage() {
           <p className="px-4 py-10 text-center text-sm text-text-tertiary">
             Nenhuma aposta pendente no momento, só vai aparecer caso tenha alguma pendente.
             <br />
-            <Link to="/robo/historico" className="font-semibold text-accent">
+            <Link to="/robot/history" className="font-semibold text-accent">
               Clique aqui pra ver o histórico
             </Link>
           </p>
@@ -334,7 +334,7 @@ export function RobotPage() {
                   {signal.homeTeam} <span className="text-text-quaternary">×</span> {signal.awayTeam}
                 </div>
                 <Link
-                  to={`/robo/mercado/${encodeURIComponent(signal.marketGroupKey)}`}
+                  to={`/robot/market/${encodeURIComponent(signal.marketGroupKey)}`}
                   className="flex-none font-mono text-[10.5px] text-accent"
                 >
                   Gráfico ›

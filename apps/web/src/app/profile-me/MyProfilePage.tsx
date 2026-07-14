@@ -125,12 +125,12 @@ export function MyProfilePage() {
               </Link>
             )}
             <Link
-              to="/perfil/editar"
+              to="/profile/edit"
               className="rounded-[11px] border border-border-strong px-4 py-2 text-[13px] font-semibold text-text"
             >
               Editar perfil
             </Link>
-            <Link to="/nova-tip" className="rounded-[11px] bg-accent px-4 py-2 text-[13px] font-semibold text-[#08090A]">
+            <Link to="/new-tip" className="rounded-[11px] bg-accent px-4 py-2 text-[13px] font-semibold text-[#08090A]">
               Publicar tip
             </Link>
           </div>
@@ -230,7 +230,7 @@ export function MyProfilePage() {
           <div className="font-mono text-[11px] text-text-tertiary">@{me.username}</div>
         </div>
         <Link
-          to="/perfil/editar"
+          to="/profile/edit"
           className="flex-none rounded-[11px] border border-border-strong px-3.5 py-2 text-[13px] font-semibold text-text-secondary"
         >
           Editar perfil

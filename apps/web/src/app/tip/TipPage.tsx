@@ -143,7 +143,7 @@ function TipActionsRow({
         Não peguei
       </button>
       <Link
-        to={`/tip/${tip.id}/analise-ia`}
+        to={`/tip/${tip.id}/ai-analysis`}
         className={`flex flex-none items-center justify-center gap-2 rounded-[14px] border border-verified/40 bg-verified-soft font-semibold text-verified ${
           lg ? "h-[52px] w-[190px] text-[14px]" : "hidden"
         }`}
@@ -362,7 +362,7 @@ export function TipPage() {
         />
 
         <Link
-          to={`/tip/${tip.id}/analise-ia`}
+          to={`/tip/${tip.id}/ai-analysis`}
           className="flex h-[46px] items-center justify-center gap-2 rounded-[14px] border border-verified/40 bg-verified-soft text-[14px] font-semibold text-verified"
         >
           <IconSparkle size={15} /> Análise IA completa

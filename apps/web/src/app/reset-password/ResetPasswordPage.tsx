@@ -151,7 +151,7 @@ export function ResetPasswordPage() {
           )}
 
           <p className="pb-6 pt-6 text-center text-[14px] text-text-secondary">
-            <Link to="/entrar" className="font-semibold text-accent">
+            <Link to="/login" className="font-semibold text-accent">
               Voltar para entrar
             </Link>
           </p>

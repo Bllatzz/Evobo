@@ -94,7 +94,7 @@ export function FeedPage() {
           </button>
         ))}
         <Link
-          to="/busca"
+          to="/search"
           className="ml-auto mb-2.5 hidden w-[240px] items-center gap-2.5 rounded-xl border border-border bg-surface-alt px-3.5 py-2.5 text-[13px] text-text-tertiary lg:flex"
         >
           <IconSearch size={17} />
