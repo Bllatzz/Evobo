@@ -1,0 +1,29 @@
+# fly.toml for apps/api — build context is the repo root (npm workspaces),
+# so this file lives at the root and `fly deploy` is run from here.
+app = 'evobo-api'
+primary_region = 'gru'
+
+[build]
+  dockerfile = 'apps/api/Dockerfile'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[deploy]
+  strategy = 'immediate'
+
+[[vm]]
+  memory = '512mb'
+  cpus = 1

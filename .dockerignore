@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+apps/web
+handoff_prototype
+.git
+.github
+**/*.env
+**/*.env.local
+dist
+**/dist
+coverage
+.turbo
