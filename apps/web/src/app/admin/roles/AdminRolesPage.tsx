@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { screenKeys, type ScreenKey } from "@evobo/shared-types";
 import {
   assignRole,
@@ -297,76 +297,102 @@ export function AdminRolesPage() {
     setEditingRole(await fetchRole(roleId));
   }
 
-  return (
-    <div className="min-h-dvh bg-bg pb-8 text-text">
-      <div className="flex items-center gap-3.5 border-b border-border px-4 pb-3.5 pt-14">
-        <button onClick={() => navigate(-1)} className="text-2xl leading-none" aria-label="Voltar">
-          ‹
-        </button>
-        <span className="text-[16px] font-semibold">Gestão de Roles</span>
+  const editorBlock = editingRole && (
+    <RoleEditor
+      role={editingRole}
+      onClose={() => setEditingRole(null)}
+      onSaved={() => {
+        setEditingRole(null);
+        load();
+      }}
+    />
+  );
+
+  const rolesCard = (
+    <div className="rounded-2xl border border-border bg-surface p-4">
+      <div className="mb-3 font-mono text-[11px] tracking-[0.06em] text-text-tertiary">ROLES</div>
+      <div className="flex flex-col gap-1.5">
+        {roles === null && <p className="py-4 text-center text-[12.5px] text-text-tertiary">Carregando…</p>}
+        {roles?.length === 0 && (
+          <p className="py-4 text-center text-[12.5px] text-text-tertiary">Nenhum role encontrado.</p>
+        )}
+        {roles?.map((r) => (
+          <button
+            key={r.id}
+            onClick={() => openEditor(r.id)}
+            className="flex items-center justify-between rounded-lg bg-surface-alt px-3 py-2.5 text-left"
+          >
+            <div>
+              <div className="text-[13.5px] font-semibold">{r.name}</div>
+              {r.description && <div className="text-[11.5px] text-text-tertiary">{r.description}</div>}
+            </div>
+            <span className="font-mono text-[12px] text-text-tertiary">{r.userCount} usuários</span>
+          </button>
+        ))}
       </div>
 
-      <div className="flex flex-col gap-3 p-4">
-        {editingRole && (
-          <RoleEditor
-            role={editingRole}
-            onClose={() => setEditingRole(null)}
-            onSaved={() => {
-              setEditingRole(null);
-              load();
-            }}
-          />
-        )}
+      <form onSubmit={handleCreate} className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+        <input
+          value={newRoleName}
+          onChange={(e) => setNewRoleName(e.target.value)}
+          placeholder="nome_do_role (ex: tester)"
+          className="rounded-lg border border-border-strong bg-surface-alt px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
+        />
+        <input
+          value={newRoleDesc}
+          onChange={(e) => setNewRoleDesc(e.target.value)}
+          placeholder="Descrição (opcional)"
+          className="rounded-lg border border-border-strong bg-surface-alt px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
+        />
+        {createError && <p className="text-[12px] text-live">{createError}</p>}
+        <button
+          type="submit"
+          disabled={!newRoleName.trim() || creating}
+          className="rounded-lg bg-accent py-2 text-[13px] font-semibold text-[#08090A] disabled:opacity-40"
+        >
+          {creating ? "Criando…" : "+ Novo role"}
+        </button>
+      </form>
+    </div>
+  );
 
-        <div className="rounded-2xl border border-border bg-surface p-4">
-          <div className="mb-3 font-mono text-[11px] tracking-[0.06em] text-text-tertiary">
-            ROLES
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {roles === null && <p className="py-4 text-center text-[12.5px] text-text-tertiary">Carregando…</p>}
-            {roles?.length === 0 && (
-              <p className="py-4 text-center text-[12.5px] text-text-tertiary">Nenhum role encontrado.</p>
-            )}
-            {roles?.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => openEditor(r.id)}
-                className="flex items-center justify-between rounded-lg bg-surface-alt px-3 py-2.5 text-left"
-              >
-                <div>
-                  <div className="text-[13.5px] font-semibold">{r.name}</div>
-                  {r.description && <div className="text-[11.5px] text-text-tertiary">{r.description}</div>}
-                </div>
-                <span className="font-mono text-[12px] text-text-tertiary">{r.userCount} usuários</span>
-              </button>
-            ))}
-          </div>
+  const assignPanel = roles && <AssignRolePanel roles={roles} onAssigned={load} />;
 
-          <form onSubmit={handleCreate} className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
-            <input
-              value={newRoleName}
-              onChange={(e) => setNewRoleName(e.target.value)}
-              placeholder="nome_do_role (ex: tester)"
-              className="rounded-lg border border-border-strong bg-surface-alt px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
-            />
-            <input
-              value={newRoleDesc}
-              onChange={(e) => setNewRoleDesc(e.target.value)}
-              placeholder="Descrição (opcional)"
-              className="rounded-lg border border-border-strong bg-surface-alt px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
-            />
-            {createError && <p className="text-[12px] text-live">{createError}</p>}
-            <button
-              type="submit"
-              disabled={!newRoleName.trim() || creating}
-              className="rounded-lg bg-accent py-2 text-[13px] font-semibold text-[#08090A] disabled:opacity-40"
-            >
-              {creating ? "Criando…" : "+ Novo role"}
-            </button>
-          </form>
+  return (
+    <div className="min-h-dvh bg-bg text-text lg:flex lg:min-h-full lg:flex-col">
+      {/* ---------- Desktop ---------- */}
+      <div className="hidden lg:flex lg:h-[70px] lg:flex-none lg:items-center lg:gap-3 lg:border-b lg:border-border lg:px-8">
+        <Link to="/admin" className="text-[13px] text-text-tertiary hover:text-text">
+          Admin
+        </Link>
+        <span className="text-text-tertiary">/</span>
+        <span className="text-[20px] font-bold tracking-[-0.02em]">Gestão de Roles</span>
+      </div>
+
+      <div className="hidden lg:block lg:flex-1 lg:overflow-y-auto lg:px-8 lg:py-6">
+        <div className="grid grid-cols-2 items-start gap-4">
+          <div className="flex flex-col gap-4">
+            {editorBlock}
+            {rolesCard}
+          </div>
+          {assignPanel}
+        </div>
+      </div>
+
+      {/* ---------- Mobile ---------- */}
+      <div className="pb-8 lg:hidden">
+        <div className="flex items-center gap-3.5 border-b border-border px-4 pb-3.5 pt-14">
+          <button onClick={() => navigate(-1)} className="text-2xl leading-none" aria-label="Voltar">
+            ‹
+          </button>
+          <span className="text-[16px] font-semibold">Gestão de Roles</span>
         </div>
 
-        {roles && <AssignRolePanel roles={roles} onAssigned={load} />}
+        <div className="flex flex-col gap-3 p-4">
+          {editorBlock}
+          {rolesCard}
+          {assignPanel}
+        </div>
       </div>
     </div>
   );

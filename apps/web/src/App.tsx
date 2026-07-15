@@ -272,9 +272,9 @@ function App() {
             path="/admin/roles"
             element={
               <RouteGuard screen="admin_roles">
-                <MobileFrame>
+                <SidebarFrame>
                   <AdminRolesPage />
-                </MobileFrame>
+                </SidebarFrame>
               </RouteGuard>
             }
           />
@@ -282,9 +282,9 @@ function App() {
             path="/admin/payments"
             element={
               <RouteGuard screen="admin_payments">
-                <MobileFrame>
+                <SidebarFrame>
                   <AdminPaymentsPage />
-                </MobileFrame>
+                </SidebarFrame>
               </RouteGuard>
             }
           />
