@@ -1,11 +1,13 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ApiError } from "../../lib/api";
 import { updateMyProfile, uploadAvatar } from "../../lib/profile";
 import { Avatar } from "../../components/Avatar";
 import { IconCamera, IconChevronLeft } from "../../components/Icon";
 import { useAuth } from "../../stores/auth";
 
 const SPORT_OPTIONS = ["Futebol", "Basquete", "Tênis", "NFL", "eSports"];
+const USERNAME_PATTERN = /^[a-z0-9]+$/;
 
 export function EditProfilePage() {
   const navigate = useNavigate();
@@ -13,6 +15,7 @@ export function EditProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [displayName, setDisplayName] = useState(me?.displayName ?? "");
+  const [username, setUsername] = useState(me?.username ?? "");
   const [bio, setBio] = useState(me?.bio ?? "");
   const [favoriteSports, setFavoriteSports] = useState<string[]>(me?.favoriteSports ?? []);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(me?.avatarUrl ?? null);
@@ -21,6 +24,12 @@ export function EditProfilePage() {
   const [error, setError] = useState<string | null>(null);
 
   if (!me) return null;
+
+  const usernameValid = username.length >= 3 && username.length <= 30 && USERNAME_PATTERN.test(username);
+
+  function handleUsernameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  }
 
   function toggleSport(sport: string) {
     setFavoriteSports((prev) =>
@@ -45,14 +54,19 @@ export function EditProfilePage() {
       }
       await updateMyProfile({
         displayName,
+        username,
         bio: bio.trim() === "" ? null : bio,
         favoriteSports,
         ...(avatarUrl && { avatarUrl }),
       });
       await refreshMe();
       navigate(-1);
-    } catch {
-      setError("Não deu pra salvar. Tenta de novo.");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setError("Esse nome de usuário já está em uso.");
+      } else {
+        setError("Não deu pra salvar. Tenta de novo.");
+      }
     } finally {
       setSaving(false);
     }
@@ -92,7 +106,7 @@ export function EditProfilePage() {
         <span className="text-[20px] font-bold tracking-[-0.02em]">Editar perfil</span>
         <button
           onClick={handleSave}
-          disabled={saving || displayName.trim() === ""}
+          disabled={saving || displayName.trim() === "" || !usernameValid}
           className="ml-auto rounded-[11px] bg-accent px-5 py-2.5 text-[14px] font-bold text-[#08090A] disabled:opacity-50"
         >
           {saving ? "Salvando…" : "Salvar"}
@@ -137,9 +151,18 @@ export function EditProfilePage() {
               <span className="mb-2 block font-mono text-[11px] tracking-[0.04em] text-text-secondary">
                 USUÁRIO
               </span>
-              <div className="flex h-[52px] w-full items-center gap-1.5 rounded-[14px] border border-border-strong bg-surface-input px-4 text-[15px] text-text-tertiary">
-                <span>@</span>
-                {me.username}
+              <div
+                className={`flex h-[52px] w-full items-center gap-1.5 rounded-[14px] border bg-surface-input px-4 text-[15px] text-text focus-within:border-accent ${
+                  usernameValid ? "border-border-strong" : "border-live"
+                }`}
+              >
+                <span className="text-text-tertiary">@</span>
+                <input
+                  value={username}
+                  onChange={handleUsernameChange}
+                  maxLength={30}
+                  className="w-full bg-transparent outline-none"
+                />
               </div>
             </label>
           </div>
@@ -172,7 +195,7 @@ export function EditProfilePage() {
         <span className="text-[16px] font-bold">Editar perfil</span>
         <button
           onClick={handleSave}
-          disabled={saving || displayName.trim() === ""}
+          disabled={saving || displayName.trim() === "" || !usernameValid}
           className="text-[14px] font-bold text-accent disabled:opacity-50"
         >
           {saving ? "Salvando…" : "Salvar"}
@@ -218,9 +241,18 @@ export function EditProfilePage() {
           <span className="mb-2 block font-mono text-[11px] tracking-[0.04em] text-text-secondary">
             USUÁRIO
           </span>
-          <div className="flex h-[50px] w-full items-center gap-1.5 rounded-[14px] border border-border-strong bg-surface-input px-[15px] text-[15px] text-text-tertiary">
-            <span>@</span>
-            {me.username}
+          <div
+            className={`flex h-[50px] w-full items-center gap-1.5 rounded-[14px] border bg-surface-input px-[15px] text-[15px] text-text focus-within:border-accent ${
+              usernameValid ? "border-border-strong" : "border-live"
+            }`}
+          >
+            <span className="text-text-tertiary">@</span>
+            <input
+              value={username}
+              onChange={handleUsernameChange}
+              maxLength={30}
+              className="w-full bg-transparent outline-none"
+            />
           </div>
         </label>
 

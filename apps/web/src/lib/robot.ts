@@ -40,6 +40,7 @@ export type RobotPerformanceSummary = {
   red: number;
   assertPct: number;
   roiPct: number;
+  units: number;
 };
 
 export const fetchRobotPerformanceSummary = (): Promise<RobotPerformanceSummary> =>

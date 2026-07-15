@@ -405,6 +405,7 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
       red,
       assertPct: green + red > 0 ? Math.round((green / (green + red)) * 1000) / 10 : 0,
       roiPct: totalStaked > 0 ? Math.round((cumulative / totalStaked) * 1000) / 10 : 0,
+      units: Math.round(cumulative * 10) / 10,
       unavailable,
     };
   });

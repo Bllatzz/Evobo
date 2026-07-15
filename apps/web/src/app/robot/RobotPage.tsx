@@ -186,11 +186,11 @@ function RobotPerformancePanel({ summary }: { summary: RobotPerformanceSummary |
         </div>
         <div className="mb-3.5 h-px bg-border" />
         <div className="flex items-center justify-between">
-          <span className="text-[13px] text-text-muted">ROI</span>
+          <span className="text-[13px] text-text-muted">Unidades</span>
           <span
-            className={`font-mono text-[15px] font-bold ${(summary?.roiPct ?? 0) >= 0 ? "text-accent" : "text-live"}`}
+            className={`font-mono text-[15px] font-bold ${(summary?.units ?? 0) >= 0 ? "text-accent" : "text-live"}`}
           >
-            {summary ? `${summary.roiPct >= 0 ? "+" : ""}${summary.roiPct}%` : "—"}
+            {summary ? `${summary.units >= 0 ? "+" : ""}${summary.units.toFixed(1)}u` : "—"}
           </span>
         </div>
       </div>

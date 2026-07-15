@@ -27,6 +27,7 @@ export const fetchMyBets = (): Promise<ProfileTip[]> => apiFetch("/users/me/bets
 export const updateMyProfile = (input: {
   bio?: string | null;
   displayName?: string;
+  username?: string;
   avatarUrl?: string | null;
   favoriteSports?: string[];
 }) => apiFetch("/users/me", { method: "PATCH", body: JSON.stringify(input) });

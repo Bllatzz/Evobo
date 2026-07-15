@@ -72,6 +72,9 @@ export type AssignRoleInput = z.infer<typeof AssignRoleInput>;
 
 export const UpdateOwnProfileInput = z.object({
   displayName: z.string().min(1).max(60).optional(),
+  // Lowercase letters/digits only, matching the handle_new_user() DB trigger
+  // that generates the initial username (see users/routes.ts PATCH /me).
+  username: z.string().min(3).max(30).regex(/^[a-z0-9]+$/).optional(),
   avatarUrl: z.string().url().nullable().optional(),
   bio: z.string().max(280).nullable().optional(),
   favoriteSports: z.array(z.string().min(1).max(30)).max(10).optional(),

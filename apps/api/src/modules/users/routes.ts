@@ -36,11 +36,14 @@ export async function usersRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
 
-    const { displayName, avatarUrl, bio, favoriteSports } = parsed.data;
+    const { displayName, username, avatarUrl, bio, favoriteSports } = parsed.data;
+    // Unique constraint violations (username taken) fall through to the
+    // global error handler in server.ts, which maps P2002 to 409 "conflict".
     return prisma.user.update({
       where: { id: request.authUser!.id },
       data: {
         ...(displayName !== undefined && { displayName }),
+        ...(username !== undefined && { username }),
         ...(avatarUrl !== undefined && { avatarUrl }),
         ...(bio !== undefined && { bio }),
         ...(favoriteSports !== undefined && { favoriteSports }),
