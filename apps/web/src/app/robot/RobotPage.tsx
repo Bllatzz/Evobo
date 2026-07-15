@@ -159,16 +159,16 @@ function DesktopRobotCard({ signal }: { signal: RobotSignal }) {
   );
 }
 
-/** Right-side panel on Desktop Robô — real 30-day aggregate performance
+/** Right-side panel on Desktop Robô — real 24h aggregate performance
  * (GET /robot-signals/performance) plus a static explanation of what bot
  * consensus means for a signal, matching the design's "DESEMPENHO DO
- * ROBÔ · 30D" + "GESTÃO DE BANCA" cards. */
+ * ROBÔ · 24H" + "GESTÃO DE BANCA" cards. */
 function RobotPerformancePanel({ summary }: { summary: RobotPerformanceSummary | null }) {
   return (
     <aside className="w-[300px] flex-none overflow-y-auto p-6">
       <div className="mb-4 rounded-2xl border border-border bg-surface p-4.5">
         <div className="mb-3.5 font-mono text-[11px] tracking-[0.06em] text-text-tertiary">
-          DESEMPENHO DO ROBÔ · 30D
+          DESEMPENHO DO ROBÔ · 24H
         </div>
         <div className="mb-3.5 flex items-center justify-between">
           <span className="text-[13px] text-text-muted">Green</span>
@@ -229,7 +229,7 @@ export function RobotPage() {
     <>
       {/* Desktop — "D4 · Desktop · Robô" frame: different header copy, no "Todos" filter,
           simplified fixed-stat card grid (2 columns), plus a right-side panel with the
-          real 30-day performance summary and the risk→stake explanation. */}
+          real 24h performance summary and the risk→stake explanation. */}
       <div className="hidden h-full lg:flex">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex flex-none items-center gap-3 border-b border-border px-8 py-[18px]">

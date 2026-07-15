@@ -375,13 +375,13 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
   });
 
   /**
-   * "Desempenho do Robô · 30D" — aggregate green/red/assertividade/ROI across
+   * "Desempenho do Robô · 24H" — aggregate green/red/assertividade/ROI across
    * every bot in EVOBO_BOT_NAMES (the same curated set the main `/` route
    * shows), from robotip's curated `gestao_banca` ledger (see fetchGestaoRows
-   * above) filtered to the last 30 days.
+   * above) filtered to the last 24 hours.
    */
   app.get("/performance", async (request) => {
-    const dateFrom = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const dateFrom = Date.now() - 24 * 60 * 60 * 1000;
     const { rows, unavailable } = await fetchGestaoRows(request.log);
     const resolved = rows.filter(
       (r) => EVOBO_BOT_NAMES.has(r.bot_name ?? "") && new Date(r.received_at).getTime() >= dateFrom,
