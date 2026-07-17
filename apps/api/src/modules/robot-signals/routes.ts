@@ -220,18 +220,38 @@ function computeProfit(result: GestaoRow["result"], stakeUnits: number, odd: num
 
 /**
  * robotip's `bot_filter_profiles` table (id 4, name "Evobo") — the curated
- * list of bots this product shows. Queried directly from robotip's Supabase
- * on 2026-07-04; update this list if that profile's bot_names change.
+ * list of bots this product shows. Fetched live from robotip's own
+ * `GET /api/bot-filter-profiles` (backend/src/routes/botFilterProfiles.js)
+ * instead of hardcoded, so adding/removing a bot from that profile in
+ * robotip's admin shows up here without a deploy.
  */
-const EVOBO_BOT_NAMES = new Set([
-  "OVER 0.5 ESCANTEIOS FT - V6.0",
-  "OVER 0.5 ESCANTEIOS FT - V2.0",
-  "Bot vencedor 4º lugar na Copa RobôTip #1: Under 2.5 escanteios",
-  "OVER 0.5 ESCANTEIOS FT - V7.0",
-  "REVALIDAÇÃO OVER 0.5 CORNERS V2.0 (SEM FILTRO DE LIGAS) -- V1.0",
-  "REVALIDAÇÃO OVER 0.5 ESCANTEIOS FT V7.0 - (Termos a excluir)",
-  "Under 3.5 Corners FT",
-]);
+type BotFilterProfile = { name: string; bot_names: string[] };
+
+let evoboBotNamesCache: { names: Set<string>; fetchedAt: number } | null = null;
+const BOT_NAMES_CACHE_TTL_MS = 5 * 60_000;
+
+async function fetchEvoboBotNames(log: FastifyBaseLogger): Promise<Set<string>> {
+  if (evoboBotNamesCache && Date.now() - evoboBotNamesCache.fetchedAt < BOT_NAMES_CACHE_TTL_MS) {
+    return evoboBotNamesCache.names;
+  }
+  try {
+    const res = await fetch(`${ROBOTIP_API_URL}/api/bot-filter-profiles`, {
+      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+      headers: robotipHeaders,
+    });
+    if (!res.ok) throw new Error(`robotip API responded ${res.status}`);
+    const profiles = (await res.json()) as BotFilterProfile[];
+    const evobo = profiles.find((p) => p.name === "Evobo");
+    if (!evobo) throw new Error('no "Evobo" bot_filter_profile found');
+    evoboBotNamesCache = { names: new Set(evobo.bot_names), fetchedAt: Date.now() };
+    return evoboBotNamesCache.names;
+  } catch (err) {
+    log.error({ err }, 'failed to fetch "Evobo" bot_filter_profile from robotip API');
+    // Stale cache beats an empty result — an expired-but-known list is still
+    // more correct than showing nothing while robotip is briefly unreachable.
+    return evoboBotNamesCache?.names ?? new Set();
+  }
+}
 
 const MAX_MERGE_GAP_MS = 3 * 60 * 60 * 1000;
 
@@ -278,8 +298,9 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
     // are history, not alerts, so default to pending unless a result is
     // explicitly requested (?result=green etc., for future use).
     const result = request.query.result ?? "pending";
+    const evoboBotNames = await fetchEvoboBotNames(request.log);
     const params = new URLSearchParams({
-      bot_names: [...EVOBO_BOT_NAMES].join("|"),
+      bot_names: [...evoboBotNames].join("|"),
       result,
       limit: "200",
     });
@@ -376,15 +397,19 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
 
   /**
    * "Desempenho do Robô · 24H" — aggregate green/red/assertividade/ROI across
-   * every bot in EVOBO_BOT_NAMES (the same curated set the main `/` route
-   * shows), from robotip's curated `gestao_banca` ledger (see fetchGestaoRows
-   * above) filtered to the last 24 hours.
+   * every bot in the "Evobo" filter profile (see fetchEvoboBotNames above,
+   * the same curated set the main `/` route shows), from robotip's curated
+   * `gestao_banca` ledger (see fetchGestaoRows above) filtered to the last
+   * 24 hours.
    */
   app.get("/performance", async (request) => {
     const dateFrom = Date.now() - 24 * 60 * 60 * 1000;
-    const { rows, unavailable } = await fetchGestaoRows(request.log);
+    const [{ rows, unavailable }, evoboBotNames] = await Promise.all([
+      fetchGestaoRows(request.log),
+      fetchEvoboBotNames(request.log),
+    ]);
     const resolved = rows.filter(
-      (r) => EVOBO_BOT_NAMES.has(r.bot_name ?? "") && new Date(r.received_at).getTime() >= dateFrom,
+      (r) => evoboBotNames.has(r.bot_name ?? "") && new Date(r.received_at).getTime() >= dateFrom,
     );
 
     let cumulative = 0;
@@ -521,8 +546,11 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
    * instead of two unrelated-looking bot names.
    */
   app.get("/markets", async (request) => {
-    const { rows, unavailable } = await fetchGestaoRows(request.log);
-    const curated = rows.filter((r) => EVOBO_BOT_NAMES.has(r.bot_name ?? ""));
+    const [{ rows, unavailable }, evoboBotNames] = await Promise.all([
+      fetchGestaoRows(request.log),
+      fetchEvoboBotNames(request.log),
+    ]);
+    const curated = rows.filter((r) => evoboBotNames.has(r.bot_name ?? ""));
 
     const groups = new Map<string, { market: string; botNames: Set<string>; rows: GestaoRow[] }>();
     for (const row of curated) {
@@ -573,7 +601,10 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
     Querystring: { date_from?: string; date_to?: string; odds_min?: string; odds_max?: string };
   }>("/market/:groupKey", async (request) => {
       const groupKey = decodeURIComponent(request.params.groupKey);
-      const { rows, unavailable } = await fetchGestaoRows(request.log);
+      const [{ rows, unavailable }, evoboBotNames] = await Promise.all([
+        fetchGestaoRows(request.log),
+        fetchEvoboBotNames(request.log),
+      ]);
 
       const dateFrom = request.query.date_from ? new Date(request.query.date_from).getTime() : null;
       const dateTo = request.query.date_to ? new Date(request.query.date_to).getTime() : null;
@@ -581,7 +612,7 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
       const oddsMax = request.query.odds_max ? Number(request.query.odds_max) : null;
 
       const matching = rows.filter(
-        (r) => EVOBO_BOT_NAMES.has(r.bot_name ?? "") && normalizeMarket(r.bot_name).groupKey === groupKey,
+        (r) => evoboBotNames.has(r.bot_name ?? "") && normalizeMarket(r.bot_name).groupKey === groupKey,
       );
       const market = matching[0] ? normalizeMarket(matching[0].bot_name).label : groupKey;
       const botNames = [...new Set(matching.map((r) => r.bot_name).filter((n): n is string => n !== null))];
