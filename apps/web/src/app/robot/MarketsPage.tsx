@@ -16,10 +16,6 @@ function MarketRow({ market }: { market: RobotMarketSummary }) {
           <span className="truncate text-[14px] font-semibold">{market.market}</span>
         </div>
         <div className="mt-1 font-mono text-[11px] text-text-tertiary">
-          {market.botNames.length === 1
-            ? market.botNames[0]
-            : `${market.botNames.length} robôs juntados`}
-          {" · "}
           {market.totalOps.toLocaleString("pt-BR")} ops · assert. {market.assertPct}%
         </div>
       </div>

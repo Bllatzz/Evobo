@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchMarketPerformance, type BotOperation, type MarketPerformance } from "../../lib/robot";
 import { formatOdds } from "../../lib/format";
 import { IconChevronLeft, IconRobotMonitor, IconX } from "../../components/Icon";
 import { Logo } from "../../components/Logo";
+import { RobotTabs } from "./RobotTabs";
 
 const RESULT_STYLE: Record<BotOperation["result"], { label: string; className: string }> = {
   green: { label: "Green", className: "bg-accent-soft text-accent" },
@@ -13,6 +14,7 @@ const RESULT_STYLE: Record<BotOperation["result"], { label: string; className: s
 
 /** Inline SVG polyline — matches the design's own mini-chart approach, no charting lib in the project. */
 function WalletChart({ operations, height }: { operations: BotOperation[]; height: number }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const chronological = [...operations].reverse();
   if (chronological.length < 2) {
     return (
@@ -39,25 +41,90 @@ function WalletChart({ operations, height }: { operations: BotOperation[]; heigh
 
   const areaPoints = `0,${height} ${points.join(" ")} ${width},${height}`;
 
+  function handleMove(e: MouseEvent<SVGSVGElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const fraction = (e.clientX - rect.left) / rect.width;
+    const index = Math.round(fraction * (values.length - 1));
+    setHoverIndex(Math.min(values.length - 1, Math.max(0, index)));
+  }
+
+  const hovered = hoverIndex !== null ? chronological[hoverIndex] : null;
+  const hoverX = hoverIndex !== null ? (hoverIndex / (values.length - 1)) * width : 0;
+  const hoverY = hoverIndex !== null ? height - ((values[hoverIndex]! - min) / span) * height : 0;
+  // Flip the tooltip to the left half once the point crosses the chart's midline, so it never clips outside the svg.
+  const tooltipLeftPct = (hoverX / width) * 100;
+  const tooltipAlign = tooltipLeftPct > 60 ? "right" : tooltipLeftPct < 40 ? "left" : "center";
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="walletFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="currentColor" stopOpacity="0.4" className="text-accent" />
-          <stop offset="1" stopColor="currentColor" stopOpacity="0" className="text-accent" />
-        </linearGradient>
-      </defs>
-      <polygon points={areaPoints} fill="url(#walletFill)" />
-      <polyline
-        points={points.join(" ")}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        className="text-accent"
-      />
-    </svg>
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        width="100%"
+        height={height}
+        preserveAspectRatio="none"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIndex(null)}
+        className="cursor-crosshair"
+      >
+        <defs>
+          <linearGradient id="walletFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="currentColor" stopOpacity="0.4" className="text-accent" />
+            <stop offset="1" stopColor="currentColor" stopOpacity="0" className="text-accent" />
+          </linearGradient>
+        </defs>
+        <polygon points={areaPoints} fill="url(#walletFill)" />
+        <polyline
+          points={points.join(" ")}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          className="text-accent"
+        />
+        {hovered && (
+          <>
+            <line
+              x1={hoverX}
+              y1={0}
+              x2={hoverX}
+              y2={height}
+              stroke="currentColor"
+              strokeWidth="1"
+              strokeDasharray="4 3"
+              className="text-border-strong"
+              vectorEffect="non-scaling-stroke"
+            />
+            <circle
+              cx={hoverX}
+              cy={hoverY}
+              r="4"
+              className="text-accent"
+              fill="currentColor"
+              stroke="var(--color-surface-chip, #fff)"
+              strokeWidth="2"
+              vectorEffect="non-scaling-stroke"
+            />
+          </>
+        )}
+      </svg>
+      {hovered && (
+        <div
+          className="pointer-events-none absolute top-1 z-10 rounded-lg border border-border bg-surface-alt px-2.5 py-1.5 font-mono text-[11px] shadow-lg"
+          style={{
+            left: tooltipAlign === "center" ? `${tooltipLeftPct}%` : tooltipAlign === "left" ? "0%" : undefined,
+            right: tooltipAlign === "right" ? "0%" : undefined,
+            transform: tooltipAlign === "center" ? "translateX(-50%)" : undefined,
+          }}
+        >
+          <div className="text-text-tertiary">{new Date(hovered.date).toLocaleDateString("pt-BR")}</div>
+          <div className={`font-bold ${hovered.cumulativeProfit >= 0 ? "text-accent" : "text-live"}`}>
+            {hovered.cumulativeProfit >= 0 ? "+" : ""}
+            {hovered.cumulativeProfit}%
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -126,6 +193,10 @@ export function MarketChartPage() {
           </button>
           <Logo size={22} rounded={7} />
           <span className="font-brand text-[16px] font-black tracking-[-0.03em]">Evobo</span>
+        </div>
+
+        <div className="px-4 pt-2.5 pb-1">
+          <RobotTabs active="historico" />
         </div>
 
         <div className="px-4 pt-2.5">
@@ -234,6 +305,9 @@ export function MarketChartPage() {
               {perf && perf.botNames.length > 1 && ` · ${perf.botNames.length} robôs juntados`}
             </div>
           </div>
+          <div className="ml-auto flex-none">
+            <RobotTabs active="historico" />
+          </div>
         </div>
 
         <div className="flex-1 px-8 py-6">
@@ -331,12 +405,11 @@ export function MarketChartPage() {
                 {perf ? `${perf.totalOps.toLocaleString("pt-BR")} entradas` : "…"}
               </span>
             </div>
-            <div className="grid grid-cols-[96px_1.3fr_1.3fr_1.4fr_1.6fr_68px_92px] border-b border-border px-5.5 py-3 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
+            <div className="grid grid-cols-[96px_1.3fr_1.3fr_2fr_68px_92px] border-b border-border px-5.5 py-3 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
               <span>DATA</span>
               <span>TIME 1</span>
               <span>TIME 2</span>
               <span>CAMPEONATO</span>
-              <span>ROBÔ</span>
               <span className="text-center">UN.</span>
               <span className="text-center">RESULT.</span>
             </div>
@@ -347,7 +420,7 @@ export function MarketChartPage() {
             {perf?.operations.map((op) => (
               <div
                 key={op.id}
-                className="grid grid-cols-[96px_1.3fr_1.3fr_1.4fr_1.6fr_68px_92px] items-center border-b border-border-subtle px-5.5 py-3.5 text-[13px] last:border-0"
+                className="grid grid-cols-[96px_1.3fr_1.3fr_2fr_68px_92px] items-center border-b border-border-subtle px-5.5 py-3.5 text-[13px] last:border-0"
               >
                 <span className="font-mono text-[12px] text-text-secondary">
                   {new Date(op.date).toLocaleDateString("pt-BR")}
@@ -355,8 +428,7 @@ export function MarketChartPage() {
                 <span className="font-semibold">{op.homeTeam}</span>
                 <span className="font-semibold">{op.awayTeam}</span>
                 <span className="text-[12px] text-text-secondary">{op.competition}</span>
-                <span className="truncate text-[12px] text-text-muted">{op.botName ?? "—"}</span>
-                <span className="text-center font-mono font-bold">{op.stakeUnits}</span>
+                <span className="text-center font-mono font-bold">{op.stakeUnits}u</span>
                 <span className="text-center">
                   <span className={`inline-flex items-center rounded-lg px-2.5 py-1 font-mono text-[10px] font-bold ${RESULT_STYLE[op.result].className}`}>
                     {RESULT_STYLE[op.result].label}

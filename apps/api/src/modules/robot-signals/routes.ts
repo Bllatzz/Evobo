@@ -485,14 +485,15 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
         curLoseProfit += profit;
         curWinLen = 0;
         curWinProfit = 0;
-      } else {
-        curWinLen = 0;
-        curWinProfit = 0;
-        curLoseLen = 0;
-        curLoseProfit = 0;
       }
-      if (curWinLen > bestRun.length) bestRun = { length: curWinLen, profit: curWinProfit };
-      if (curLoseLen > worstRun.length) worstRun = { length: curLoseLen, profit: curLoseProfit };
+      // reembolso (push/void) has no direction — it neither extends nor
+      // breaks the current win/loss streak, it's just skipped over.
+      if (curWinLen > bestRun.length || (curWinLen === bestRun.length && curWinLen > 0 && curWinProfit > bestRun.profit)) {
+        bestRun = { length: curWinLen, profit: curWinProfit };
+      }
+      if (curLoseLen > worstRun.length || (curLoseLen === worstRun.length && curLoseLen > 0 && curLoseProfit < worstRun.profit)) {
+        worstRun = { length: curLoseLen, profit: curLoseProfit };
+      }
 
       // Max drawdown as % of the running peak (peak-to-trough ratio) —
       // matches robotip's own computeDrawdown, not a fixed bankroll size.
