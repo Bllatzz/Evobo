@@ -30,10 +30,11 @@ const filters = [
   { key: "todos", label: "Todos", match: () => true },
 ] as const;
 
-// The backend only pulls corners bots for now (gols/cartões aren't vetted yet — see
-// robot-signals/routes.ts), so those chips would just always be empty. Hidden, not
-// deleted, so re-enabling later is a one-line change back to `filters`.
-const visibleFilters = filters.filter((f) => f.key === "escanteios");
+// robot-signals/routes.ts now fetches the "Evobo" bot_filter_profile live from
+// robotip instead of a hardcoded corners-only list, so any market curated there
+// (gols, cartões, ...) can show up in the feed — filter chips must cover all of
+// them or a real pending tip silently disappears from view.
+const visibleFilters = filters;
 
 /** Amarelos/Vermelhos render as a small colored card rectangle, not an icon — matches the design exactly. */
 function CardSwatch({ color }: { color: string }) {
@@ -212,7 +213,7 @@ function RobotPerformancePanel({ summary }: { summary: RobotPerformanceSummary |
 export function RobotPage() {
   const [signals, setSignals] = useState<RobotSignal[] | null>(null);
   const [summary, setSummary] = useState<RobotPerformanceSummary | null>(null);
-  const [filter, setFilter] = useState<(typeof filters)[number]["key"]>("escanteios");
+  const [filter, setFilter] = useState<(typeof filters)[number]["key"]>("todos");
 
   useEffect(() => {
     fetchRobotSignals().then(setSignals);
