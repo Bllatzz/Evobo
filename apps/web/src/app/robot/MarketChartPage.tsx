@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchMarketPerformance, type BotOperation, type MarketPerformance } from "../../lib/robot";
 import { formatOdds } from "../../lib/format";
@@ -156,7 +156,11 @@ export function MarketChartPage() {
     }).then(setPerf);
   }, [groupKey, dateFrom, dateTo, oddsMin, oddsMax]);
 
-  const marketLabel = useMemo(() => perf?.market ?? decodeURIComponent(groupKey), [perf, groupKey]);
+  // perf.market is the human-readable label ("Over 0.5 Corners FT") the backend
+  // derives from normalizeMarket — groupKey itself is an internal grouping id
+  // (e.g. "over|corners|0.5|ft") never meant for display, so show a loading
+  // placeholder instead of the raw key while the fetch is still in flight.
+  const marketLabel = perf?.market ?? null;
 
   const statRows = perf
     ? [
@@ -200,7 +204,9 @@ export function MarketChartPage() {
         </div>
 
         <div className="px-4 pt-2.5">
-          <div className="truncate text-[19px] font-bold tracking-[-0.02em]">{marketLabel}</div>
+          <div className="truncate text-[19px] font-bold tracking-[-0.02em]">
+            {marketLabel ?? <span className="text-text-tertiary">Carregando…</span>}
+          </div>
           <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">Desempenho da carteira</div>
           {perf && perf.botNames.length > 0 && (
             <div className="mt-1.5 text-[11px] text-text-tertiary">
@@ -294,19 +300,27 @@ export function MarketChartPage() {
 
       {/* ---------- Desktop ---------- */}
       <div className="hidden lg:flex lg:flex-1 lg:flex-col">
-        <div className="sticky top-0 z-10 flex h-[70px] flex-none items-center gap-3 border-b border-border bg-bg px-8">
-          <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[9px] bg-gradient-to-br from-[#46F0A6] to-[#12B877]">
-            <IconRobotMonitor size={18} className="text-[#06231A]" />
-          </span>
-          <div className="min-w-0">
-            <div className="truncate text-[20px] font-bold tracking-[-0.02em]">{marketLabel}</div>
-            <div className="font-mono text-[11px] text-text-tertiary">
-              Desempenho da carteira
-              {perf && perf.botNames.length > 1 && ` · ${perf.botNames.length} robôs juntados`}
+        <div className="sticky top-0 z-10 flex-none border-b border-border bg-bg">
+          <div className="flex h-[70px] items-center gap-3 px-8">
+            <div className="flex items-center gap-2.5">
+              <IconRobotMonitor size={24} className="text-accent" />
+              <span className="text-[22px] font-bold tracking-[-0.02em]">Robô</span>
             </div>
-          </div>
-          <div className="ml-auto flex-none">
             <RobotTabs active="historico" />
+          </div>
+          <div className="flex items-center gap-3 border-t border-border-subtle px-8 py-3.5">
+            <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[9px] bg-gradient-to-br from-[#46F0A6] to-[#12B877]">
+              <IconRobotMonitor size={18} className="text-[#06231A]" />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-[20px] font-bold tracking-[-0.02em]">
+                {marketLabel ?? <span className="text-text-tertiary">Carregando…</span>}
+              </div>
+              <div className="font-mono text-[11px] text-text-tertiary">
+                Desempenho da carteira
+                {perf && perf.botNames.length > 1 && ` · ${perf.botNames.length} robôs juntados`}
+              </div>
+            </div>
           </div>
         </div>
 
