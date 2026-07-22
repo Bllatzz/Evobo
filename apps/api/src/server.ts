@@ -18,6 +18,7 @@ import { notificationsRoutes } from "./modules/notifications/routes.js";
 import { rolesRoutes } from "./modules/roles/routes.js";
 import { aiAnalysisRoutes } from "./modules/ai-analysis/routes.js";
 import { robotSignalsRoutes } from "./modules/robot-signals/routes.js";
+import { evPlusRoutes } from "./modules/ev-plus/routes.js";
 import { adminRoutes } from "./modules/admin/routes.js";
 import { searchRoutes } from "./modules/search/routes.js";
 
@@ -76,6 +77,7 @@ await app.register(notificationsRoutes, { prefix: "/notifications" });
 await app.register(rolesRoutes, { prefix: "/roles" });
 await app.register(aiAnalysisRoutes, { prefix: "/ai-analysis" });
 await app.register(robotSignalsRoutes, { prefix: "/robot-signals" });
+await app.register(evPlusRoutes, { prefix: "/ev-plus" });
 await app.register(adminRoutes, { prefix: "/admin" });
 await app.register(searchRoutes, { prefix: "/search" });
 

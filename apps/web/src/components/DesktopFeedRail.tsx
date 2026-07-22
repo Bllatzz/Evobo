@@ -3,22 +3,27 @@ import { Link } from "react-router-dom";
 import type { Game } from "@evobo/shared-types";
 import { fetchGames } from "../lib/tips";
 import { fetchRanking, type RankedTipster } from "../lib/ranking";
+import { fetchEvPicks, type EvPick } from "../lib/evPlus";
 import { Avatar } from "./Avatar";
 import { IconTrendingUp } from "./Icon";
 
 /**
  * Right rail on the desktop Feed layout ("Desktop · Feed" in the design).
- * Real data only — the design's mockup shows fabricated EV%/example scores,
- * but EV+ has no real data source wired up yet (see EvPage), so that
- * section stays an honest placeholder instead of inventing figures.
+ * Real data only — the design's mockup showed fabricated EV%/example
+ * scores; now that EV+ has a real source (see EvPage), this shows the
+ * single soonest positive-EV pick instead of inventing figures.
  */
 export function DesktopFeedRail() {
   const [liveGames, setLiveGames] = useState<Game[] | null>(null);
   const [topTipsters, setTopTipsters] = useState<RankedTipster[] | null>(null);
+  const [evPicks, setEvPicks] = useState<EvPick[] | null>(null);
 
   useEffect(() => {
     fetchGames({ status: "live" }).then((g) => setLiveGames(g.slice(0, 3)));
     fetchRanking("roi").then((r) => setTopTipsters(r.slice(0, 3)));
+    fetchEvPicks()
+      .then((r) => setEvPicks(r.picks))
+      .catch(() => setEvPicks([]));
   }, []);
 
   return (
@@ -62,16 +67,44 @@ export function DesktopFeedRail() {
       </div>
 
       <div>
-        <div className="mb-3 flex items-center gap-1.5">
-          <IconTrendingUp size={16} className="text-accent" />
-          <span className="text-[15px] font-bold">
-            EV<span className="text-accent">+</span>
-          </span>
-          <span className="font-mono text-[11px] text-text-tertiary">· valor da IA</span>
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <IconTrendingUp size={16} className="text-accent" />
+            <span className="text-[15px] font-bold">
+              EV<span className="text-accent">+</span>
+            </span>
+            <span className="font-mono text-[11px] text-text-tertiary">· valor da IA</span>
+          </div>
+          <Link to="/ev" className="font-mono text-[11px] text-text-tertiary">
+            ver todos
+          </Link>
         </div>
-        <div className="rounded-2xl border border-accent-border bg-accent-soft p-3.5 text-[12px] text-text-secondary">
-          Em breve.
-        </div>
+        {evPicks === null && (
+          <p className="rounded-2xl border border-accent-border bg-accent-soft p-3.5 text-[12px] text-text-secondary">
+            Carregando…
+          </p>
+        )}
+        {evPicks?.length === 0 && (
+          <p className="rounded-2xl border border-accent-border bg-accent-soft p-3.5 text-[12px] text-text-secondary">
+            Nenhuma pick de valor positivo agora.
+          </p>
+        )}
+        {evPicks && evPicks.length > 0 && (
+          <Link
+            to="/ev"
+            className="flex flex-col gap-1.5 rounded-2xl border border-accent-border bg-accent-soft p-3.5"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate text-[13px] font-semibold">
+                {evPicks[0]!.homeTeam} <span className="text-text-quaternary">×</span> {evPicks[0]!.awayTeam}
+              </span>
+              <span className="flex-none font-mono text-[13px] font-bold text-accent">
+                +{evPicks[0]!.evPct.toFixed(1)}%
+              </span>
+            </div>
+            <span className="truncate text-[12px] text-text-secondary">{evPicks[0]!.market}</span>
+          </Link>
+        )}
       </div>
 
       <div>
