@@ -1,11 +1,14 @@
 import { NavLink } from "react-router-dom";
-import { IconHome, IconLive, IconRanking, IconProfile, IconRobot } from "./Icon";
+import { useAuth } from "../stores/auth";
+import { IconHome, IconLive, IconRanking, IconProfile, IconRobot, IconTrendingUp } from "./Icon";
 
 /**
  * Bottom tab bar — matches the current BANCA App.dc.html: Home (feed), Ao
- * Vivo, a raised Robô de Apostas badge, Ranking, Perfil. The center slot
- * used to be a plain "+" for Nova Tip, but the design moved that to its own
- * floating pill button (see AppShell) and put Robô in the tab bar instead.
+ * Vivo, a raised Robô de Apostas badge, EV+, Ranking, Perfil. The center
+ * slot used to be a plain "+" for Nova Tip, but the design moved that to
+ * its own floating pill button (see AppShell) and put Robô in the tab bar
+ * instead. EV+ was added later as a 6th tab alongside Robô, not replacing
+ * it, once EV+ got its own real data (see EvPage) instead of "Em breve.".
  */
 const items = [
   { to: "/", label: "Home", Icon: IconHome },
@@ -13,8 +16,9 @@ const items = [
 ] as const;
 
 const trailingItems = [
-  { to: "/ranking", label: "Ranking", Icon: IconRanking },
-  { to: "/profile", label: "Perfil", Icon: IconProfile },
+  { to: "/ev", label: "EV+", Icon: IconTrendingUp, screen: "ev_plus" },
+  { to: "/ranking", label: "Ranking", Icon: IconRanking, screen: "ranking" },
+  { to: "/profile", label: "Perfil", Icon: IconProfile, screen: "meu_perfil" },
 ] as const;
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -23,6 +27,8 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
   }`;
 
 export function TabBar() {
+  const { canAccess } = useAuth();
+
   return (
     <nav className="sticky bottom-0 flex items-start justify-between border-t border-border bg-bg/90 px-6 pt-3 pb-[env(safe-area-inset-bottom)] backdrop-blur-lg lg:hidden">
       {items.map(({ to, label, Icon }) => (
@@ -41,7 +47,7 @@ export function TabBar() {
         </NavLink>
         Robô
       </div>
-      {trailingItems.map(({ to, label, Icon }) => (
+      {trailingItems.filter(({ screen }) => canAccess(screen)).map(({ to, label, Icon }) => (
         <NavLink key={to} to={to} className={linkClass}>
           <Icon />
           {label}

@@ -164,6 +164,7 @@ export async function evPlusRoutes(app: FastifyInstance) {
         evPct: Math.round(r.ev * 10_000) / 100,
         oddBookie: r.odd_bookie,
         oddFair: Math.round((1 / r.prob_fair) * 1000) / 1000,
+        probFairPct: Math.round(r.prob_fair * 1000) / 10,
         homeTeam: r.home_name,
         awayTeam: r.away_name,
         homeImageUrl: teamImageUrl(r.home_id),

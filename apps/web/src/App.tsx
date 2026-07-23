@@ -39,8 +39,8 @@ import { ResetPasswordPage } from "./app/reset-password/ResetPasswordPage";
  * of stretching edge-to-edge. Only screens without a real desktop layout
  * built into their own component yet (Login/Register/Tip/Checkout/Editar
  * Perfil/Admin*) still use this. AppShell-wrapped screens (Feed, Ao Vivo,
- * Ranking, Meu Perfil, Jogos, Robô) and SidebarFrame-wrapped screens (Busca,
- * Nova Tip, Grupo VIP, Análise IA, EV+, Gráfico Robô) opt out: they keep the
+ * Ranking, Meu Perfil, Jogos, Robô, EV+) and SidebarFrame-wrapped screens
+ * (Busca, Nova Tip, Grupo VIP, Análise IA, Gráfico Robô) opt out: they keep the
  * desktop nav rail visible instead of floating a phone-width box in the
  * middle of a wide viewport.
  */
@@ -146,18 +146,18 @@ function App() {
             }
           />
 
-          {/* Full-screen (pushed) routes — no desktop design yet, so these
-              stay phone-width even on wide viewports */}
           <Route
             path="/ev"
             element={
               <RouteGuard screen="ev_plus">
-                <SidebarFrame>
+                <AppShell>
                   <EvPage />
-                </SidebarFrame>
+                </AppShell>
               </RouteGuard>
             }
           />
+          {/* Full-screen (pushed) routes — no desktop design yet, so these
+              stay phone-width even on wide viewports */}
           <Route
             path="/search"
             element={

@@ -201,6 +201,14 @@ export function IconChevronLeft({ size = 22, className }: IconProps) {
   );
 }
 
+export function IconChevronRight({ size = 22, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={className}>
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
+
 /** Sortable-column affordance — Robô/EV+ tables. */
 export function IconChevronDown({ size = 22, className }: IconProps) {
   return (

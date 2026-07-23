@@ -9,6 +9,7 @@ export type EvPick = {
   evPct: number;
   oddBookie: number;
   oddFair: number;
+  probFairPct: number;
   homeTeam: string;
   awayTeam: string;
   homeImageUrl: string;
