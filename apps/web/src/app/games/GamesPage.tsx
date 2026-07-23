@@ -1,116 +1,427 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Game } from "@evobo/shared-types";
-import { fetchGames } from "../../lib/tips";
+import { fetchLiveGames, type LiveGame } from "../../lib/gamesLive";
+import {
+  applyGamesFilters,
+  areFiltersDefault,
+  defaultGamesFilters,
+  loadSavedGamesFilters,
+  type GamesFilterState,
+  type SavedGamesFilter,
+} from "../../lib/gamesFilters";
+import { GamesFilterModal } from "./GamesFilterModal";
+import { GamesSavedFiltersModal } from "./GamesSavedFiltersModal";
+import { PaginationControl } from "../../components/PaginationControl";
+import { CrestName } from "../../components/CrestName";
+import { IconSearch, IconTune, IconCornerFlag } from "../../components/Icon";
+
+const PAGE_SIZE = 12; // leagues per page
+const REFRESH_MS = 30_000; // live scores/odds change fast enough to be worth polling
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function buildDateStrip() {
-  const days = [];
-  for (let offset = -1; offset <= 3; offset++) {
+function dayLabel(offset: number): string {
+  if (offset === -1) return "Ontem";
+  if (offset === 0) return "Hoje";
+  return "Amanhã";
+}
+
+function buildDateTabs() {
+  return [-1, 0, 1].map((offset) => {
     const d = new Date();
     d.setDate(d.getDate() + offset);
-    days.push({
-      date: isoDate(d),
-      label: offset === 0 ? "HOJE" : d.toLocaleDateString("pt-BR", { weekday: "short" }).slice(0, 3).toUpperCase(),
-      day: d.getDate(),
-    });
+    return { date: isoDate(d), label: dayLabel(offset) };
+  });
+}
+
+function formatKickoff(iso: string): string {
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function matchesSearch(game: LiveGame, query: string): boolean {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return (
+    game.homeTeam.toLowerCase().includes(q) ||
+    game.awayTeam.toLowerCase().includes(q) ||
+    game.league.toLowerCase().includes(q)
+  );
+}
+
+type SortKey = "popularity" | "kickoff";
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "popularity", label: "Popularidade" },
+  { key: "kickoff", label: "Horário" },
+];
+
+function statusPriority(g: LiveGame): number {
+  return g.status === "live" ? 0 : g.status === "scheduled" ? 1 : 2;
+}
+
+function compareGames(a: LiveGame, b: LiveGame): number {
+  const sp = statusPriority(a) - statusPriority(b);
+  if (sp !== 0) return sp;
+  return new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime();
+}
+
+type LeagueGroup = {
+  league: string;
+  leagueCountry: string | null;
+  games: LiveGame[];
+};
+
+function groupByLeague(games: LiveGame[]): LeagueGroup[] {
+  const map = new Map<string, LeagueGroup>();
+  for (const g of games) {
+    let group = map.get(g.league);
+    if (!group) {
+      group = { league: g.league, leagueCountry: g.leagueCountry, games: [] };
+      map.set(g.league, group);
+    }
+    group.games.push(g);
   }
-  return days;
+  return [...map.values()];
+}
+
+function leagueSortValue(group: LeagueGroup, key: SortKey): number {
+  if (key === "kickoff") return Math.min(...group.games.map((g) => new Date(g.kickoff).getTime()));
+  return Math.max(...group.games.map((g) => g.popularity));
+}
+
+/** Deterministic accent color per league name — stand-in for a real league crest/flag. */
+function leagueColor(league: string): string {
+  const palette = ["#2BE08A", "#5AA9FF", "#F6C453", "#B285F0", "#FF7A59", "#4DD0E1"];
+  let hash = 0;
+  for (let i = 0; i < league.length; i++) hash = (hash * 31 + league.charCodeAt(i)) >>> 0;
+  return palette[hash % palette.length]!;
+}
+
+function OddChip({ label, value }: { label: string; value: number | null }) {
+  return (
+    <div className="flex flex-1 items-center justify-between rounded-lg bg-surface-chip px-2.5 py-1.5">
+      <span className="font-mono text-[10px] text-text-tertiary">{label}</span>
+      <span className="font-mono text-[12px] font-bold">{value !== null ? value.toFixed(2) : "-"}</span>
+    </div>
+  );
+}
+
+function TeamStatRow({
+  yellow,
+  red,
+  corners,
+}: {
+  yellow: number | null;
+  red: number | null;
+  corners: number | null;
+}) {
+  return (
+    <div className="flex items-center gap-3 font-mono text-[10px] text-text-tertiary">
+      <span className="flex items-center gap-1">
+        <span className="inline-block h-2.5 w-2 rounded-[2px] bg-[#F6C453]" />
+        {yellow ?? 0}
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block h-2.5 w-2 rounded-[2px] bg-live" />
+        {red ?? 0}
+      </span>
+      <span className="flex items-center gap-1">
+        <IconCornerFlag size={11} />
+        {corners ?? 0}
+      </span>
+    </div>
+  );
+}
+
+function GameRow({ game }: { game: LiveGame }) {
+  const isLive = game.status === "live";
+  const isFinished = game.status === "finished";
+  const showScore = isLive || isFinished;
+  const showOdds = game.oddHome !== null;
+  const showStats = game.cornersHome !== null;
+
+  return (
+    <div className="p-3.5">
+      <div className="flex items-center gap-3">
+        <div className="w-11 flex-none text-center font-mono text-[11px]">
+          {isLive ? (
+            <span className="flex items-center justify-center gap-1 text-live">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />
+              {game.minute ?? 0}'
+            </span>
+          ) : isFinished ? (
+            <span className="text-text-quaternary">FIM</span>
+          ) : (
+            <span className="text-text-tertiary">{formatKickoff(game.kickoff)}</span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <CrestName src={game.homeImageUrl} name={game.homeTeam} />
+            {showScore && <span className="font-mono text-[13px] font-bold">{game.scoreHome ?? 0}</span>}
+          </div>
+          <div className="mt-1.5 flex items-center justify-between gap-2">
+            <CrestName src={game.awayImageUrl} name={game.awayTeam} />
+            {showScore && <span className="font-mono text-[13px] font-bold">{game.scoreAway ?? 0}</span>}
+          </div>
+        </div>
+      </div>
+
+      {showOdds && (
+        <div className="mt-2.5 flex gap-2 pl-14">
+          <OddChip label="1" value={game.oddHome} />
+          <OddChip label="X" value={game.oddDraw} />
+          <OddChip label="2" value={game.oddAway} />
+        </div>
+      )}
+
+      {showStats && (
+        <div className="mt-2 flex flex-col gap-1 pl-14">
+          <TeamStatRow yellow={game.yellowHome} red={game.redHome} corners={game.cornersHome} />
+          <TeamStatRow yellow={game.yellowAway} red={game.redAway} corners={game.cornersAway} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LeagueCard({ group }: { group: LeagueGroup }) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-2 px-1">
+        <div
+          className="h-[18px] w-[18px] flex-none rounded-[5px]"
+          style={{ background: leagueColor(group.league) }}
+        />
+        <span className="truncate font-mono text-[12px] font-semibold text-text-tertiary">
+          {group.league.toUpperCase()}
+        </span>
+      </div>
+      <div className="divide-y divide-border-subtle overflow-hidden rounded-2xl border border-border bg-surface">
+        {group.games.map((game) => (
+          <GameRow key={game.gameId} game={game} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function GamesPage() {
-  const dateStrip = useMemo(buildDateStrip, []);
-  const [selectedDate, setSelectedDate] = useState(dateStrip[1]!.date); // "hoje"
-  const [games, setGames] = useState<Game[] | null>(null);
+  const dateTabs = useMemo(buildDateTabs, []);
+  const [data, setData] = useState<{ games: LiveGame[]; unavailable: boolean } | null>(null);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<GamesFilterState>(() => ({
+    ...defaultGamesFilters(),
+    date: dateTabs[1]!.date, // "hoje"
+  }));
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [savedModalOpen, setSavedModalOpen] = useState(false);
+  const [savedFilters, setSavedFilters] = useState<SavedGamesFilter[]>([]);
+  const [sortKey, setSortKey] = useState<SortKey>("popularity");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
-    fetchGames({ date: selectedDate }).then(setGames);
-  }, [selectedDate]);
+    setSavedFilters(loadSavedGamesFilters());
+  }, []);
 
-  const grouped = useMemo(() => {
-    if (!games) return [];
-    const map = new Map<string, Game[]>();
-    for (const g of games) {
-      const list = map.get(g.league) ?? [];
-      list.push(g);
-      map.set(g.league, list);
+  useEffect(() => {
+    let cancelled = false;
+    function load() {
+      fetchLiveGames(filters.date).then((res) => {
+        if (!cancelled) setData(res);
+      });
     }
-    return [...map.entries()];
-  }, [games]);
+    setData(null);
+    load();
+    const interval = setInterval(load, REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [filters.date]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters, search]);
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    return applyGamesFilters(data.games, filters).filter((g) => matchesSearch(g, search));
+  }, [data, filters, search]);
+
+  const sortedLeagues = useMemo(() => {
+    const groups = groupByLeague(filtered).map((g) => ({
+      ...g,
+      games: [...g.games].sort(compareGames),
+    }));
+    groups.sort((a, b) => leagueSortValue(b, sortKey) - leagueSortValue(a, sortKey));
+    return groups;
+  }, [filtered, sortKey]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedLeagues.length / PAGE_SIZE));
+  const pageLeagues = sortedLeagues.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const liveCount = data ? data.games.filter((g) => g.status === "live").length : 0;
+  const filtersActive = !areFiltersDefault(filters);
 
   return (
-    <div className="pb-6 lg:px-6 lg:pb-10 lg:pt-2">
-      <div className="flex items-center justify-between px-5 pb-3 pt-3 lg:px-0 lg:pb-5">
-        <span className="text-[20px] font-bold tracking-[-0.02em] lg:text-[22px]">Jogos</span>
+    <div className="flex min-h-full flex-col bg-bg text-text">
+      {/* Desktop header */}
+      <div className="hidden flex-none items-center gap-3 border-b border-border px-8 py-[18px] lg:flex">
+        <div className="flex-1 text-[22px] font-bold tracking-[-0.02em]">Jogos</div>
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
+          <IconSearch size={15} className="flex-none text-text-tertiary" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filtre por ligas e times"
+            className="w-56 bg-transparent text-[13px] outline-none placeholder:text-text-tertiary"
+          />
+        </div>
+        <span className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-chip px-3 py-1.5 font-mono text-[12px] text-text-secondary">
+          <span className="h-1.5 w-1.5 rounded-full bg-live" />
+          Ao vivo: {liveCount}/{data?.games.length ?? 0}
+        </span>
+        <select
+          value={sortKey}
+          onChange={(e) => setSortKey(e.target.value as SortKey)}
+          className="rounded-xl border border-border-strong bg-surface-chip px-3 py-2 text-[13px] font-semibold"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => setFilterModalOpen(true)}
+          className="relative flex items-center gap-1.5 rounded-xl border border-border-strong bg-surface-chip px-3.5 py-2 text-[13px] font-semibold"
+        >
+          <IconTune size={15} />
+          Filtro
+          {filtersActive && (
+            <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-bg bg-accent" />
+          )}
+        </button>
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto px-5 pb-3.5 font-mono lg:px-0 lg:pb-6">
-        {dateStrip.map((d) => (
-          <button
-            key={d.date}
-            onClick={() => setSelectedDate(d.date)}
-            className={`flex-none rounded-[10px] px-3 py-1 text-center ${
-              selectedDate === d.date ? "bg-accent text-[#08090A]" : "text-text-tertiary"
-            }`}
-          >
-            <div className="text-[10px]">{d.label}</div>
-            <div className="text-[14px] font-semibold">{d.day}</div>
-          </button>
-        ))}
+      {/* Mobile header */}
+      <div className="flex items-center gap-3 px-5 pb-1 pt-3 lg:hidden">
+        <div className="flex-1">
+          <div className="text-[20px] font-bold tracking-[-0.02em]">Jogos</div>
+          {data && (
+            <div className="font-mono text-[11px] text-text-tertiary">
+              Ao vivo: {liveCount}/{data.games.length}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => setFilterModalOpen(true)}
+          aria-label="Filtros"
+          className="relative flex h-9 w-9 flex-none items-center justify-center rounded-full bg-accent text-[#08090A]"
+        >
+          <IconTune size={15} />
+          {filtersActive && (
+            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg bg-live" />
+          )}
+        </button>
       </div>
 
-      <div className="flex flex-col gap-4 px-4 lg:grid lg:grid-cols-2 lg:gap-5 lg:px-0">
-        {games === null && (
-          <p className="py-10 text-center text-sm text-text-tertiary lg:col-span-2">Carregando…</p>
-        )}
-        {games?.length === 0 && (
-          <p className="py-10 text-center text-sm text-text-tertiary lg:col-span-2">
-            Nenhum jogo neste dia.
-          </p>
-        )}
-        {grouped.map(([league, leagueGames]) => (
-          <div key={league}>
-            <div className="mb-2 px-1 font-mono text-[12px] font-semibold text-text-secondary">
-              {league.toUpperCase()}
-            </div>
-            <div className="overflow-hidden rounded-2xl border border-border">
-              {leagueGames.map((game, i) => (
-                <div
-                  key={game.id}
-                  className={`flex items-center gap-3 bg-surface p-3.5 ${
-                    i > 0 ? "border-t border-border-subtle" : ""
-                  }`}
-                >
-                  <div className="w-[42px] flex-none text-center font-mono text-[11px]">
-                    {game.status === "live" ? (
-                      <span className="text-live">AO VIVO</span>
-                    ) : (
-                      <span className="text-text-tertiary">
-                        {new Date(game.startsAt).toLocaleTimeString("pt-BR", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex-1 border-l border-border pl-3">
-                    <div className="mb-1.5 flex justify-between">
-                      <span className="text-[14px]">{game.homeTeam}</span>
-                      <span className="font-mono text-[14px] font-bold">{game.scoreHome ?? ""}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[14px]">{game.awayTeam}</span>
-                      <span className="font-mono text-[14px] font-bold">{game.scoreAway ?? ""}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+      <div className="flex-1 px-5 py-4 lg:px-8 lg:py-6">
+        <div className="mx-auto flex w-full max-w-[1000px] flex-col">
+          {/* Date tabs */}
+          <div className="mb-3 flex items-center gap-2">
+            {dateTabs.map((t) => (
+              <button
+                key={t.date}
+                onClick={() => setFilters((f) => ({ ...f, date: t.date }))}
+                className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] font-semibold ${
+                  filters.date === t.date ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+            {data && (
+              <span className="ml-auto hidden flex-none whitespace-nowrap font-mono text-[11px] text-text-tertiary lg:inline">
+                {filtered.length} jogos
+              </span>
+            )}
           </div>
-        ))}
+
+          {/* Mobile search + sort */}
+          <div className="mb-3 flex items-center gap-2 lg:hidden">
+            <div className="flex flex-1 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
+              <IconSearch size={14} className="flex-none text-text-tertiary" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Ligas e times"
+                className="w-full bg-transparent text-[13px] outline-none placeholder:text-text-tertiary"
+              />
+            </div>
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="rounded-xl border border-border-strong bg-surface-alt px-2.5 py-2 text-[12px] font-semibold"
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {data === null && (
+            <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>
+          )}
+
+          {data?.unavailable && (
+            <p className="py-10 text-center text-sm text-text-tertiary">
+              Não foi possível buscar os jogos agora. Tenta de novo em instantes.
+            </p>
+          )}
+
+          {data && !data.unavailable && data.games.length === 0 && (
+            <p className="py-10 text-center text-sm text-text-tertiary">Nenhum jogo neste dia.</p>
+          )}
+
+          {data && data.games.length > 0 && filtered.length === 0 && (
+            <p className="py-10 text-center text-sm text-text-tertiary">
+              {search ? `Nenhum resultado para "${search}".` : "Nenhum jogo bate com os filtros aplicados."}
+            </p>
+          )}
+
+          {pageLeagues.length > 0 && (
+            <>
+              <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:gap-5">
+                {pageLeagues.map((group) => (
+                  <LeagueCard key={group.league} group={group} />
+                ))}
+              </div>
+              <PaginationControl page={page} totalPages={totalPages} onChange={setPage} />
+            </>
+          )}
+        </div>
       </div>
+
+      <GamesFilterModal
+        open={filterModalOpen}
+        onClose={() => setFilterModalOpen(false)}
+        filters={filters}
+        onApply={setFilters}
+        onOpenSavedFilters={() => setSavedModalOpen(true)}
+        onFilterSaved={() => setSavedFilters(loadSavedGamesFilters())}
+      />
+      <GamesSavedFiltersModal
+        open={savedModalOpen}
+        onClose={() => setSavedModalOpen(false)}
+        savedFilters={savedFilters}
+        onApply={setFilters}
+        onDeleted={setSavedFilters}
+      />
     </div>
   );
 }

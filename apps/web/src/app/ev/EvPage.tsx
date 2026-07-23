@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchEvPicks, type EvPick } from "../../lib/evPlus";
 import {
   applyEvFilters,
@@ -11,21 +11,11 @@ import {
 import { EvFilterModal } from "./EvFilterModal";
 import { SavedFiltersModal } from "./SavedFiltersModal";
 import { Toggle } from "../../components/Toggle";
-import {
-  IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
-  IconTrendingUp,
-  IconSearch,
-  IconTune,
-} from "../../components/Icon";
+import { PaginationControl } from "../../components/PaginationControl";
+import { CrestName } from "../../components/CrestName";
+import { IconChevronDown, IconTrendingUp, IconSearch, IconTune } from "../../components/Icon";
 
-const NOT_FOUND_CREST = "https://robotip.com.br/robotip_imgs/teams_imgs/not-found.png";
 const PAGE_SIZE = 15; // games per page, not individual markets
-
-function onCrestError(e: SyntheticEvent<HTMLImageElement>) {
-  e.currentTarget.src = NOT_FOUND_CREST;
-}
 
 function formatKickoff(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR", {
@@ -149,20 +139,6 @@ function groupSortValue(group: GameGroup, key: SortKey): number | string {
   return Math.max(...group.picks.map((p) => sortValue(p, key) as number));
 }
 
-function CrestName({ src, name }: { src: string; name: string }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <img
-        src={src}
-        onError={onCrestError}
-        alt=""
-        className="h-4 w-4 flex-none rounded-full bg-surface-chip object-contain"
-      />
-      <span className="truncate text-[13px] font-semibold">{name}</span>
-    </div>
-  );
-}
-
 function GameHeader({ group }: { group: GameGroup }) {
   return (
     <>
@@ -192,41 +168,6 @@ function EvValue({ evPct }: { evPct: number }) {
       {evPct >= 0 ? "+" : ""}
       {evPct.toFixed(2)}%
     </span>
-  );
-}
-
-function PaginationControl({
-  page,
-  totalPages,
-  onChange,
-}: {
-  page: number;
-  totalPages: number;
-  onChange: (page: number) => void;
-}) {
-  if (totalPages <= 1) return null;
-  return (
-    <div className="mt-4 flex items-center justify-center gap-3 font-mono text-[12px] text-text-tertiary">
-      <button
-        onClick={() => onChange(page - 1)}
-        disabled={page <= 1}
-        aria-label="Página anterior"
-        className="flex h-8 w-8 items-center justify-center rounded-full border border-border-strong disabled:opacity-30"
-      >
-        <IconChevronLeft size={15} />
-      </button>
-      <span>
-        Página {page} de {totalPages}
-      </span>
-      <button
-        onClick={() => onChange(page + 1)}
-        disabled={page >= totalPages}
-        aria-label="Próxima página"
-        className="flex h-8 w-8 items-center justify-center rounded-full border border-border-strong disabled:opacity-30"
-      >
-        <IconChevronRight size={15} />
-      </button>
-    </div>
   );
 }
 
