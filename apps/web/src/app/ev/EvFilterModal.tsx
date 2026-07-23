@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "../../components/Modal";
 import { DualRangeSlider } from "../../components/DualRangeSlider";
-import { IconTune, IconX, IconCheck, IconChevronDown } from "../../components/Icon";
+import { IconTune, IconX, IconCheck, IconArrowUp } from "../../components/Icon";
 import { defaultEvFilters, saveEvFilter, type EvFilterState } from "../../lib/evFilters";
 
 type Props = {
@@ -26,7 +26,6 @@ export function EvFilterModal({
   onFilterSaved,
 }: Props) {
   const [draft, setDraft] = useState(filters);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
 
@@ -183,38 +182,26 @@ export function EvFilterModal({
         </div>
 
         <div>
-          <button
-            onClick={() => setAdvancedOpen((v) => !v)}
-            className="flex w-full items-center justify-between text-[13px] font-semibold"
-          >
-            Filtros avançados
-            <IconChevronDown
-              size={14}
-              className={`text-text-tertiary transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-            />
-          </button>
-          {advancedOpen && (
-            <div className="mt-3 flex flex-col gap-2.5">
-              <label className="flex items-center justify-between gap-2 rounded-lg border border-border-strong bg-surface-alt px-3 py-2.5">
-                <span className="text-[12.5px] text-text-secondary">Somente jogos ao vivo</span>
-                <input
-                  type="checkbox"
-                  checked={draft.liveOnly}
-                  onChange={(e) => set("liveOnly", e.target.checked)}
-                  className="h-4 w-4 accent-accent"
-                />
-              </label>
-              <label className="flex items-center justify-between gap-2 rounded-lg border border-border-strong bg-surface-alt px-3 py-2.5">
-                <span className="text-[12.5px] text-text-secondary">Ocultar odds de exchange (lay)</span>
-                <input
-                  type="checkbox"
-                  checked={draft.hideLay}
-                  onChange={(e) => set("hideLay", e.target.checked)}
-                  className="h-4 w-4 accent-accent"
-                />
-              </label>
-            </div>
-          )}
+          <div className="mb-2.5 text-[13px] font-semibold">Filtros avançados</div>
+          <div className="flex flex-col gap-2.5">
+            <button
+              onClick={() => {
+                onClose();
+                onOpenSavedFilters();
+              }}
+              className="flex w-full items-center justify-center gap-1.5 rounded-full border border-border-strong bg-surface-chip py-2.5 text-[13px] font-semibold text-text-secondary"
+            >
+              <IconArrowUp size={13} />
+              Carregar filtro salvo
+            </button>
+            <button
+              onClick={() => setDraft(defaultEvFilters())}
+              className="flex w-full items-center justify-center gap-1.5 rounded-full border border-border-strong bg-surface-chip py-2.5 text-[13px] font-semibold text-text-secondary"
+            >
+              <IconX size={13} />
+              Limpar filtros
+            </button>
+          </div>
         </div>
       </div>
 
@@ -235,29 +222,11 @@ export function EvFilterModal({
           </button>
         </div>
 
-        <div className="flex gap-2">
-          <button
-            onClick={() => setDraft(defaultEvFilters())}
-            className="flex-1 rounded-full border border-border-strong bg-surface-chip py-2.5 text-[13px] font-semibold text-text-secondary"
-          >
-            Limpar filtros
-          </button>
-          <button
-            onClick={handleApply}
-            className="flex-1 rounded-full bg-accent py-2.5 text-[13px] font-bold text-[#08090A]"
-          >
-            Aplicar filtros
-          </button>
-        </div>
-
         <button
-          onClick={() => {
-            onClose();
-            onOpenSavedFilters();
-          }}
-          className="text-center text-[12px] font-semibold text-accent"
+          onClick={handleApply}
+          className="w-full rounded-full bg-accent py-2.5 text-[13px] font-bold text-[#08090A]"
         >
-          Carregar filtro salvo
+          Aplicar filtro
         </button>
       </div>
     </Modal>

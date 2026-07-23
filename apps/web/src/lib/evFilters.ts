@@ -12,8 +12,6 @@ export type EvFilterState = {
   fairMax: number;
   evMin: number;
   evMax: number;
-  liveOnly: boolean;
-  hideLay: boolean;
 };
 
 function toDateInput(d: Date): string {
@@ -35,8 +33,6 @@ export function defaultEvFilters(): EvFilterState {
     fairMax: 30,
     evMin: -100,
     evMax: 100,
-    liveOnly: false,
-    hideLay: false,
   };
 }
 
@@ -51,15 +47,13 @@ export function areFiltersDefault(f: EvFilterState): boolean {
     f.fairMin === d.fairMin &&
     f.fairMax === d.fairMax &&
     f.evMin === d.evMin &&
-    f.evMax === d.evMax &&
-    f.liveOnly === d.liveOnly &&
-    f.hideLay === d.hideLay
+    f.evMax === d.evMax
     // dateFrom/dateTo excluded — they roll forward daily by design, so they
     // shouldn't count toward "user changed something" on their own.
   );
 }
 
-/** Groups a bookmaker's normal side and its exchange lay side under one provider entry — "Provedor" picks the book, "Ocultar odds de exchange (lay)" (Filtros avançados) is what distinguishes lay. */
+/** Groups a bookmaker's normal side and its exchange lay side under one provider entry — the modal's "Provedor" filter picks the book, it doesn't distinguish lay. */
 export function providerKey(bookie: string | null): string {
   return bookie ? bookie.replace(" (Lay)", "") : "Robotip";
 }
@@ -78,8 +72,6 @@ export function applyEvFilters(picks: EvPick[], f: EvFilterState): EvPick[] {
     if (p.oddBookie < f.oddMin || p.oddBookie > f.oddMax) return false;
     if (p.oddFair < f.fairMin || p.oddFair > f.fairMax) return false;
     if (p.evPct < f.evMin || p.evPct > f.evMax) return false;
-    if (f.liveOnly && p.status !== "live") return false;
-    if (f.hideLay && p.bookie?.includes("(Lay)")) return false;
     return true;
   });
 }
