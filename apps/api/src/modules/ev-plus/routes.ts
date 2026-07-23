@@ -130,9 +130,14 @@ export async function evPlusRoutes(app: FastifyInstance) {
     // here — robotip's own ev_table lists every market side (over AND
     // under) it has odds for, negative EV included, same as this does now;
     // the frontend colors/sorts by EV instead of us hiding rows server-side.
+    // Exchange "lay" odds (betting against a side) are excluded: they're a
+    // different bet structure than a plain bookmaker back bet, and mixing
+    // them in produced confusing duplicate-looking market rows with
+    // inconsistent fair odds for the same over/under+line.
     const actionable = rows.filter(
       (r): r is ModelPrediction & { odd_name: string; odd_bookie: number; prob_fair: number; line: number; over_under: "over" | "under" } =>
         r.odd_name !== null &&
+        !r.odd_name.endsWith("_lay") &&
         r.odd_bookie !== null &&
         r.prob_fair !== null &&
         r.line !== null &&
@@ -140,16 +145,16 @@ export async function evPlusRoutes(app: FastifyInstance) {
         r.time_status !== 3,
     );
 
-    // The model can re-emit the same bookmaker's odd for the same match as
-    // it refreshes (e.g. the bookie moved its line) — keep only the latest
-    // snapshot per (game, odd_name). Different bookmakers/exchanges on the
-    // same match+market are different odd_names (see bookieLabel) and are
-    // deliberately NOT merged — those are genuinely different offers.
+    // robotip's own feed carries the same market side from several
+    // bookmakers at once (BetBRA, Bolsa de Apostas, ...) — showing one row
+    // per bookmaker made the table look like it was duplicating every
+    // match. Collapse to a single "tip" per (game, side, line): the best
+    // (highest-EV) bookmaker odd available for it right now.
     const latestByKey = new Map<string, (typeof actionable)[number]>();
     for (const r of actionable) {
-      const key = `${r.game_id}|${r.odd_name}`;
+      const key = `${r.game_id}|${r.over_under}|${r.line}`;
       const existing = latestByKey.get(key);
-      if (!existing || r.updated_at > existing.updated_at) latestByKey.set(key, r);
+      if (!existing || r.ev > existing.ev) latestByKey.set(key, r);
     }
 
     const picks = [...latestByKey.values()]
