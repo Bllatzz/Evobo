@@ -146,6 +146,8 @@ export async function evPlusRoutes(app: FastifyInstance) {
       .map((r) => ({
         id: r.id,
         market: `${r.over_under === "over" ? "Mais" : "Menos"} de ${formatLine(r.line)} gols`,
+        marketCategory: "Gols" as const, // only goals_model is live today — see file header
+        side: r.over_under,
         bookie: bookieLabel(r.odd_name),
         evPct: Math.round(r.ev * 10_000) / 100,
         oddBookie: r.odd_bookie,

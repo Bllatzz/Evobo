@@ -2,10 +2,22 @@ import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchEvPicks, type EvPick } from "../../lib/evPlus";
 import {
+  applyEvFilters,
+  areFiltersDefault,
+  defaultEvFilters,
+  loadSavedEvFilters,
+  providerKey,
+  type EvFilterState,
+  type SavedEvFilter,
+} from "../../lib/evFilters";
+import { EvFilterModal } from "./EvFilterModal";
+import { SavedFiltersModal } from "./SavedFiltersModal";
+import {
   IconChevronLeft,
   IconChevronDown,
   IconTrendingUp,
   IconSearch,
+  IconTune,
 } from "../../components/Icon";
 
 const NOT_FOUND_CREST = "https://robotip.com.br/robotip_imgs/teams_imgs/not-found.png";
@@ -209,15 +221,32 @@ export function EvPage() {
   const navigate = useNavigate();
   const [data, setData] = useState<{ picks: EvPick[]; unavailable: boolean } | null>(null);
   const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<EvFilterState>(defaultEvFilters);
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [savedModalOpen, setSavedModalOpen] = useState(false);
+  const [savedFilters, setSavedFilters] = useState<SavedEvFilter[]>([]);
 
   useEffect(() => {
     fetchEvPicks().then(setData);
+    setSavedFilters(loadSavedEvFilters());
   }, []);
+
+  const providers = useMemo(() => {
+    if (!data) return [];
+    return [...new Set(data.picks.map((p) => providerKey(p.bookie)))].sort();
+  }, [data]);
+
+  const marketCategories = useMemo(() => {
+    if (!data) return [];
+    return [...new Set(data.picks.map((p) => p.marketCategory))].sort();
+  }, [data]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    return data.picks.filter((p) => matchesSearch(p, search));
-  }, [data, search]);
+    return applyEvFilters(data.picks, filters).filter((p) => matchesSearch(p, search));
+  }, [data, filters, search]);
+
+  const filtersActive = !areFiltersDefault(filters);
 
   return (
     <div className="flex min-h-dvh flex-col bg-bg text-text">
@@ -229,7 +258,6 @@ export function EvPage() {
           <div className="flex items-center gap-2 text-[24px] font-bold tracking-[-0.02em]">
             EV<span className="text-accent">+</span>
           </div>
-          <div className="font-mono text-[11px] text-text-tertiary">Previsões do modelo · robotip AI</div>
         </div>
         {data && data.picks.length > 0 && (
           <span className="flex-none font-mono text-[11px] text-text-tertiary">
@@ -241,14 +269,26 @@ export function EvPage() {
       <div className="flex-1 px-5 py-4 lg:px-8 lg:py-6">
         <div className="mx-auto flex w-full max-w-[1000px] flex-col">
           {data && data.picks.length > 0 && (
-            <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
-              <IconSearch size={15} className="flex-none text-text-tertiary" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Filtrar por ligas, times"
-                className="w-full bg-transparent text-[13px] outline-none placeholder:text-text-tertiary"
-              />
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex flex-1 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
+                <IconSearch size={15} className="flex-none text-text-tertiary" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Filtrar por ligas, times"
+                  className="w-full bg-transparent text-[13px] outline-none placeholder:text-text-tertiary"
+                />
+              </div>
+              <button
+                onClick={() => setFilterModalOpen(true)}
+                aria-label="Filtros avançados"
+                className="relative flex flex-none items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-2 text-text-secondary"
+              >
+                <IconTune size={15} />
+                {filtersActive && (
+                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-bg bg-accent" />
+                )}
+              </button>
             </div>
           )}
 
@@ -274,7 +314,9 @@ export function EvPage() {
 
           {data && data.picks.length > 0 && filtered.length === 0 && (
             <p className="py-10 text-center text-sm text-text-tertiary">
-              Nenhum resultado para "{search}".
+              {search
+                ? `Nenhum resultado para "${search}".`
+                : "Nenhuma previsão bate com os filtros aplicados."}
             </p>
           )}
 
@@ -294,6 +336,24 @@ export function EvPage() {
           )}
         </div>
       </div>
+
+      <EvFilterModal
+        open={filterModalOpen}
+        onClose={() => setFilterModalOpen(false)}
+        filters={filters}
+        onApply={setFilters}
+        providers={providers}
+        marketCategories={marketCategories}
+        onOpenSavedFilters={() => setSavedModalOpen(true)}
+        onFilterSaved={() => setSavedFilters(loadSavedEvFilters())}
+      />
+      <SavedFiltersModal
+        open={savedModalOpen}
+        onClose={() => setSavedModalOpen(false)}
+        savedFilters={savedFilters}
+        onApply={setFilters}
+        onDeleted={setSavedFilters}
+      />
     </div>
   );
 }
