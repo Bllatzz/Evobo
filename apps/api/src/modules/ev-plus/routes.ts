@@ -2,13 +2,19 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { authGuard } from "../../middleware/authGuard.js";
 
 /**
- * EV+ — "Darwin AI" market predictions, read live from robotip's own public
+ * EV+ — "Darwin AI" market predictions, read live from robotip's own
  * `model_predictions` API (the same endpoint that backs
- * https://robotip.com.br/ev_table). Confirmed with a plain unauthenticated
- * GET — no cookies, no login, no headers needed — so unlike Neo IA (see the
- * removed neoia-scraper module, blocked forever on credentials + an unknown
- * chat API), this one just needed the endpoint found and the response shape
- * reverse-engineered from a real page load.
+ * https://robotip.com.br/ev_table). No cookies needed to call it at all —
+ * but robotip gates most of the *payload* server-side by session: an
+ * anonymous request comes back with odd_bookie populated for only a
+ * handful of scheduled games (confirmed: 4 out of 536 in one sample),
+ * while a logged-in account's session cookie unlocks the rest (638/638 in
+ * the same sample — a ~150x jump). EV_PLUS_ROBOTIP_SESSION_COOKIE carries
+ * that account's `session` cookie value so we get the same data the
+ * account sees on the site. This is inherently fragile — it rides on one
+ * person's login session, which can expire or get invalidated by a
+ * password change/logout elsewhere — so a missing/stale cookie must
+ * degrade to the anonymous (smaller) result, never a hard failure.
  *
  * Mirrors robotip's own table: every market side with a real bookmaker odd
  * is returned (positive AND negative EV), not just the positive-value ones
@@ -19,8 +25,11 @@ import { authGuard } from "../../middleware/authGuard.js";
  */
 
 const ROBOTIP_PUBLIC_URL = process.env.EV_PLUS_ROBOTIP_URL ?? "https://robotip.com.br";
+// Raw `session=...` cookie from a logged-in robotip account — see the file
+// header. Optional: unset just means the smaller anonymous payload.
+const ROBOTIP_SESSION_COOKIE = process.env.EV_PLUS_ROBOTIP_SESSION_COOKIE;
 const EXTERNAL_FETCH_TIMEOUT_MS = 15_000;
-// The response is a ~1-2MB unfiltered dump of every prediction (past and
+// The response is a multi-MB unfiltered dump of every prediction (past and
 // future) in the window — too heavy to refetch on every EvPage view.
 const CACHE_TTL_MS = 3 * 60_000;
 
@@ -60,11 +69,14 @@ async function fetchPredictions(
     const to = from + 3 * 86_400;
     const res = await fetch(`${ROBOTIP_PUBLIC_URL}/api/model_predictions?from=${from}&to=${to}`, {
       signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+      headers: ROBOTIP_SESSION_COOKIE ? { Cookie: ROBOTIP_SESSION_COOKIE } : undefined,
     });
     if (!res.ok) throw new Error(`robotip responded ${res.status}`);
     const rows = (await res.json()) as unknown;
     if (!Array.isArray(rows)) throw new Error("unexpected model_predictions response shape");
     cache = { rows: rows as ModelPrediction[], fetchedAt: Date.now() };
+    const withOdd = cache.rows.filter((r) => r.odd_bookie !== null).length;
+    log.info({ total: cache.rows.length, withOdd }, "EV+ model_predictions refreshed");
     return { rows: cache.rows, unavailable: false };
   } catch (err) {
     log.error({ err }, "failed to fetch EV+ model_predictions from robotip");
@@ -142,7 +154,7 @@ export async function evPlusRoutes(app: FastifyInstance) {
 
     const picks = [...latestByKey.values()]
       .sort((a, b) => a.timestamp - b.timestamp)
-      .slice(0, 300)
+      .slice(0, 1000)
       .map((r) => ({
         id: r.id,
         market: `${r.over_under === "over" ? "Mais" : "Menos"} de ${formatLine(r.line)} gols`,
