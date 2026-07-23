@@ -2,6 +2,7 @@ import { apiFetch } from "./api";
 
 export type EvPick = {
   id: number;
+  gameId: string;
   market: string;
   marketCategory: string;
   side: "over" | "under";

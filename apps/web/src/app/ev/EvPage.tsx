@@ -21,7 +21,7 @@ import {
 } from "../../components/Icon";
 
 const NOT_FOUND_CREST = "https://robotip.com.br/robotip_imgs/teams_imgs/not-found.png";
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 15; // games per page, not individual markets
 
 function onCrestError(e: SyntheticEvent<HTMLImageElement>) {
   e.currentTarget.src = NOT_FOUND_CREST;
@@ -94,6 +94,61 @@ function sortValue(pick: EvPick, key: SortKey): number | string {
   }
 }
 
+function comparePicks(a: EvPick, b: EvPick, key: SortKey, dir: "asc" | "desc"): number {
+  const d = dir === "asc" ? 1 : -1;
+  const av = sortValue(a, key);
+  const bv = sortValue(b, key);
+  if (typeof av === "string" || typeof bv === "string") {
+    return String(av).localeCompare(String(bv)) * d;
+  }
+  return (av - bv) * d;
+}
+
+/** One entry per real-world match — every market/side robotip has odds for on that
+ * game groups under it, instead of repeating the kickoff/teams on every row. */
+type GameGroup = {
+  gameId: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeImageUrl: string;
+  awayImageUrl: string;
+  competition: string | null;
+  kickoff: string;
+  status: "live" | "upcoming";
+  picks: EvPick[];
+};
+
+function groupByGame(picks: EvPick[]): GameGroup[] {
+  const map = new Map<string, GameGroup>();
+  for (const p of picks) {
+    let g = map.get(p.gameId);
+    if (!g) {
+      g = {
+        gameId: p.gameId,
+        homeTeam: p.homeTeam,
+        awayTeam: p.awayTeam,
+        homeImageUrl: p.homeImageUrl,
+        awayImageUrl: p.awayImageUrl,
+        competition: p.competition,
+        kickoff: p.kickoff,
+        status: p.status,
+        picks: [],
+      };
+      map.set(p.gameId, g);
+    }
+    g.picks.push(p);
+  }
+  return [...map.values()];
+}
+
+/** The group sorts by whichever of its picks best matches the active sort — e.g.
+ * sorting by "maior EV" surfaces the game with the single best-value market first. */
+function groupSortValue(group: GameGroup, key: SortKey): number | string {
+  if (key === "kickoff") return new Date(group.kickoff).getTime();
+  if (key === "market") return group.picks[0]?.market ?? "";
+  return Math.max(...group.picks.map((p) => sortValue(p, key) as number));
+}
+
 function CrestName({ src, name }: { src: string; name: string }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -108,18 +163,26 @@ function CrestName({ src, name }: { src: string; name: string }) {
   );
 }
 
-function KickoffBadge({ pick }: { pick: EvPick }) {
+function GameHeader({ group }: { group: GameGroup }) {
   return (
-    <div className="mb-1.5 flex min-w-0 items-center gap-1.5 font-mono text-[10px] text-text-tertiary">
-      <span className="flex-none">{formatKickoff(pick.kickoff)}</span>
-      {pick.status === "live" && (
-        <span className="flex flex-none items-center gap-1 text-live">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />
-          AO VIVO
-        </span>
-      )}
-      {pick.competition && <span className="truncate text-text-quaternary">· {pick.competition}</span>}
-    </div>
+    <>
+      <div className="mb-1.5 flex min-w-0 items-center gap-1.5 font-mono text-[10px] text-text-tertiary">
+        <span className="flex-none">{formatKickoff(group.kickoff)}</span>
+        {group.status === "live" ? (
+          <span className="flex flex-none items-center gap-1 text-live">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />
+            AO VIVO
+          </span>
+        ) : (
+          <span className="flex-none text-text-quaternary">Agendado</span>
+        )}
+        {group.competition && <span className="truncate text-text-quaternary">· {group.competition}</span>}
+      </div>
+      <CrestName src={group.homeImageUrl} name={group.homeTeam} />
+      <div className="mt-1">
+        <CrestName src={group.awayImageUrl} name={group.awayTeam} />
+      </div>
+    </>
   );
 }
 
@@ -168,13 +231,13 @@ function PaginationControl({
 }
 
 function EvTable({
-  picks,
+  groups,
   sortKey,
   sortDir,
   onSortClick,
   showProbability,
 }: {
-  picks: EvPick[];
+  groups: GameGroup[];
   sortKey: SortKey;
   sortDir: "asc" | "desc";
   onSortClick: (key: SortKey) => void;
@@ -206,64 +269,88 @@ function EvTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {picks.map((pick) => (
-            <tr key={pick.id} className={`${pick.evPct >= 0 ? "bg-accent-soft" : "bg-bg"} hover:bg-surface`}>
-              <td className="min-w-[240px] px-3 py-3 align-top">
-                <KickoffBadge pick={pick} />
-                <CrestName src={pick.homeImageUrl} name={pick.homeTeam} />
-                <div className="mt-1">
-                  <CrestName src={pick.awayImageUrl} name={pick.awayTeam} />
-                </div>
-              </td>
-              <td className="px-3 py-3 align-top">
-                <div className="text-[13px] font-semibold">{pick.market}</div>
-                {pick.bookie && (
-                  <div className="mt-0.5 font-mono text-[10px] text-text-tertiary">{pick.bookie}</div>
+          {groups.map((group, groupIndex) => {
+            const stripe = groupIndex % 2 === 0 ? "bg-bg" : "bg-surface";
+            return group.picks.map((pick, i) => (
+              <tr key={pick.id} className={`${stripe} hover:bg-surface-alt`}>
+                {i === 0 && (
+                  <td
+                    rowSpan={group.picks.length}
+                    className={`min-w-[240px] border-r border-border ${stripe} px-3 py-3 align-top`}
+                  >
+                    <GameHeader group={group} />
+                  </td>
                 )}
-                <button
-                  type="button"
-                  disabled
-                  title="Em breve"
-                  className="mt-1.5 rounded-md border border-border-strong px-2 py-0.5 font-mono text-[10px] text-text-quaternary"
-                >
-                  + Adc na gestão
-                </button>
-              </td>
-              <td className="px-3 py-3 align-top font-mono text-[13px] font-bold">
-                {pick.oddBookie.toFixed(3)}
-              </td>
-              <td className="px-3 py-3 align-top font-mono text-[13px] font-bold">
-                {showProbability ? `${pick.probFairPct.toFixed(1)}%` : pick.oddFair.toFixed(3)}
-              </td>
-              <td className="px-3 py-3 align-top">
-                <EvValue evPct={pick.evPct} />
-              </td>
-            </tr>
-          ))}
+                <td className="px-3 py-3 align-top">
+                  <div className="text-[13px] font-semibold">{pick.market}</div>
+                  {pick.bookie && (
+                    <div className="mt-0.5 font-mono text-[10px] text-text-tertiary">{pick.bookie}</div>
+                  )}
+                  <button
+                    type="button"
+                    disabled
+                    title="Em breve"
+                    className="mt-1.5 rounded-md border border-border-strong px-2 py-0.5 font-mono text-[10px] text-text-quaternary"
+                  >
+                    + Adc na gestão
+                  </button>
+                </td>
+                <td className="px-3 py-3 align-top font-mono text-[13px] font-bold">
+                  {pick.oddBookie.toFixed(3)}
+                </td>
+                <td className="px-3 py-3 align-top font-mono text-[13px] font-bold">
+                  {showProbability ? `${pick.probFairPct.toFixed(1)}%` : pick.oddFair.toFixed(3)}
+                </td>
+                <td className="px-3 py-3 align-top">
+                  <EvValue evPct={pick.evPct} />
+                </td>
+              </tr>
+            ));
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-function EvRow({ pick, showProbability }: { pick: EvPick; showProbability: boolean }) {
+function EvGameCard({ group, showProbability }: { group: GameGroup; showProbability: boolean }) {
   return (
-    <div className={`rounded-2xl border border-border p-3 ${pick.evPct >= 0 ? "bg-accent-soft" : "bg-surface"}`}>
-      <KickoffBadge pick={pick} />
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-semibold">
-            {pick.homeTeam} <span className="text-text-quaternary">x</span> {pick.awayTeam}
-          </div>
-          <div className="mt-0.5 truncate text-[12px] text-text-secondary">{pick.market}</div>
+    <div className="rounded-2xl border border-border bg-surface p-3.5">
+      <GameHeader group={group} />
+      <div className="mt-3 overflow-hidden rounded-xl border border-border-subtle">
+        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 bg-surface-chip px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-wide text-text-tertiary">
+          <span>Mercado</span>
+          <span className="text-right">Odd mercado</span>
+          <span className="text-right">{showProbability ? "Prob." : "Odd justa"}</span>
+          <span className="text-right">EV</span>
         </div>
-        <div className="flex-none text-right">
-          <div className="font-mono text-[12px] text-text-secondary">
-            {pick.oddBookie.toFixed(2)} <span className="text-text-quaternary">→</span>{" "}
-            {showProbability ? `${pick.probFairPct.toFixed(1)}%` : pick.oddFair.toFixed(2)}
+        {group.picks.map((pick, i) => (
+          <div
+            key={pick.id}
+            className={`grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 px-2.5 py-2 ${
+              i % 2 === 0 ? "bg-transparent" : "bg-surface-chip"
+            }`}
+          >
+            <div className="min-w-0">
+              <div className="truncate text-[12.5px] font-semibold">{pick.market}</div>
+              <button
+                type="button"
+                disabled
+                title="Em breve"
+                className="mt-1 rounded-md border border-border-strong px-1.5 py-0.5 font-mono text-[9px] text-text-quaternary"
+              >
+                + Adc na gestão
+              </button>
+            </div>
+            <span className="text-right font-mono text-[12px] font-bold">{pick.oddBookie.toFixed(3)}</span>
+            <span className="text-right font-mono text-[12px] font-bold">
+              {showProbability ? `${pick.probFairPct.toFixed(1)}%` : pick.oddFair.toFixed(3)}
+            </span>
+            <span className="text-right">
+              <EvValue evPct={pick.evPct} />
+            </span>
           </div>
-          <EvValue evPct={pick.evPct} />
-        </div>
+        ))}
       </div>
     </div>
   );
@@ -299,24 +386,29 @@ export function EvPage() {
       .filter((p) => statusTab === "all" || p.status === statusTab);
   }, [data, filters, search, statusTab]);
 
-  const sorted = useMemo(() => {
+  const sortedGroups = useMemo(() => {
+    const groups = groupByGame(filtered).map((g) => ({
+      ...g,
+      picks: [...g.picks].sort((a, b) => comparePicks(a, b, sortKey, sortDir)),
+    }));
     const dir = sortDir === "asc" ? 1 : -1;
-    return [...filtered].sort((a, b) => {
-      const av = sortValue(a, sortKey);
-      const bv = sortValue(b, sortKey);
+    groups.sort((a, b) => {
+      const av = groupSortValue(a, sortKey);
+      const bv = groupSortValue(b, sortKey);
       if (typeof av === "string" || typeof bv === "string") {
         return String(av).localeCompare(String(bv)) * dir;
       }
       return (av - bv) * dir;
     });
+    return groups;
   }, [filtered, sortKey, sortDir]);
 
   useEffect(() => {
     setPage(1);
   }, [filters, search, statusTab]);
 
-  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
-  const pageItems = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(sortedGroups.length / PAGE_SIZE));
+  const pageGroups = sortedGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   function onSortClick(key: SortKey) {
     if (key === sortKey) {
@@ -341,11 +433,8 @@ export function EvPage() {
     <div className="flex min-h-full flex-col bg-bg text-text">
       {/* Desktop header */}
       <div className="hidden flex-none items-center gap-3 border-b border-border px-8 py-[18px] lg:flex">
-        <div className="flex flex-1 items-center gap-2 text-[22px] font-bold tracking-[-0.02em]">
+        <div className="flex-1 text-[22px] font-bold tracking-[-0.02em]">
           EV<span className="text-accent">+</span>
-          <span className="font-mono text-[12px] font-normal text-text-tertiary">
-            · Odds com valor positivo, achadas pela IA
-          </span>
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
           <IconSearch size={15} className="flex-none text-text-tertiary" />
@@ -469,11 +558,11 @@ export function EvPage() {
             </p>
           )}
 
-          {pageItems.length > 0 && (
+          {pageGroups.length > 0 && (
             <>
               <div className="hidden lg:block">
                 <EvTable
-                  picks={pageItems}
+                  groups={pageGroups}
                   sortKey={sortKey}
                   sortDir={sortDir}
                   onSortClick={onSortClick}
@@ -481,8 +570,8 @@ export function EvPage() {
                 />
               </div>
               <div className="flex flex-col gap-2.5 lg:hidden">
-                {pageItems.map((pick) => (
-                  <EvRow key={pick.id} pick={pick} showProbability={showProbability} />
+                {pageGroups.map((group) => (
+                  <EvGameCard key={group.gameId} group={group} showProbability={showProbability} />
                 ))}
               </div>
               <PaginationControl page={page} totalPages={totalPages} onChange={setPage} />
