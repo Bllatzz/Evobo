@@ -8,7 +8,6 @@ type Props = {
   onClose: () => void;
   filters: EvFilterState;
   onApply: (filters: EvFilterState) => void;
-  providers: string[];
   marketCategories: string[];
   onOpenSavedFilters: () => void;
   onFilterSaved: () => void;
@@ -24,7 +23,6 @@ export function EvFilterModal({
   onClose,
   filters,
   onApply,
-  providers,
   marketCategories,
   onOpenSavedFilters,
   onFilterSaved,
@@ -131,35 +129,6 @@ export function EvFilterModal({
               </label>
             </div>
           </div>
-
-          <label className="block">
-            <span className="mb-2 block text-[13px] font-semibold">Provedor</span>
-            <select
-              value={draft.provider}
-              onChange={(e) => set("provider", e.target.value)}
-              className="w-full rounded-lg border border-border-strong bg-surface-alt px-3 py-2 text-[13px] text-text"
-            >
-              <option value="all">Selecionar</option>
-              {providers.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-[13px] font-semibold">Lado</span>
-            <select
-              value={draft.side}
-              onChange={(e) => set("side", e.target.value as EvFilterState["side"])}
-              className="w-full rounded-lg border border-border-strong bg-surface-alt px-3 py-2 text-[13px] text-text"
-            >
-              <option value="all">Selecionar</option>
-              <option value="over">Mais de</option>
-              <option value="under">Menos de</option>
-            </select>
-          </label>
 
           <label className="block">
             <span className="mb-2 block text-[13px] font-semibold">Mercado</span>

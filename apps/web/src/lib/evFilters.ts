@@ -3,8 +3,6 @@ import type { EvPick } from "./evPlus";
 export type EvFilterState = {
   dateFrom: string; // yyyy-mm-dd
   dateTo: string;
-  provider: string; // "all" | providerKey(pick)
-  side: "all" | "over" | "under";
   market: string; // "all" | pick.marketCategory
   oddMin: number;
   oddMax: number;
@@ -24,8 +22,6 @@ export function defaultEvFilters(): EvFilterState {
   return {
     dateFrom: toDateInput(today),
     dateTo: toDateInput(in3Days),
-    provider: "all",
-    side: "all",
     market: "all",
     oddMin: 1,
     oddMax: 30,
@@ -39,8 +35,6 @@ export function defaultEvFilters(): EvFilterState {
 export function areFiltersDefault(f: EvFilterState): boolean {
   const d = defaultEvFilters();
   return (
-    f.provider === d.provider &&
-    f.side === d.side &&
     f.market === d.market &&
     f.oddMin === d.oddMin &&
     f.oddMax === d.oddMax &&
@@ -53,11 +47,6 @@ export function areFiltersDefault(f: EvFilterState): boolean {
   );
 }
 
-/** Groups a bookmaker's normal side and its exchange lay side under one provider entry — the modal's "Provedor" filter picks the book, it doesn't distinguish lay. */
-export function providerKey(bookie: string | null): string {
-  return bookie ? bookie.replace(" (Lay)", "") : "Robotip";
-}
-
 export function applyEvFilters(picks: EvPick[], f: EvFilterState): EvPick[] {
   const from = f.dateFrom ? new Date(`${f.dateFrom}T00:00:00`).getTime() : null;
   const to = f.dateTo ? new Date(`${f.dateTo}T23:59:59`).getTime() : null;
@@ -66,8 +55,6 @@ export function applyEvFilters(picks: EvPick[], f: EvFilterState): EvPick[] {
     const ts = new Date(p.kickoff).getTime();
     if (from !== null && ts < from) return false;
     if (to !== null && ts > to) return false;
-    if (f.provider !== "all" && providerKey(p.bookie) !== f.provider) return false;
-    if (f.side !== "all" && p.side !== f.side) return false;
     if (f.market !== "all" && p.marketCategory !== f.market) return false;
     if (p.oddBookie < f.oddMin || p.oddBookie > f.oddMax) return false;
     if (p.oddFair < f.fairMin || p.oddFair > f.fairMax) return false;

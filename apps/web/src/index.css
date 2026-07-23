@@ -143,6 +143,16 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Form controls don't inherit the body font in most browsers' UA
+   stylesheets — without this they render in the platform's default UI
+   font instead of Nunito/IBM Plex Mono, which reads as off-brand. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
 #root {
   min-height: 100svh;
 }

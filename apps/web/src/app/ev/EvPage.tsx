@@ -5,7 +5,6 @@ import {
   areFiltersDefault,
   defaultEvFilters,
   loadSavedEvFilters,
-  providerKey,
   type EvFilterState,
   type SavedEvFilter,
 } from "../../lib/evFilters";
@@ -288,11 +287,6 @@ export function EvPage() {
     setSavedFilters(loadSavedEvFilters());
   }, []);
 
-  const providers = useMemo(() => {
-    if (!data) return [];
-    return [...new Set(data.picks.map((p) => providerKey(p.bookie)))].sort();
-  }, [data]);
-
   const marketCategories = useMemo(() => {
     if (!data) return [];
     return [...new Set(data.picks.map((p) => p.marketCategory))].sort();
@@ -350,7 +344,7 @@ export function EvPage() {
         <div className="flex flex-1 items-center gap-2 text-[22px] font-bold tracking-[-0.02em]">
           EV<span className="text-accent">+</span>
           <span className="font-mono text-[12px] font-normal text-text-tertiary">
-            · Tabela · Valor esperado positivo · IA
+            · Odds com valor positivo, achadas pela IA
           </span>
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2">
@@ -502,7 +496,6 @@ export function EvPage() {
         onClose={() => setFilterModalOpen(false)}
         filters={filters}
         onApply={setFilters}
-        providers={providers}
         marketCategories={marketCategories}
         onOpenSavedFilters={() => setSavedModalOpen(true)}
         onFilterSaved={() => setSavedFilters(loadSavedEvFilters())}
