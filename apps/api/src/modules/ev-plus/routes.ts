@@ -2,13 +2,17 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { authGuard } from "../../middleware/authGuard.js";
 
 /**
- * EV+ — "Darwin AI" positive-expected-value picks, read live from robotip's
- * own public `model_predictions` API (the same endpoint that backs
+ * EV+ — "Darwin AI" market predictions, read live from robotip's own public
+ * `model_predictions` API (the same endpoint that backs
  * https://robotip.com.br/ev_table). Confirmed with a plain unauthenticated
  * GET — no cookies, no login, no headers needed — so unlike Neo IA (see the
  * removed neoia-scraper module, blocked forever on credentials + an unknown
  * chat API), this one just needed the endpoint found and the response shape
  * reverse-engineered from a real page load.
+ *
+ * Mirrors robotip's own table: every market side with a real bookmaker odd
+ * is returned (positive AND negative EV), not just the positive-value ones
+ * — the frontend surfaces value via color/sort, it doesn't hide the rest.
  *
  * Only `goals_model` is live on robotip today (no corners/cards model yet)
  * — nothing here assumes that, so a future model shows up automatically.
@@ -105,14 +109,15 @@ export async function evPlusRoutes(app: FastifyInstance) {
 
   app.get("/", async (request) => {
     const { rows, unavailable } = await fetchPredictions(request.log);
-    const nowSec = Date.now() / 1000;
 
-    // "EV+" means genuinely actionable value bets: a real bookmaker odd on
-    // a real market (odd_name/odd_bookie/prob_fair/line all present — some
-    // rows carry an `ev` with none of those, seemingly a pre-market-match
-    // model score with nothing to bet on yet), positive edge, and the game
-    // hasn't kicked off (time_status 0) with a kickoff still in the future
-    // (a stale "scheduled" row whose time has already passed isn't bettable).
+    // A row is worth showing once it has a real bookmaker odd on a real
+    // market (odd_name/odd_bookie/prob_fair/line all present — most rows
+    // carry an `ev` with none of those, a pre-market model score with
+    // nothing to bet on yet) and the game hasn't finished (time_status 3).
+    // Unlike an earlier version of this endpoint, EV sign is NOT filtered
+    // here — robotip's own ev_table lists every market side (over AND
+    // under) it has odds for, negative EV included, same as this does now;
+    // the frontend colors/sorts by EV instead of us hiding rows server-side.
     const actionable = rows.filter(
       (r): r is ModelPrediction & { odd_name: string; odd_bookie: number; prob_fair: number; line: number; over_under: "over" | "under" } =>
         r.odd_name !== null &&
@@ -120,9 +125,7 @@ export async function evPlusRoutes(app: FastifyInstance) {
         r.prob_fair !== null &&
         r.line !== null &&
         r.over_under !== null &&
-        r.ev > 0 &&
-        r.time_status === 0 &&
-        r.timestamp > nowSec,
+        r.time_status !== 3,
     );
 
     // The model can re-emit the same bookmaker's odd for the same match as
@@ -139,20 +142,21 @@ export async function evPlusRoutes(app: FastifyInstance) {
 
     const picks = [...latestByKey.values()]
       .sort((a, b) => a.timestamp - b.timestamp)
-      .slice(0, 60)
+      .slice(0, 300)
       .map((r) => ({
         id: r.id,
-        market: `${r.over_under === "over" ? "Over" : "Under"} ${formatLine(r.line)} Goals`,
+        market: `${r.over_under === "over" ? "Mais" : "Menos"} de ${formatLine(r.line)} gols`,
         bookie: bookieLabel(r.odd_name),
-        evPct: Math.round(r.ev * 1000) / 10,
+        evPct: Math.round(r.ev * 10_000) / 100,
         oddBookie: r.odd_bookie,
-        oddFair: Math.round((1 / r.prob_fair) * 100) / 100,
+        oddFair: Math.round((1 / r.prob_fair) * 1000) / 1000,
         homeTeam: r.home_name,
         awayTeam: r.away_name,
         homeImageUrl: teamImageUrl(r.home_id),
         awayImageUrl: teamImageUrl(r.away_id),
         competition: r.league_name,
         kickoff: new Date(r.timestamp * 1000).toISOString(),
+        status: r.time_status === 1 ? ("live" as const) : ("upcoming" as const),
         analysis: r.ai_analytics?.pt ?? null,
       }));
 

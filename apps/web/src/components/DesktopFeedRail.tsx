@@ -16,14 +16,23 @@ import { IconTrendingUp } from "./Icon";
 export function DesktopFeedRail() {
   const [liveGames, setLiveGames] = useState<Game[] | null>(null);
   const [topTipsters, setTopTipsters] = useState<RankedTipster[] | null>(null);
-  const [evPicks, setEvPicks] = useState<EvPick[] | null>(null);
+  const [bestEvPick, setBestEvPick] = useState<EvPick | null | undefined>(undefined);
 
   useEffect(() => {
     fetchGames({ status: "live" }).then((g) => setLiveGames(g.slice(0, 3)));
     fetchRanking("roi").then((r) => setTopTipsters(r.slice(0, 3)));
     fetchEvPicks()
-      .then((r) => setEvPicks(r.picks))
-      .catch(() => setEvPicks([]));
+      .then((r) => {
+        // EV+ now lists every market side robotip has odds for (see EvPage),
+        // so this teaser must pick out the best genuine value bet itself
+        // rather than just showing whatever comes first in the list.
+        const best = r.picks.reduce<EvPick | null>(
+          (top, p) => (!top || p.evPct > top.evPct ? p : top),
+          null,
+        );
+        setBestEvPick(best && best.evPct > 0 ? best : null);
+      })
+      .catch(() => setBestEvPick(null));
   }, []);
 
   return (
@@ -79,30 +88,30 @@ export function DesktopFeedRail() {
             ver todos
           </Link>
         </div>
-        {evPicks === null && (
+        {bestEvPick === undefined && (
           <p className="rounded-2xl border border-accent-border bg-accent-soft p-3.5 text-[12px] text-text-secondary">
             Carregando…
           </p>
         )}
-        {evPicks?.length === 0 && (
+        {bestEvPick === null && (
           <p className="rounded-2xl border border-accent-border bg-accent-soft p-3.5 text-[12px] text-text-secondary">
             Nenhuma pick de valor positivo agora.
           </p>
         )}
-        {evPicks && evPicks.length > 0 && (
+        {bestEvPick && (
           <Link
             to="/ev"
             className="flex flex-col gap-1.5 rounded-2xl border border-accent-border bg-accent-soft p-3.5"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="min-w-0 truncate text-[13px] font-semibold">
-                {evPicks[0]!.homeTeam} <span className="text-text-quaternary">×</span> {evPicks[0]!.awayTeam}
+                {bestEvPick.homeTeam} <span className="text-text-quaternary">×</span> {bestEvPick.awayTeam}
               </span>
               <span className="flex-none font-mono text-[13px] font-bold text-accent">
-                +{evPicks[0]!.evPct.toFixed(1)}%
+                +{bestEvPick.evPct.toFixed(1)}%
               </span>
             </div>
-            <span className="truncate text-[12px] text-text-secondary">{evPicks[0]!.market}</span>
+            <span className="truncate text-[12px] text-text-secondary">{bestEvPick.market}</span>
           </Link>
         )}
       </div>

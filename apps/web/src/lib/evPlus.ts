@@ -13,6 +13,7 @@ export type EvPick = {
   awayImageUrl: string;
   competition: string | null;
   kickoff: string;
+  status: "live" | "upcoming";
   analysis: string | null;
 };
 
