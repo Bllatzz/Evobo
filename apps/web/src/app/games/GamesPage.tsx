@@ -49,12 +49,26 @@ function matchesSearch(game: LiveGame, query: string): boolean {
   );
 }
 
-type SortKey = "popularity" | "kickoff";
+type SortKey = "popularity" | "kickoff" | "upcoming" | "featured";
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "popularity", label: "Popularidade" },
   { key: "kickoff", label: "Horário" },
+  { key: "upcoming", label: "Próximos" },
+  { key: "featured", label: "Em destaque" },
 ];
+
+// "upcoming" and "featured" also narrow the list to games that haven't kicked
+// off yet — "featured" is Próximos + Popularidade combined (future games,
+// ranked by popularity) instead of plain chronological order.
+const FUTURE_ONLY_SORTS: SortKey[] = ["upcoming", "featured"];
+
+const SORT_DIRECTION: Record<SortKey, "asc" | "desc"> = {
+  popularity: "desc",
+  kickoff: "asc",
+  upcoming: "asc",
+  featured: "desc",
+};
 
 function statusPriority(g: LiveGame): number {
   return g.status === "live" ? 0 : g.status === "scheduled" ? 1 : 2;
@@ -86,7 +100,9 @@ function groupByLeague(games: LiveGame[]): LeagueGroup[] {
 }
 
 function leagueSortValue(group: LeagueGroup, key: SortKey): number {
-  if (key === "kickoff") return Math.min(...group.games.map((g) => new Date(g.kickoff).getTime()));
+  if (key === "kickoff" || key === "upcoming") {
+    return Math.min(...group.games.map((g) => new Date(g.kickoff).getTime()));
+  }
   return Math.max(...group.games.map((g) => g.popularity));
 }
 
@@ -219,6 +235,7 @@ export function GamesPage() {
   const [savedModalOpen, setSavedModalOpen] = useState(false);
   const [savedFilters, setSavedFilters] = useState<SavedGamesFilter[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("popularity");
+  const [liveOnly, setLiveOnly] = useState(false);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -243,21 +260,32 @@ export function GamesPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [filters, search]);
+  }, [filters, search, sortKey, liveOnly]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
     return applyGamesFilters(data.games, filters).filter((g) => matchesSearch(g, search));
   }, [data, filters, search]);
 
+  const displayed = useMemo(() => {
+    let list = filtered;
+    if (liveOnly) list = list.filter((g) => g.status === "live");
+    if (FUTURE_ONLY_SORTS.includes(sortKey)) {
+      const now = Date.now();
+      list = list.filter((g) => new Date(g.kickoff).getTime() > now);
+    }
+    return list;
+  }, [filtered, liveOnly, sortKey]);
+
   const sortedLeagues = useMemo(() => {
-    const groups = groupByLeague(filtered).map((g) => ({
+    const groups = groupByLeague(displayed).map((g) => ({
       ...g,
       games: [...g.games].sort(compareGames),
     }));
-    groups.sort((a, b) => leagueSortValue(b, sortKey) - leagueSortValue(a, sortKey));
+    const dir = SORT_DIRECTION[sortKey] === "asc" ? 1 : -1;
+    groups.sort((a, b) => (leagueSortValue(a, sortKey) - leagueSortValue(b, sortKey)) * dir);
     return groups;
-  }, [filtered, sortKey]);
+  }, [displayed, sortKey]);
 
   const totalPages = Math.max(1, Math.ceil(sortedLeagues.length / PAGE_SIZE));
   const pageLeagues = sortedLeagues.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -279,10 +307,17 @@ export function GamesPage() {
             className="w-56 bg-transparent text-[13px] outline-none placeholder:text-text-tertiary"
           />
         </div>
-        <span className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-chip px-3 py-1.5 font-mono text-[12px] text-text-secondary">
-          <span className="h-1.5 w-1.5 rounded-full bg-live" />
+        <button
+          onClick={() => setLiveOnly((v) => !v)}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[12px] ${
+            liveOnly
+              ? "border-live bg-live text-[#08090A]"
+              : "border-border-strong bg-surface-chip text-text-secondary"
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-[#08090A]" : "bg-live"}`} />
           Ao vivo: {liveCount}/{data?.games.length ?? 0}
-        </span>
+        </button>
         <select
           value={sortKey}
           onChange={(e) => setSortKey(e.target.value as SortKey)}
@@ -311,9 +346,12 @@ export function GamesPage() {
         <div className="flex-1">
           <div className="text-[20px] font-bold tracking-[-0.02em]">Jogos</div>
           {data && (
-            <div className="font-mono text-[11px] text-text-tertiary">
+            <button
+              onClick={() => setLiveOnly((v) => !v)}
+              className={`font-mono text-[11px] ${liveOnly ? "font-bold text-live" : "text-text-tertiary"}`}
+            >
               Ao vivo: {liveCount}/{data.games.length}
-            </div>
+            </button>
           )}
         </div>
         <button
@@ -345,7 +383,7 @@ export function GamesPage() {
             ))}
             {data && (
               <span className="ml-auto hidden flex-none whitespace-nowrap font-mono text-[11px] text-text-tertiary lg:inline">
-                {filtered.length} jogos
+                {displayed.length} jogos
               </span>
             )}
           </div>
@@ -388,7 +426,7 @@ export function GamesPage() {
             <p className="py-10 text-center text-sm text-text-tertiary">Nenhum jogo neste dia.</p>
           )}
 
-          {data && data.games.length > 0 && filtered.length === 0 && (
+          {data && data.games.length > 0 && displayed.length === 0 && (
             <p className="py-10 text-center text-sm text-text-tertiary">
               {search ? `Nenhum resultado para "${search}".` : "Nenhum jogo bate com os filtros aplicados."}
             </p>
