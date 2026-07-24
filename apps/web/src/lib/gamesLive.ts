@@ -9,6 +9,7 @@ export type LiveGame = {
   awayImageUrl: string;
   league: string;
   leagueCountry: string | null;
+  leagueImageUrl: string;
   kickoff: string;
   status: "scheduled" | "live" | "finished";
   minute: number | null;

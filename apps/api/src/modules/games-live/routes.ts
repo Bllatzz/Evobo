@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import { resolveLeagueImageUrl } from "./leagueImages.js";
 
 /**
  * "Jogos" — live scoreboard read straight from robotip's own public feed
@@ -61,6 +62,7 @@ export type LiveGame = {
   awayImageUrl: string;
   league: string;
   leagueCountry: string | null;
+  leagueImageUrl: string;
   kickoff: string; // ISO
   status: "scheduled" | "live" | "finished";
   minute: number | null;
@@ -143,6 +145,15 @@ async function loadGames(isoDate: string, log: FastifyBaseLogger): Promise<{ gam
 
     const stats = await mapWithConcurrency(entries, STATS_FETCH_CONCURRENCY, (e) => fetchStats(e.game_id));
 
+    // One flag/logo lookup per distinct league in the day's list, not per game.
+    const leagueIds = [...new Set(entries.map((e) => e.id_liga))];
+    const leagueImageById = new Map(
+      await mapWithConcurrency(leagueIds, STATS_FETCH_CONCURRENCY, async (id) => {
+        const entry = entries.find((e) => e.id_liga === id)!;
+        return [id, await resolveLeagueImageUrl(entry.league_country, id)] as const;
+      }),
+    );
+
     const games: LiveGame[] = entries.map((e, i) => {
       const s = stats[i];
       return {
@@ -153,6 +164,7 @@ async function loadGames(isoDate: string, log: FastifyBaseLogger): Promise<{ gam
         awayImageUrl: e.img_time_2,
         league: e.nome_liga,
         leagueCountry: e.league_country,
+        leagueImageUrl: leagueImageById.get(e.id_liga)!,
         kickoff: new Date(e.time * 1000).toISOString(),
         status: statusFromTimeStatus(e.time_status),
         minute: s?.tm ?? null,

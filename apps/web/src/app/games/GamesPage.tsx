@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
 import { fetchLiveGames, type LiveGame } from "../../lib/gamesLive";
 import {
   applyGamesFilters,
@@ -83,6 +83,7 @@ function compareGames(a: LiveGame, b: LiveGame): number {
 type LeagueGroup = {
   league: string;
   leagueCountry: string | null;
+  leagueImageUrl: string;
   games: LiveGame[];
 };
 
@@ -91,7 +92,7 @@ function groupByLeague(games: LiveGame[]): LeagueGroup[] {
   for (const g of games) {
     let group = map.get(g.league);
     if (!group) {
-      group = { league: g.league, leagueCountry: g.leagueCountry, games: [] };
+      group = { league: g.league, leagueCountry: g.leagueCountry, leagueImageUrl: g.leagueImageUrl, games: [] };
       map.set(g.league, group);
     }
     group.games.push(g);
@@ -106,12 +107,10 @@ function leagueSortValue(group: LeagueGroup, key: SortKey): number {
   return Math.max(...group.games.map((g) => g.popularity));
 }
 
-/** Deterministic accent color per league name — stand-in for a real league crest/flag. */
-function leagueColor(league: string): string {
-  const palette = ["#2BE08A", "#5AA9FF", "#F6C453", "#B285F0", "#FF7A59", "#4DD0E1"];
-  let hash = 0;
-  for (let i = 0; i < league.length; i++) hash = (hash * 31 + league.charCodeAt(i)) >>> 0;
-  return palette[hash % palette.length]!;
+const WORLD_FLAG_URL = "https://robotip.com.br/robotip_imgs/flags/wrd.png";
+
+function onLeagueImageError(e: SyntheticEvent<HTMLImageElement>) {
+  e.currentTarget.src = WORLD_FLAG_URL;
 }
 
 function OddChip({ label, value }: { label: string; value: number | null }) {
@@ -206,9 +205,11 @@ function LeagueCard({ group }: { group: LeagueGroup }) {
   return (
     <div>
       <div className="mb-2 flex items-center gap-2 px-1">
-        <div
-          className="h-[18px] w-[18px] flex-none rounded-[5px]"
-          style={{ background: leagueColor(group.league) }}
+        <img
+          src={group.leagueImageUrl}
+          onError={onLeagueImageError}
+          alt=""
+          className="h-[18px] w-[18px] flex-none rounded-full bg-surface-chip object-cover"
         />
         <span className="truncate font-mono text-[12px] font-semibold text-text-tertiary">
           {group.league.toUpperCase()}
@@ -434,7 +435,7 @@ export function GamesPage() {
 
           {pageLeagues.length > 0 && (
             <>
-              <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:gap-5">
+              <div className="flex flex-col gap-4">
                 {pageLeagues.map((group) => (
                   <LeagueCard key={group.league} group={group} />
                 ))}
