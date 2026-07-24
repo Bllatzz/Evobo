@@ -34,6 +34,14 @@ function addDaysIso(iso: string, days: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
+function diffDaysIso(a: string, b: string): number {
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  const da = Date.UTC(ay!, am! - 1, ad!);
+  const db = Date.UTC(by!, bm! - 1, bd!);
+  return Math.round((da - db) / 86_400_000);
+}
+
 function formatDayMonth(iso: string): string {
   const [, m, d] = iso.split("-");
   return `${d}/${m}`;
@@ -53,10 +61,14 @@ function dayLabel(offset: number, iso: string): string {
 const DATE_TABS_BEFORE = 7;
 const DATE_TABS_AFTER = 7;
 
-function buildDateTabs(today: string) {
+// Centered on whichever date is currently selected (not always "today") —
+// picking a tab re-centers the whole window on it, so scrolling out to the
+// edge and clicking again keeps revealing further days in that direction.
+function buildDateTabs(centerDate: string, today: string) {
   const tabs = [];
-  for (let offset = -DATE_TABS_BEFORE; offset <= DATE_TABS_AFTER; offset++) {
-    const date = addDaysIso(today, offset);
+  for (let i = -DATE_TABS_BEFORE; i <= DATE_TABS_AFTER; i++) {
+    const date = addDaysIso(centerDate, i);
+    const offset = diffDaysIso(date, today);
     tabs.push({ date, offset, label: dayLabel(offset, date) });
   }
   return tabs;
@@ -253,30 +265,32 @@ function LeagueCard({ group }: { group: LeagueGroup }) {
 
 export function GamesPage() {
   const today = useMemo(todayIsoSaoPaulo, []);
-  const dateTabs = useMemo(() => buildDateTabs(today), [today]);
   const [data, setData] = useState<{ games: LiveGame[]; unavailable: boolean } | null>(null);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<GamesFilterState>(() => ({
     ...defaultGamesFilters(),
     date: today,
   }));
+  const dateTabs = useMemo(() => buildDateTabs(filters.date, today), [filters.date, today]);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [savedModalOpen, setSavedModalOpen] = useState(false);
   const [savedFilters, setSavedFilters] = useState<SavedGamesFilter[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("popularity");
   const [liveOnly, setLiveOnly] = useState(false);
   const [page, setPage] = useState(1);
-  const todayTabRef = useRef<HTMLButtonElement>(null);
+  const selectedTabRef = useRef<HTMLButtonElement>(null);
   const dragScrollRef = useDragScroll<HTMLDivElement>();
 
   useEffect(() => {
     setSavedFilters(loadSavedGamesFilters());
   }, []);
 
-  // The tab strip spans more days than fit on screen — start centered on "Hoje".
+  // The tab strip spans more days than fit on screen and always re-centers
+  // on the selected date (dateTabs is rebuilt around filters.date), so keep
+  // scrolling the selected tab into the middle whenever it changes.
   useEffect(() => {
-    todayTabRef.current?.scrollIntoView({ inline: "center", block: "nearest" });
-  }, []);
+    selectedTabRef.current?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [dateTabs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -410,7 +424,7 @@ export function GamesPage() {
               {dateTabs.map((t) => (
                 <button
                   key={t.date}
-                  ref={t.offset === 0 ? todayTabRef : undefined}
+                  ref={filters.date === t.date ? selectedTabRef : undefined}
                   onClick={() => setFilters((f) => ({ ...f, date: t.date }))}
                   className={`flex-none rounded-full px-3.5 py-1.5 font-mono text-[12px] font-semibold ${
                     filters.date === t.date ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
