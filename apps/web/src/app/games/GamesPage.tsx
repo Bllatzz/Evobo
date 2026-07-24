@@ -45,8 +45,12 @@ function dayLabel(offset: number, iso: string): string {
   return formatDayMonth(iso);
 }
 
-const DATE_TABS_BEFORE = 4;
-const DATE_TABS_AFTER = 4;
+// Wide enough to fill the row on desktop (the tab strip lives inside a
+// max-w-[1000px] container, so this doesn't need to account for wider
+// monitors) without leaving empty space before the "N jogos" counter;
+// mobile just scrolls through the extra days.
+const DATE_TABS_BEFORE = 7;
+const DATE_TABS_AFTER = 7;
 
 function buildDateTabs(today: string) {
   const tabs = [];
