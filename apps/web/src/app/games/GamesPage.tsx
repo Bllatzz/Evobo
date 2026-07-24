@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { fetchLiveGames, type LiveGame } from "../../lib/gamesLive";
 import {
   applyGamesFilters,
@@ -17,22 +17,44 @@ import { IconSearch, IconTune, IconCornerFlag } from "../../components/Icon";
 const PAGE_SIZE = 12; // leagues per page
 const REFRESH_MS = 30_000; // live scores/odds change fast enough to be worth polling
 
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+// Pure calendar-date math on the YYYY-MM-DD string itself (never through a
+// browser-local Date + toISOString — that shifts by the local UTC offset,
+// so anyone in Brazil (UTC-3) opening this after ~21h local time got
+// "Hoje" showing tomorrow's games, "Ontem" showing today's, and so on,
+// since toISOString() had already rolled into the next UTC day).
+function todayIsoSaoPaulo(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
 
-function dayLabel(offset: number): string {
+function addDaysIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y!, m! - 1, d!));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+function formatDayMonth(iso: string): string {
+  const [, m, d] = iso.split("-");
+  return `${d}/${m}`;
+}
+
+function dayLabel(offset: number, iso: string): string {
   if (offset === -1) return "Ontem";
   if (offset === 0) return "Hoje";
-  return "Amanhã";
+  if (offset === 1) return "Amanhã";
+  return formatDayMonth(iso);
 }
 
-function buildDateTabs() {
-  return [-1, 0, 1].map((offset) => {
-    const d = new Date();
-    d.setDate(d.getDate() + offset);
-    return { date: isoDate(d), label: dayLabel(offset) };
-  });
+const DATE_TABS_BEFORE = 4;
+const DATE_TABS_AFTER = 4;
+
+function buildDateTabs(today: string) {
+  const tabs = [];
+  for (let offset = -DATE_TABS_BEFORE; offset <= DATE_TABS_AFTER; offset++) {
+    const date = addDaysIso(today, offset);
+    tabs.push({ date, offset, label: dayLabel(offset, date) });
+  }
+  return tabs;
 }
 
 function formatKickoff(iso: string): string {
@@ -225,12 +247,13 @@ function LeagueCard({ group }: { group: LeagueGroup }) {
 }
 
 export function GamesPage() {
-  const dateTabs = useMemo(buildDateTabs, []);
+  const today = useMemo(todayIsoSaoPaulo, []);
+  const dateTabs = useMemo(() => buildDateTabs(today), [today]);
   const [data, setData] = useState<{ games: LiveGame[]; unavailable: boolean } | null>(null);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<GamesFilterState>(() => ({
     ...defaultGamesFilters(),
-    date: dateTabs[1]!.date, // "hoje"
+    date: today,
   }));
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [savedModalOpen, setSavedModalOpen] = useState(false);
@@ -238,9 +261,15 @@ export function GamesPage() {
   const [sortKey, setSortKey] = useState<SortKey>("popularity");
   const [liveOnly, setLiveOnly] = useState(false);
   const [page, setPage] = useState(1);
+  const todayTabRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setSavedFilters(loadSavedGamesFilters());
+  }, []);
+
+  // The tab strip spans more days than fit on screen — start centered on "Hoje".
+  useEffect(() => {
+    todayTabRef.current?.scrollIntoView({ inline: "center", block: "nearest" });
   }, []);
 
   useEffect(() => {
@@ -371,17 +400,20 @@ export function GamesPage() {
         <div className="mx-auto flex w-full max-w-[1000px] flex-col">
           {/* Date tabs */}
           <div className="mb-3 flex items-center gap-2">
-            {dateTabs.map((t) => (
-              <button
-                key={t.date}
-                onClick={() => setFilters((f) => ({ ...f, date: t.date }))}
-                className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] font-semibold ${
-                  filters.date === t.date ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+            <div className="flex flex-1 gap-2 overflow-x-auto">
+              {dateTabs.map((t) => (
+                <button
+                  key={t.date}
+                  ref={t.offset === 0 ? todayTabRef : undefined}
+                  onClick={() => setFilters((f) => ({ ...f, date: t.date }))}
+                  className={`flex-none rounded-full px-3.5 py-1.5 font-mono text-[12px] font-semibold ${
+                    filters.date === t.date ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
             {data && (
               <span className="ml-auto hidden flex-none whitespace-nowrap font-mono text-[11px] text-text-tertiary lg:inline">
                 {displayed.length} jogos
