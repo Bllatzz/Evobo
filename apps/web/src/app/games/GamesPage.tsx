@@ -12,6 +12,7 @@ import { GamesFilterModal } from "./GamesFilterModal";
 import { GamesSavedFiltersModal } from "./GamesSavedFiltersModal";
 import { PaginationControl } from "../../components/PaginationControl";
 import { CrestName } from "../../components/CrestName";
+import { useDragScroll } from "../../hooks/useDragScroll";
 import { IconSearch, IconTune, IconCornerFlag } from "../../components/Icon";
 
 const PAGE_SIZE = 12; // leagues per page
@@ -266,6 +267,7 @@ export function GamesPage() {
   const [liveOnly, setLiveOnly] = useState(false);
   const [page, setPage] = useState(1);
   const todayTabRef = useRef<HTMLButtonElement>(null);
+  const dragScrollRef = useDragScroll<HTMLDivElement>();
 
   useEffect(() => {
     setSavedFilters(loadSavedGamesFilters());
@@ -404,7 +406,7 @@ export function GamesPage() {
         <div className="mx-auto flex w-full max-w-[1000px] flex-col">
           {/* Date tabs */}
           <div className="mb-3 flex items-center gap-2">
-            <div className="flex flex-1 gap-2 overflow-x-auto">
+            <div ref={dragScrollRef} className="no-scrollbar drag-scroll flex flex-1 gap-2 overflow-x-auto">
               {dateTabs.map((t) => (
                 <button
                   key={t.date}

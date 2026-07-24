@@ -156,3 +156,24 @@ textarea {
 #root {
   min-height: 100svh;
 }
+
+/* Horizontal drag/swipe-to-scroll strips (date tabs, etc.) that shouldn't
+   show a scrollbar track — desktop browsers (Chrome/Firefox on
+   Windows/Linux) render a persistent scrollbar on overflow-x-auto by
+   default, unlike mobile/macOS's auto-hiding overlay one. */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+/* Paired with useDragScroll — grab cursor affordance while mouse-dragging. */
+.drag-scroll {
+  cursor: grab;
+}
+.drag-scroll.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
