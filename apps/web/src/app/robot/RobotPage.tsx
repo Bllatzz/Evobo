@@ -35,7 +35,7 @@ const filters = [
 // the risk, and a corner or goal before the entry lands changes the game
 // state enough that the tip should be treated as stale.
 const OVER_CORNERS_GROUP_KEY = "over|Corners|0.5|FT";
-const OVER_CORNERS_NOTE = "Odd mínima recomendada: 2.00. Se sair escanteio ou gol, abortar entrada.";
+const OVER_CORNERS_NOTE = "Odd mínima indicada: 2.00. Se sair escanteio ou gol, abortar entrada.";
 
 function OverCornersNote() {
   return (
