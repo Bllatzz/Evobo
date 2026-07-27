@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { authGuard } from "../../middleware/authGuard.js";
 import { normalizeMarket } from "./marketNormalizer.js";
+import { prisma } from "../../db/prisma.js";
 
 /**
  * Proxies robotip's own live alerts API (~/desenvolvimento/robotip/backend,
@@ -216,6 +217,29 @@ function computeProfit(result: GestaoRow["result"], stakeUnits: number, odd: num
   if (result === "green") return odd ? stakeUnits * (odd - 1) : 0;
   if (result === "red") return -stakeUnits;
   return 0;
+}
+
+let marketOddsCache: { byGroupKey: Map<string, number>; fetchedAt: number } | null = null;
+const MARKET_ODDS_CACHE_TTL_MS = 60_000;
+
+/**
+ * Per-market "odd indicada" (apps/web/src/app/admin/AdminPage.tsx —
+ * admin-editable, see RobotMarketOdd in schema.prisma). Drives the extra
+ * "Lucro com odd indicada" stat on the market detail page: total profit if
+ * every green op in that market had been bet at this odd instead of its own
+ * real recorded odd (the real green/red result stays real, only the odd
+ * changes — same idea as robotip's own "Simulador de odd fixa",
+ * frontend/src/pages/PerformancePage.jsx). The main "Lucro" figure always
+ * uses each operation's real recorded odd, unaffected by this.
+ */
+async function fetchMarketOdds(): Promise<Map<string, number>> {
+  if (marketOddsCache && Date.now() - marketOddsCache.fetchedAt < MARKET_ODDS_CACHE_TTL_MS) {
+    return marketOddsCache.byGroupKey;
+  }
+  const rows = await prisma.robotMarketOdd.findMany();
+  const byGroupKey = new Map(rows.map((r) => [r.groupKey, Number(r.indicatedOdd)]));
+  marketOddsCache = { byGroupKey, fetchedAt: Date.now() };
+  return byGroupKey;
 }
 
 /**
@@ -446,8 +470,12 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
    * src/pages/PerformancePage.jsx: `profit / unitValue`, displayed as-is
    * with a "%" suffix), so this figure matches what the user sees in
    * robotip itself.
+   *
+   * `indicatedOdd` (see fetchMarketOdds above) never touches any of this —
+   * it only feeds the separate `lucroComOddIndicadaPct` figure below,
+   * computed alongside the real numbers in the same pass.
    */
-  function aggregatePerformance(sortedRows: GestaoRow[]) {
+  function aggregatePerformance(sortedRows: GestaoRow[], indicatedOdd: number | null) {
     let cumulative = 0;
     let totalStaked = 0;
     let green = 0;
@@ -463,12 +491,16 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
     let curLoseProfit = 0;
     let bestRun = { length: 0, profit: 0 };
     let worstRun = { length: 0, profit: 0 };
+    let lucroComOddIndicada = 0;
     const operations = sortedRows.map((r) => {
       const stakeUnits = toFiniteNumber(r.stake_pct, 1)!;
       const odd = toFiniteNumber(r.bet_odds, null);
       const profit = computeProfit(r.result, stakeUnits, odd);
       cumulative += profit;
       totalStaked += stakeUnits;
+      if (indicatedOdd !== null) {
+        lucroComOddIndicada += computeProfit(r.result, stakeUnits, indicatedOdd);
+      }
       if (r.result === "green") {
         green++;
         if (odd) {
@@ -530,6 +562,8 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
       assertPct: green + red > 0 ? Math.round((green / (green + red)) * 1000) / 10 : 0,
       roiPct: totalStaked > 0 ? Math.round((cumulative / totalStaked) * 1000) / 10 : 0,
       avgOdds: oddsCount > 0 ? round2(oddsSum / oddsCount) : null,
+      oddIndicada: indicatedOdd,
+      lucroComOddIndicadaPct: indicatedOdd !== null ? round2(lucroComOddIndicada) : null,
       opsPerDay: operations.length > 0 ? round2(operations.length / daySpan) : 0,
       profitPerOpPct: operations.length > 0 ? round2(cumulative / operations.length) : 0,
       maxDrawdownPct: round2(-maxDrawdownPct),
@@ -547,9 +581,10 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
    * instead of two unrelated-looking bot names.
    */
   app.get("/markets", async (request) => {
-    const [{ rows, unavailable }, evoboBotNames] = await Promise.all([
+    const [{ rows, unavailable }, evoboBotNames, marketOdds] = await Promise.all([
       fetchGestaoRows(request.log),
       fetchEvoboBotNames(request.log),
+      fetchMarketOdds(),
     ]);
     const curated = rows.filter((r) => evoboBotNames.has(r.bot_name ?? ""));
 
@@ -576,7 +611,7 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
         const sorted = [...group.rows].sort(
           (a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime(),
         );
-        const perf = aggregatePerformance(sorted);
+        const perf = aggregatePerformance(sorted, marketOdds.get(groupKey) ?? null);
         return {
           groupKey,
           market: group.market,
@@ -586,6 +621,8 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
           assertPct: perf.assertPct,
           roiPct: perf.roiPct,
           avgOdds: perf.avgOdds,
+          oddIndicada: perf.oddIndicada,
+          lucroComOddIndicadaPct: perf.lucroComOddIndicadaPct,
         };
       })
       .sort((a, b) => b.totalOps - a.totalOps);
@@ -602,9 +639,10 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
     Querystring: { date_from?: string; date_to?: string; odds_min?: string; odds_max?: string };
   }>("/market/:groupKey", async (request) => {
       const groupKey = decodeURIComponent(request.params.groupKey);
-      const [{ rows, unavailable }, evoboBotNames] = await Promise.all([
+      const [{ rows, unavailable }, evoboBotNames, marketOdds] = await Promise.all([
         fetchGestaoRows(request.log),
         fetchEvoboBotNames(request.log),
+        fetchMarketOdds(),
       ]);
 
       const dateFrom = request.query.date_from ? new Date(request.query.date_from).getTime() : null;
@@ -636,6 +674,31 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
         })
         .sort((a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime());
 
-      return { groupKey, market, botNames, unavailable, ...aggregatePerformance(resolved) };
+      return {
+        groupKey,
+        market,
+        botNames,
+        unavailable,
+        ...aggregatePerformance(resolved, marketOdds.get(groupKey) ?? null),
+      };
   });
+}
+
+/**
+ * Distinct curated markets (groupKey + display label), for the admin
+ * "odd indicada" editor (admin/routes.ts) — same grouping /markets above
+ * uses, without the performance aggregation that route needs and this one
+ * doesn't.
+ */
+export async function listCuratedMarketGroups(
+  log: FastifyBaseLogger,
+): Promise<{ groupKey: string; market: string }[]> {
+  const [{ rows }, evoboBotNames] = await Promise.all([fetchGestaoRows(log), fetchEvoboBotNames(log)]);
+  const labels = new Map<string, string>();
+  for (const row of rows) {
+    if (!evoboBotNames.has(row.bot_name ?? "")) continue;
+    const { label, groupKey } = normalizeMarket(row.bot_name);
+    if (!labels.has(groupKey)) labels.set(groupKey, label);
+  }
+  return [...labels.entries()].map(([groupKey, market]) => ({ groupKey, market }));
 }

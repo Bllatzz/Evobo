@@ -165,6 +165,15 @@ export function MarketChartPage() {
   const statRows = perf
     ? [
         { label: "Lucro", value: `${perf.lucroPct >= 0 ? "+" : ""}${perf.lucroPct}%`, className: perf.lucroPct >= 0 ? "text-accent" : "text-live" },
+        ...(perf.oddIndicada != null && perf.lucroComOddIndicadaPct != null
+          ? [
+              {
+                label: `Lucro com odd indicada (${perf.oddIndicada.toFixed(2)})`,
+                value: `${perf.lucroComOddIndicadaPct >= 0 ? "+" : ""}${perf.lucroComOddIndicadaPct}%`,
+                className: perf.lucroComOddIndicadaPct >= 0 ? "text-accent" : "text-live",
+              },
+            ]
+          : []),
         { label: "Melhor good run", value: `${perf.bestRun.length} · +${perf.bestRun.profitPct}%`, className: "text-text" },
         { label: "Pior bad run", value: `${perf.worstRun.length} · ${perf.worstRun.profitPct}%`, className: "text-live" },
         { label: "Lucro / operação", value: `${perf.profitPerOpPct >= 0 ? "+" : ""}${perf.profitPerOpPct}%`, className: perf.profitPerOpPct >= 0 ? "text-accent" : "text-live" },

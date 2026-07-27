@@ -30,6 +30,21 @@ const filters = [
   { key: "todos", label: "Todos", match: () => true },
 ] as const;
 
+// Over 0.5 Corners FT's groupKey (see marketNormalizer.ts) — this market
+// resolves on the very first corner, so an odd that's too low isn't worth
+// the risk, and a corner or goal before the entry lands changes the game
+// state enough that the tip should be treated as stale.
+const OVER_CORNERS_GROUP_KEY = "over|Corners|0.5|FT";
+const OVER_CORNERS_NOTE = "Odd mínima recomendada: 2.00. Se sair escanteio ou gol, abortar entrada.";
+
+function OverCornersNote() {
+  return (
+    <div className="mb-3.5 rounded-lg border border-vip/30 bg-vip/10 px-2.5 py-2 text-[11px] font-medium text-vip">
+      {OVER_CORNERS_NOTE}
+    </div>
+  );
+}
+
 // robot-signals/routes.ts now fetches the "Evobo" bot_filter_profile live from
 // robotip instead of a hardcoded corners-only list, so any market curated there
 // (gols, cartões, ...) can show up in the feed — filter chips must cover all of
@@ -145,6 +160,8 @@ function DesktopRobotCard({ signal }: { signal: RobotSignal }) {
           <span className="font-mono text-[15px] font-bold">{signal.stakeUnits}u</span>
         </div>
       </div>
+
+      {signal.marketGroupKey === OVER_CORNERS_GROUP_KEY && <OverCornersNote />}
 
       {signal.bet365Url && (
         <a
@@ -435,6 +452,8 @@ export function RobotPage() {
                   <span className="font-mono text-[16px] font-bold">{signal.stakeUnits}u</span>
                 </div>
               </div>
+
+              {signal.marketGroupKey === OVER_CORNERS_GROUP_KEY && <OverCornersNote />}
 
               {signal.bet365Url && (
                 <a

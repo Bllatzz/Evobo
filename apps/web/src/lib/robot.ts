@@ -56,6 +56,10 @@ export type RobotMarketSummary = {
   assertPct: number;
   roiPct: number;
   avgOdds: number | null;
+  /** Admin-configured "odd indicada" for this market, if any — see oddIndicada. */
+  oddIndicada: number | null;
+  /** Simulated profit at `oddIndicada` (real results, fixed odd), only set when oddIndicada is. */
+  lucroComOddIndicadaPct: number | null;
 };
 
 export const fetchRobotMarkets = (): Promise<RobotMarketSummary[]> => apiFetch("/robot-signals/markets");
@@ -82,6 +86,10 @@ export type MarketPerformance = {
   assertPct: number;
   roiPct: number;
   avgOdds: number | null;
+  /** Admin-configured "odd indicada" for this market, if any — see lucroComOddIndicadaPct. */
+  oddIndicada: number | null;
+  /** Simulated profit at `oddIndicada` (real results, fixed odd), only set when oddIndicada is. */
+  lucroComOddIndicadaPct: number | null;
   opsPerDay: number;
   profitPerOpPct: number;
   maxDrawdownPct: number;

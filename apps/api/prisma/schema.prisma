@@ -376,3 +376,19 @@ model RobotSignal {
 
   @@map("robot_signals")
 }
+
+/// Per-market "odd indicada" (apps/web/src/app/admin/AdminPage.tsx) —
+/// admin-editable. When a market's groupKey (see marketNormalizer.ts) has a
+/// row here, "Histórico do Robô" shows an extra "Lucro com odd indicada"
+/// stat on that market's detail page: total profit if every green op had
+/// been bet at this odd instead of its own real recorded odd (the real
+/// green/red result stays real, only the odd changes — same idea as
+/// robotip's "Simulador de odd fixa"). The main "Lucro" figure always uses
+/// each operation's real recorded odd, unaffected by this table.
+model RobotMarketOdd {
+  groupKey     String   @id @map("group_key")
+  indicatedOdd Decimal  @db.Decimal(6, 3) @map("indicated_odd")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("robot_market_odds")
+}

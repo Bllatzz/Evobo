@@ -58,3 +58,18 @@ export const searchUsersForRole = (q: string): Promise<UserSearchResult[]> =>
 
 export const assignRole = (userId: string, roleId: string) =>
   apiFetch("/roles/assign", { method: "POST", body: JSON.stringify({ userId, roleId }) });
+
+/** "Histórico do Robô" — per-market "odd indicada" (see RobotMarketOdd in schema.prisma). */
+export type RobotMarketOddEntry = { groupKey: string; market: string; indicatedOdd: number | null };
+
+export const fetchRobotMarketOdds = (): Promise<RobotMarketOddEntry[]> =>
+  apiFetch("/admin/robot-market-odds");
+
+export const updateRobotMarketOdd = (
+  groupKey: string,
+  indicatedOdd: number | null,
+): Promise<{ groupKey: string; indicatedOdd: number | null }> =>
+  apiFetch(`/admin/robot-market-odds/${encodeURIComponent(groupKey)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ indicatedOdd }),
+  });
