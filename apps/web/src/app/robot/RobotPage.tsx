@@ -232,14 +232,24 @@ function RobotPerformancePanel({ summary }: { summary: RobotPerformanceSummary |
   );
 }
 
+/** How often to poll for new tips — no websocket/push on this feed, so this
+ * is what makes a tip that just fired show up without the user having to
+ * manually refresh. */
+const SIGNALS_POLL_INTERVAL_MS = 15_000;
+
 export function RobotPage() {
   const [signals, setSignals] = useState<RobotSignal[] | null>(null);
   const [summary, setSummary] = useState<RobotPerformanceSummary | null>(null);
   const [filter, setFilter] = useState<(typeof filters)[number]["key"]>("todos");
 
   useEffect(() => {
-    fetchRobotSignals().then(setSignals);
-    fetchRobotPerformanceSummary().then(setSummary);
+    function refresh() {
+      fetchRobotSignals().then(setSignals).catch(() => {});
+      fetchRobotPerformanceSummary().then(setSummary).catch(() => {});
+    }
+    refresh();
+    const interval = setInterval(refresh, SIGNALS_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
   }, []);
 
   const filtered = useMemo(() => {
