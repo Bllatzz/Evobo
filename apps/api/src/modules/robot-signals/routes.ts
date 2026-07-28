@@ -424,13 +424,18 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
    * every bot in the "Evobo" filter profile (see fetchEvoboBotNames above,
    * the same curated set the main `/` route shows), from robotip's curated
    * `gestao_banca` ledger (see fetchGestaoRows above) filtered to the last
-   * 24 hours.
+   * 24 hours. "Unidades" prices each op at its market's "odd indicada" when
+   * one is set (see fetchMarketOdds/RobotMarketOdd), falling back to the
+   * op's own real recorded odd otherwise — same odd basis as the
+   * "Lucro com odd indicada" stat on the market detail page, just rolled up
+   * across every curated market instead of one at a time.
    */
   app.get("/performance", async (request) => {
     const dateFrom = Date.now() - 24 * 60 * 60 * 1000;
-    const [{ rows, unavailable }, evoboBotNames] = await Promise.all([
+    const [{ rows, unavailable }, evoboBotNames, marketOdds] = await Promise.all([
       fetchGestaoRows(request.log),
       fetchEvoboBotNames(request.log),
+      fetchMarketOdds(),
     ]);
     const resolved = rows.filter(
       (r) => evoboBotNames.has(r.bot_name ?? "") && new Date(r.received_at).getTime() >= dateFrom,
@@ -442,7 +447,8 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
     let red = 0;
     for (const r of resolved) {
       const stakeUnits = toFiniteNumber(r.stake_pct, 1)!;
-      const odd = toFiniteNumber(r.bet_odds, null);
+      const indicatedOdd = marketOdds.get(normalizeMarket(r.bot_name).groupKey);
+      const odd = indicatedOdd ?? toFiniteNumber(r.bet_odds, null);
       cumulative += computeProfit(r.result, stakeUnits, odd);
       totalStaked += stakeUnits;
       if (r.result === "green") green++;
