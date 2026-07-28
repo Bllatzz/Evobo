@@ -314,6 +314,32 @@ export function RobotPage() {
         <RobotTabs active="tips" />
       </div>
 
+      <div className="px-4 pb-1 font-mono text-[10px] tracking-[0.06em] text-text-tertiary">
+        DESEMPENHO DO ROBÔ · 24H
+      </div>
+      <div className="flex gap-2 px-4 pb-3.5">
+        <div className="flex-1 rounded-2xl border border-border bg-surface-chip p-3">
+          <div className="mb-1 font-mono text-[10px] text-text-tertiary">GREEN</div>
+          <div className="font-mono text-[16px] font-bold text-accent">{summary?.green ?? "—"}</div>
+        </div>
+        <div className="flex-1 rounded-2xl border border-border bg-surface-chip p-3">
+          <div className="mb-1 font-mono text-[10px] text-text-tertiary">RED</div>
+          <div className="font-mono text-[16px] font-bold text-live">{summary?.red ?? "—"}</div>
+        </div>
+        <div className="flex-1 rounded-2xl border border-border bg-surface-chip p-3">
+          <div className="mb-1 font-mono text-[10px] text-text-tertiary">ASSERT.</div>
+          <div className="font-mono text-[16px] font-bold">{summary ? `${summary.assertPct}%` : "—"}</div>
+        </div>
+        <div className="flex-1 rounded-2xl border border-border bg-surface-chip p-3">
+          <div className="mb-1 font-mono text-[10px] text-text-tertiary">UNIDADES</div>
+          <div
+            className={`font-mono text-[16px] font-bold ${(summary?.units ?? 0) >= 0 ? "text-accent" : "text-live"}`}
+          >
+            {summary ? `${summary.units >= 0 ? "+" : ""}${summary.units.toFixed(1)}u` : "—"}
+          </div>
+        </div>
+      </div>
+
       <div className="flex gap-2 overflow-x-auto px-4 pb-3.5">
         {visibleFilters.map((f) => (
           <button
