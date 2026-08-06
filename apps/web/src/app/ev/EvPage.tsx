@@ -336,10 +336,15 @@ export function EvPage() {
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    return applyEvFilters(data.picks, filters)
+    // The date-range filter defaults to today..+3 days (the upcoming window) — on
+    // Finalizados that would exclude every pick, since past games kicked off
+    // before today by definition. That tab has its own window server-side, so
+    // skip the date bounds here and only apply the rest (market/odd/EV).
+    const dateFiltered = isFinishedTab ? { ...filters, dateFrom: "", dateTo: "" } : filters;
+    return applyEvFilters(data.picks, dateFiltered)
       .filter((p) => matchesSearch(p, search))
       .filter((p) => statusTab === "all" || p.status === statusTab);
-  }, [data, filters, search, statusTab]);
+  }, [data, filters, search, statusTab, isFinishedTab]);
 
   const sortedGroups = useMemo(() => {
     const groups = groupByGame(filtered).map((g) => ({
