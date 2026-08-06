@@ -16,11 +16,15 @@ function toDateInput(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Matches the two robotip fetch windows in apps/api's ev-plus route: 7 days back
+// (finished games) through 3 days ahead (live/upcoming) — a tighter default would
+// silently exclude picks the page actually has data for.
 export function defaultEvFilters(): EvFilterState {
   const today = new Date();
+  const days7Ago = new Date(today.getTime() - 7 * 86_400_000);
   const in3Days = new Date(today.getTime() + 3 * 86_400_000);
   return {
-    dateFrom: toDateInput(today),
+    dateFrom: toDateInput(days7Ago),
     dateTo: toDateInput(in3Days),
     market: "all",
     oddMin: 1,

@@ -315,19 +315,23 @@ export function EvPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
 
-  // "Finalizados" reads from a different robotip window (past days) than the other
-  // three tabs (live+upcoming) — refetch only when crossing that boundary, not on
-  // every tab click, so switching between Todas/Ao vivo/Próximos stays instant.
-  const isFinishedTab = statusTab === "finished";
-
   useEffect(() => {
     setSavedFilters(loadSavedEvFilters());
   }, []);
 
+  // Live/upcoming and finished games come from two different robotip windows
+  // (see apps/api ev-plus routes) — fetch both up front and merge, so "Todas"
+  // really means everything and the other tabs are just a client-side filter
+  // on top, no per-tab refetch.
   useEffect(() => {
     setData(null);
-    fetchEvPicks(isFinishedTab).then(setData);
-  }, [isFinishedTab]);
+    Promise.all([fetchEvPicks(false), fetchEvPicks(true)]).then(([upcoming, history]) => {
+      setData({
+        picks: [...upcoming.picks, ...history.picks],
+        unavailable: upcoming.unavailable,
+      });
+    });
+  }, []);
 
   const marketCategories = useMemo(() => {
     if (!data) return [];
@@ -336,15 +340,10 @@ export function EvPage() {
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    // The date-range filter defaults to today..+3 days (the upcoming window) — on
-    // Finalizados that would exclude every pick, since past games kicked off
-    // before today by definition. That tab has its own window server-side, so
-    // skip the date bounds here and only apply the rest (market/odd/EV).
-    const dateFiltered = isFinishedTab ? { ...filters, dateFrom: "", dateTo: "" } : filters;
-    return applyEvFilters(data.picks, dateFiltered)
+    return applyEvFilters(data.picks, filters)
       .filter((p) => matchesSearch(p, search))
       .filter((p) => statusTab === "all" || p.status === statusTab);
-  }, [data, filters, search, statusTab, isFinishedTab]);
+  }, [data, filters, search, statusTab]);
 
   const sortedGroups = useMemo(() => {
     const groups = groupByGame(filtered).map((g) => ({
@@ -504,9 +503,8 @@ export function EvPage() {
             <div className="flex flex-col items-center gap-3 py-10 text-center">
               <IconTrendingUp size={30} className="text-accent" />
               <p className="max-w-xs text-sm text-text-secondary">
-                {isFinishedTab
-                  ? "Nenhum jogo passado com odd mapeada nos últimos dias."
-                  : "Nenhuma previsão disponível no momento, volta aqui quando tiver jogo com odd mapeada por um bookmaker."}
+                Nenhuma previsão disponível no momento, volta aqui quando tiver jogo com odd
+                mapeada por um bookmaker.
               </p>
             </div>
           )}
