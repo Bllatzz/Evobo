@@ -13,7 +13,7 @@ import { SavedFiltersModal } from "./SavedFiltersModal";
 import { Toggle } from "../../components/Toggle";
 import { PaginationControl } from "../../components/PaginationControl";
 import { CrestName } from "../../components/CrestName";
-import { IconChevronDown, IconTrendingUp, IconSearch, IconTune } from "../../components/Icon";
+import { IconChevronDown, IconTrendingUp, IconSearch, IconTune, IconHistory } from "../../components/Icon";
 
 const PAGE_SIZE = 15; // games per page, not individual markets
 
@@ -104,7 +104,7 @@ type GameGroup = {
   awayImageUrl: string;
   competition: string | null;
   kickoff: string;
-  status: "live" | "upcoming";
+  status: "live" | "upcoming" | "finished";
   picks: EvPick[];
 };
 
@@ -149,6 +149,8 @@ function GameHeader({ group }: { group: GameGroup }) {
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />
             AO VIVO
           </span>
+        ) : group.status === "finished" ? (
+          <span className="flex-none text-text-quaternary">Finalizado</span>
         ) : (
           <span className="flex-none text-text-quaternary">Agendado</span>
         )}
@@ -305,15 +307,20 @@ export function EvPage() {
   const [savedModalOpen, setSavedModalOpen] = useState(false);
   const [savedFilters, setSavedFilters] = useState<SavedEvFilter[]>([]);
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
+  const [showHistory, setShowHistory] = useState(false);
   const [showProbability, setShowProbability] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("evPct");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    fetchEvPicks().then(setData);
     setSavedFilters(loadSavedEvFilters());
   }, []);
+
+  useEffect(() => {
+    setData(null);
+    fetchEvPicks(showHistory).then(setData);
+  }, [showHistory]);
 
   const marketCategories = useMemo(() => {
     if (!data) return [];
@@ -346,7 +353,7 @@ export function EvPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [filters, search, statusTab]);
+  }, [filters, search, statusTab, showHistory]);
 
   const totalPages = Math.max(1, Math.ceil(sortedGroups.length / PAGE_SIZE));
   const pageGroups = sortedGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -428,22 +435,37 @@ export function EvPage() {
         <div className="mx-auto flex w-full max-w-[1000px] flex-col">
           {/* Status tabs */}
           <div className="mb-3 flex items-center gap-2 overflow-x-auto">
-            {STATUS_TABS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setStatusTab(t.key)}
-                className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] font-semibold ${
-                  statusTab === t.key ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+            {showHistory ? (
+              <span className="flex-none rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-semibold text-[#08090A]">
+                Finalizados
+              </span>
+            ) : (
+              STATUS_TABS.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setStatusTab(t.key)}
+                  className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] font-semibold ${
+                    statusTab === t.key ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))
+            )}
             <button
               onClick={() => setSavedModalOpen(true)}
               className="flex-none rounded-full bg-surface-alt px-3.5 py-1.5 text-[12px] font-semibold text-text-secondary"
             >
               Filtros salvos
+            </button>
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              className={`flex-none flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-semibold ${
+                showHistory ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
+              }`}
+            >
+              <IconHistory size={13} />
+              Jogos passados
             </button>
 
             {data && data.picks.length > 0 && (
@@ -485,8 +507,9 @@ export function EvPage() {
             <div className="flex flex-col items-center gap-3 py-10 text-center">
               <IconTrendingUp size={30} className="text-accent" />
               <p className="max-w-xs text-sm text-text-secondary">
-                Nenhuma previsão disponível no momento, volta aqui quando tiver jogo com odd
-                mapeada por um bookmaker.
+                {showHistory
+                  ? "Nenhum jogo passado com odd mapeada nos últimos dias."
+                  : "Nenhuma previsão disponível no momento, volta aqui quando tiver jogo com odd mapeada por um bookmaker."}
               </p>
             </div>
           )}

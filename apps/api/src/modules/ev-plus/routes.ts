@@ -54,19 +54,35 @@ type ModelPrediction = {
   ai_analytics: { pt: string; en: string } | null;
 };
 
-let cache: { rows: ModelPrediction[]; fetchedAt: number } | null = null;
+// History window: how many past days of finished games the "jogos passados" toggle looks back.
+const HISTORY_WINDOW_DAYS = 7;
 
-/** Fetches today .. +3 days of predictions, cached for a few minutes. `unavailable: true` means the
- * upstream fetch failed and there's no cached data to fall back on — callers must not present that as "no picks". */
+type PredictionsWindow = "upcoming" | "history";
+
+const caches: Record<PredictionsWindow, { rows: ModelPrediction[]; fetchedAt: number } | null> = {
+  upcoming: null,
+  history: null,
+};
+
+/** Fetches a window of predictions from robotip, cached per-window for a few minutes.
+ * "upcoming" is today .. +3 days (live/scheduled games); "history" is the past
+ * `HISTORY_WINDOW_DAYS` days .. today (for the "jogos passados" toggle). `unavailable: true`
+ * means the upstream fetch failed and there's no cached data to fall back on — callers must
+ * not present that as "no picks". */
 async function fetchPredictions(
   log: FastifyBaseLogger,
+  window: PredictionsWindow,
 ): Promise<{ rows: ModelPrediction[]; unavailable: boolean }> {
+  const cache = caches[window];
   if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
     return { rows: cache.rows, unavailable: false };
   }
   try {
-    const from = Math.floor(Date.now() / 86_400_000) * 86_400;
-    const to = from + 3 * 86_400;
+    const todayMidnight = Math.floor(Date.now() / 86_400_000) * 86_400;
+    const [from, to] =
+      window === "upcoming"
+        ? [todayMidnight, todayMidnight + 3 * 86_400]
+        : [todayMidnight - HISTORY_WINDOW_DAYS * 86_400, todayMidnight];
     const res = await fetch(`${ROBOTIP_PUBLIC_URL}/api/model_predictions?from=${from}&to=${to}`, {
       signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
       headers: ROBOTIP_SESSION_COOKIE ? { Cookie: ROBOTIP_SESSION_COOKIE } : undefined,
@@ -74,12 +90,13 @@ async function fetchPredictions(
     if (!res.ok) throw new Error(`robotip responded ${res.status}`);
     const rows = (await res.json()) as unknown;
     if (!Array.isArray(rows)) throw new Error("unexpected model_predictions response shape");
-    cache = { rows: rows as ModelPrediction[], fetchedAt: Date.now() };
-    const withOdd = cache.rows.filter((r) => r.odd_bookie !== null).length;
-    log.info({ total: cache.rows.length, withOdd }, "EV+ model_predictions refreshed");
-    return { rows: cache.rows, unavailable: false };
+    const fresh = { rows: rows as ModelPrediction[], fetchedAt: Date.now() };
+    caches[window] = fresh;
+    const withOdd = fresh.rows.filter((r) => r.odd_bookie !== null).length;
+    log.info({ window, total: fresh.rows.length, withOdd }, "EV+ model_predictions refreshed");
+    return { rows: fresh.rows, unavailable: false };
   } catch (err) {
-    log.error({ err }, "failed to fetch EV+ model_predictions from robotip");
+    log.error({ err, window }, "failed to fetch EV+ model_predictions from robotip");
     return { rows: cache?.rows ?? [], unavailable: !cache };
   }
 }
@@ -120,12 +137,17 @@ export async function evPlusRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authGuard);
 
   app.get("/", async (request) => {
-    const { rows, unavailable } = await fetchPredictions(request.log);
+    // `?history=1` switches to the past-games window (finished matches, for
+    // the "jogos passados" toggle) instead of the default live/upcoming one.
+    const history = (request.query as { history?: string }).history === "1";
+    const { rows, unavailable } = await fetchPredictions(request.log, history ? "history" : "upcoming");
 
     // A row is worth showing once it has a real bookmaker odd on a real
     // market (odd_name/odd_bookie/prob_fair/line all present — most rows
     // carry an `ev` with none of those, a pre-market model score with
-    // nothing to bet on yet) and the game hasn't finished (time_status 3).
+    // nothing to bet on yet). The upcoming window excludes finished games
+    // (time_status 3); the history window is the opposite — only finished
+    // games, since that's the whole point of looking back.
     // Unlike an earlier version of this endpoint, EV sign is NOT filtered
     // here — robotip's own ev_table lists every market side (over AND
     // under) it has odds for, negative EV included, same as this does now;
@@ -142,7 +164,7 @@ export async function evPlusRoutes(app: FastifyInstance) {
         r.prob_fair !== null &&
         r.line !== null &&
         r.over_under !== null &&
-        r.time_status !== 3,
+        (history ? r.time_status === 3 : r.time_status !== 3),
     );
 
     // robotip's own feed carries the same market side from several
@@ -158,7 +180,8 @@ export async function evPlusRoutes(app: FastifyInstance) {
     }
 
     const picks = [...latestByKey.values()]
-      .sort((a, b) => a.timestamp - b.timestamp)
+      // Upcoming: soonest kickoff first. History: most recently finished first.
+      .sort((a, b) => (history ? b.timestamp - a.timestamp : a.timestamp - b.timestamp))
       .slice(0, 1000)
       .map((r) => ({
         id: r.id,
@@ -177,7 +200,7 @@ export async function evPlusRoutes(app: FastifyInstance) {
         awayImageUrl: teamImageUrl(r.away_id),
         competition: r.league_name,
         kickoff: new Date(r.timestamp * 1000).toISOString(),
-        status: r.time_status === 1 ? ("live" as const) : ("upcoming" as const),
+        status: r.time_status === 3 ? ("finished" as const) : r.time_status === 1 ? ("live" as const) : ("upcoming" as const),
         analysis: r.ai_analytics?.pt ?? null,
       }));
 

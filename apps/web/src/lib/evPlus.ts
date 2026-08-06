@@ -17,7 +17,7 @@ export type EvPick = {
   awayImageUrl: string;
   competition: string | null;
   kickoff: string;
-  status: "live" | "upcoming";
+  status: "live" | "upcoming" | "finished";
   analysis: string | null;
 };
 
@@ -26,4 +26,5 @@ export type EvPicksResponse = {
   unavailable: boolean;
 };
 
-export const fetchEvPicks = (): Promise<EvPicksResponse> => apiFetch("/ev-plus");
+export const fetchEvPicks = (history = false): Promise<EvPicksResponse> =>
+  apiFetch(history ? "/ev-plus?history=1" : "/ev-plus");
