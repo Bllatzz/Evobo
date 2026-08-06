@@ -13,7 +13,7 @@ import { SavedFiltersModal } from "./SavedFiltersModal";
 import { Toggle } from "../../components/Toggle";
 import { PaginationControl } from "../../components/PaginationControl";
 import { CrestName } from "../../components/CrestName";
-import { IconChevronDown, IconTrendingUp, IconSearch, IconTune, IconHistory } from "../../components/Icon";
+import { IconChevronDown, IconTrendingUp, IconSearch, IconTune } from "../../components/Icon";
 
 const PAGE_SIZE = 15; // games per page, not individual markets
 
@@ -36,12 +36,15 @@ function matchesSearch(pick: EvPick, query: string): boolean {
   );
 }
 
-type StatusTab = "all" | "live" | "upcoming";
+type StatusTab = "all" | "live" | "upcoming" | "finished";
 
+// "finished" is fetched from a different (past-games) robotip window than the other
+// three, which all share the live+upcoming window — see the fetch effect below.
 const STATUS_TABS: { key: StatusTab; label: string }[] = [
   { key: "all", label: "Todas" },
   { key: "live", label: "Ao vivo" },
-  { key: "upcoming", label: "Pré-jogo" },
+  { key: "upcoming", label: "Próximos" },
+  { key: "finished", label: "Finalizados" },
 ];
 
 type SortKey = "kickoff" | "market" | "oddBookie" | "oddFair" | "evPct";
@@ -307,11 +310,15 @@ export function EvPage() {
   const [savedModalOpen, setSavedModalOpen] = useState(false);
   const [savedFilters, setSavedFilters] = useState<SavedEvFilter[]>([]);
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
-  const [showHistory, setShowHistory] = useState(false);
   const [showProbability, setShowProbability] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("evPct");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
+
+  // "Finalizados" reads from a different robotip window (past days) than the other
+  // three tabs (live+upcoming) — refetch only when crossing that boundary, not on
+  // every tab click, so switching between Todas/Ao vivo/Próximos stays instant.
+  const isFinishedTab = statusTab === "finished";
 
   useEffect(() => {
     setSavedFilters(loadSavedEvFilters());
@@ -319,8 +326,8 @@ export function EvPage() {
 
   useEffect(() => {
     setData(null);
-    fetchEvPicks(showHistory).then(setData);
-  }, [showHistory]);
+    fetchEvPicks(isFinishedTab).then(setData);
+  }, [isFinishedTab]);
 
   const marketCategories = useMemo(() => {
     if (!data) return [];
@@ -353,7 +360,7 @@ export function EvPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [filters, search, statusTab, showHistory]);
+  }, [filters, search, statusTab]);
 
   const totalPages = Math.max(1, Math.ceil(sortedGroups.length / PAGE_SIZE));
   const pageGroups = sortedGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -435,37 +442,22 @@ export function EvPage() {
         <div className="mx-auto flex w-full max-w-[1000px] flex-col">
           {/* Status tabs */}
           <div className="mb-3 flex items-center gap-2 overflow-x-auto">
-            {showHistory ? (
-              <span className="flex-none rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-semibold text-[#08090A]">
-                Finalizados
-              </span>
-            ) : (
-              STATUS_TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setStatusTab(t.key)}
-                  className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] font-semibold ${
-                    statusTab === t.key ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))
-            )}
+            {STATUS_TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setStatusTab(t.key)}
+                className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] font-semibold ${
+                  statusTab === t.key ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
             <button
               onClick={() => setSavedModalOpen(true)}
               className="flex-none rounded-full bg-surface-alt px-3.5 py-1.5 text-[12px] font-semibold text-text-secondary"
             >
               Filtros salvos
-            </button>
-            <button
-              onClick={() => setShowHistory((v) => !v)}
-              className={`flex-none flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-semibold ${
-                showHistory ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
-              }`}
-            >
-              <IconHistory size={13} />
-              Jogos passados
             </button>
 
             {data && data.picks.length > 0 && (
@@ -507,7 +499,7 @@ export function EvPage() {
             <div className="flex flex-col items-center gap-3 py-10 text-center">
               <IconTrendingUp size={30} className="text-accent" />
               <p className="max-w-xs text-sm text-text-secondary">
-                {showHistory
+                {isFinishedTab
                   ? "Nenhum jogo passado com odd mapeada nos últimos dias."
                   : "Nenhuma previsão disponível no momento, volta aqui quando tiver jogo com odd mapeada por um bookmaker."}
               </p>
