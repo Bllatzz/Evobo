@@ -81,6 +81,8 @@ model User {
   notifications    Notification[]
   auditLogs        AuditLog[]
   tipTakes         TipTake[]
+  telegramBancaSettings    TelegramBancaSettings?
+  telegramBookmakerBalances TelegramBookmakerBalance[]
 
   @@map("users")
 }
@@ -391,4 +393,98 @@ model RobotMarketOdd {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("robot_market_odds")
+}
+
+/// Personal tip tracker fed by a Telegram MTProto listener (apps/worker) —
+/// separate account/system from robot-signals' proxy to robotip. "Telegram"
+/// prefix on all 3 models is intentional: avoids colliding with the
+/// unrelated `Tip`/`VipGroup` models (public tipster feed / paid VIP
+/// groups), which mean something completely different. RLS is enabled with
+/// zero policies (see the migration's raw SQL) — same "backend-only access"
+/// convention as vip_subscriptions; Prisma connects as `postgres` and
+/// ignores RLS regardless, this is defense in depth only.
+model TelegramGroup {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  telegramChatId String    @unique @map("telegram_chat_id")
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  tips TelegramTip[]
+
+  @@map("telegram_groups")
+}
+
+/// One row per selection (a multi-selection message, e.g. 3 separate stake
+/// lines, becomes N rows sharing the same telegramMessageId/photoPath; a
+/// combo/"múltipla" bet across several markets stays 1 row with `selection`
+/// listing all legs). Tips land here directly as soon as the worker parses
+/// the message — no separate approval queue. Result comes from a manual
+/// dashboard edit for now (auto-fetching the bookmaker's settled result is
+/// future work, not built yet).
+///
+/// Storage cost control: apps/worker's purgeOldTips runs daily and, for
+/// RESOLVED tips (result != pending) older than 60 days, deletes the Storage
+/// photo and nulls match/selection/betUrl/rawMessage/parsePattern — keeping
+/// exactly the columns GET /banca aggregates (groupId, bookmaker, unit, odd,
+/// result, takenStatus, receivedAt) so historical metrics never change, only
+/// the per-tip detail disappears. Pending tips are never purged, regardless
+/// of age — losing the photo before it's reviewed would make it unresolvable.
+model TelegramTip {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId           String   @map("group_id") @db.Uuid
+  telegramMessageId BigInt   @map("telegram_message_id")
+  match             String?
+  selection         String?
+  unit              Decimal? @db.Decimal(5, 2)
+  odd               Decimal? @db.Decimal(6, 2)
+  /// "ocr" (Gemini Vision) | "manual" | "text" (already explicit in the
+  /// Telegram message body, e.g. "ODD: 2.80") — null until one of them sets it.
+  oddSource         String?  @map("odd_source")
+  bookmaker         String?
+  betUrl            String?  @map("bet_url")
+  photoPath         String?  @map("photo_path")
+  /// pending | green | red | reembolso
+  result            String   @default("pending")
+  /// Whether the user actually placed this bet — "pending" | "taken" | "skipped".
+  /// Set manually on the dashboard for now; reading the user's own 👍 reaction
+  /// on the Telegram message to set this automatically is future work.
+  takenStatus       String   @default("pending") @map("taken_status")
+  /// Which parser matcher recognized the message (see apps/worker/src/parseTip.ts's
+  /// KNOWN_PATTERNS) — null means nothing matched and every extractable field
+  /// still needs a manual look on the dashboard.
+  parsePattern      String?  @map("parse_pattern")
+  receivedAt        DateTime @default(now()) @map("received_at")
+  rawMessage        String?  @map("raw_message")
+
+  group TelegramGroup @relation(fields: [groupId], references: [id])
+
+  @@index([telegramMessageId])
+  @@index([groupId])
+  @@map("telegram_tips")
+}
+
+/// Per-user bankroll settings for the Banca Telegram report — value of 1
+/// unit in R$, used to convert the unit-based profit/ROI into currency.
+model TelegramBancaSettings {
+  userId    String   @id @map("user_id") @db.Uuid
+  unitValue Decimal? @map("unit_value") @db.Decimal(10, 2)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("telegram_banca_settings")
+}
+
+/// How much money the user has parked in each bookmaker — purely informational,
+/// entered manually on the profile page for bankroll management.
+model TelegramBookmakerBalance {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  bookmaker String
+  balance   Decimal  @db.Decimal(10, 2)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, bookmaker])
+  @@map("telegram_bookmaker_balances")
 }

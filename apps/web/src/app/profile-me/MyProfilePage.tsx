@@ -6,6 +6,7 @@ import { Avatar } from "../../components/Avatar";
 import { AccountMenu } from "../../components/AccountMenu";
 import { useAuth } from "../../stores/auth";
 import { IconCheck, IconX } from "../../components/Icon";
+import { TelegramBancaSettingsSection } from "../telegram-tips/TelegramBancaSettingsSection";
 
 const resultLabel: Record<string, { text: string; className: string; Icon?: typeof IconCheck }> = {
   green: { text: "Green", className: "text-accent", Icon: IconCheck },
@@ -70,7 +71,7 @@ function BankrollChart({ settled }: { settled: ProfileTip[] }) {
 }
 
 export function MyProfilePage() {
-  const { me } = useAuth();
+  const { me, canAccess } = useAuth();
   const [bets, setBets] = useState<ProfileTip[] | null>(null);
 
   const load = useCallback(() => {
@@ -111,6 +112,12 @@ export function MyProfilePage() {
 
   return (
     <div className="pb-6 lg:mx-auto lg:max-w-[900px] lg:px-0 lg:pt-6">
+      {canAccess("telegram_banca") && (
+        <div className="px-5 pt-3 lg:px-0 lg:pt-6">
+          <TelegramBancaSettingsSection />
+        </div>
+      )}
+
       {/* ---------- Desktop ---------- */}
       <div className="hidden lg:block">
         <div className="mb-6 flex items-center gap-3">

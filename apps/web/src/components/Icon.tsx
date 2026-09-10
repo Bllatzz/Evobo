@@ -390,6 +390,15 @@ export function IconGoogle({ size = 18, className }: IconProps) {
   );
 }
 
+/** VIP Telegram nav item — paper-plane glyph. */
+export function IconTelegram({ size = 22, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M21 4L3 11l6 2.5M21 4l-3.5 16-8.5-6.5M21 4L9 13.5v5" />
+    </svg>
+  );
+}
+
 /** Análise IA — Admin · Telas & permissões row icon. */
 export function IconTune({ size = 15, className }: IconProps) {
   return (

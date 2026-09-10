@@ -16,6 +16,7 @@ export const screenKeys = [
   "perfil",
   "nova_tip",
   "robo_apostas",
+  "telegram_banca",
   "admin",
   "admin_roles",
   "admin_payments",
@@ -267,3 +268,122 @@ export const AuditLogSchema = z.object({
   createdAt: z.string(),
 });
 export type AuditLog = z.infer<typeof AuditLogSchema>;
+
+// ── Banca Telegram (personal tip tracker, apps/worker + telegram-tips module) ──
+
+export const TelegramGroupSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  telegramChatId: z.string(),
+  active: z.boolean(),
+  createdAt: z.string(),
+});
+export type TelegramGroup = z.infer<typeof TelegramGroupSchema>;
+
+export const CreateTelegramGroupInput = z.object({
+  name: z.string().min(1).max(120),
+  telegramChatId: z.string().min(1),
+});
+export type CreateTelegramGroupInput = z.infer<typeof CreateTelegramGroupInput>;
+
+export const UpdateTelegramGroupInput = z.object({
+  name: z.string().min(1).max(120).optional(),
+  active: z.boolean().optional(),
+});
+export type UpdateTelegramGroupInput = z.infer<typeof UpdateTelegramGroupInput>;
+
+export const TelegramTipResult = z.enum(["pending", "green", "red", "reembolso"]);
+export type TelegramTipResult = z.infer<typeof TelegramTipResult>;
+
+/** Whether the user actually placed this bet. Set manually on the dashboard
+ * for now — reading the user's own 👍 reaction on Telegram to set "taken"
+ * automatically is future work, not built yet. */
+export const TelegramTipTakenStatus = z.enum(["pending", "taken", "skipped"]);
+export type TelegramTipTakenStatus = z.infer<typeof TelegramTipTakenStatus>;
+
+export const TelegramTipSchema = z.object({
+  id: z.string().uuid(),
+  groupId: z.string().uuid(),
+  groupName: z.string(),
+  telegramMessageId: z.string(),
+  match: z.string().nullable(),
+  /** Null on old resolved tips whose detail was purged for storage cost — see TelegramTip in schema.prisma. */
+  selection: z.string().nullable(),
+  unit: z.number().nullable(),
+  odd: z.number().nullable(),
+  /** "ocr" | "manual" | "text" (already explicit in the Telegram message body). */
+  oddSource: z.enum(["ocr", "manual", "text"]).nullable(),
+  bookmaker: z.string().nullable(),
+  betUrl: z.string().nullable(),
+  photoUrl: z.string().nullable(),
+  result: TelegramTipResult,
+  takenStatus: TelegramTipTakenStatus,
+  /** Which worker parser matcher recognized the message — null means nothing
+   * matched and every extractable field still needs a manual look. */
+  parsePattern: z.string().nullable(),
+  receivedAt: z.string(),
+  rawMessage: z.string().nullable(),
+});
+export type TelegramTip = z.infer<typeof TelegramTipSchema>;
+
+/** Manual correction from the dashboard — always available as the OCR/parser fallback. */
+export const UpdateTelegramTipInput = z.object({
+  result: TelegramTipResult.optional(),
+  takenStatus: TelegramTipTakenStatus.optional(),
+  odd: z.number().positive().nullable().optional(),
+  unit: z.number().positive().nullable().optional(),
+  selection: z.string().min(1).max(200).optional(),
+  match: z.string().max(200).nullable().optional(),
+  bookmaker: z.string().max(80).nullable().optional(),
+  betUrl: z.string().url().nullable().optional(),
+});
+export type UpdateTelegramTipInput = z.infer<typeof UpdateTelegramTipInput>;
+
+export const TelegramBancaRow = z.object({
+  key: z.string(),
+  total: z.number(),
+  green: z.number(),
+  red: z.number(),
+  reembolso: z.number(),
+  staked: z.number(),
+  profit: z.number(),
+  roiPct: z.number().nullable(),
+  greenPct: z.number().nullable(),
+  missingOdd: z.number(),
+  /** staked/profit converted to R$ using the user's registered unit value — null when unset. */
+  stakedBRL: z.number().nullable(),
+  profitBRL: z.number().nullable(),
+});
+export type TelegramBancaRow = z.infer<typeof TelegramBancaRow>;
+
+const TelegramBancaScope = z.object({
+  byGroup: z.array(TelegramBancaRow),
+  byBookmaker: z.array(TelegramBancaRow),
+});
+
+/** "geral" = every resolved tip regardless of takenStatus (how good the group's calls are);
+ * "peguei" = only the ones the user marked as taken (the user's real P&L). */
+export const TelegramBancaSummary = z.object({
+  geral: TelegramBancaScope,
+  peguei: TelegramBancaScope,
+});
+export type TelegramBancaSummary = z.infer<typeof TelegramBancaSummary>;
+
+export const TelegramBancaSettingsSchema = z.object({
+  unitValue: z.number().positive().nullable(),
+});
+export type TelegramBancaSettings = z.infer<typeof TelegramBancaSettingsSchema>;
+
+export const UpdateTelegramBancaSettingsInput = z.object({
+  unitValue: z.number().positive().nullable(),
+});
+export type UpdateTelegramBancaSettingsInput = z.infer<typeof UpdateTelegramBancaSettingsInput>;
+
+export const TelegramBookmakerBalanceSchema = z.object({
+  bookmaker: z.string().min(1).max(80),
+  balance: z.number(),
+});
+export type TelegramBookmakerBalance = z.infer<typeof TelegramBookmakerBalanceSchema>;
+
+export const UpdateTelegramBookmakerBalancesInput = z.array(TelegramBookmakerBalanceSchema).max(50);
+export type UpdateTelegramBookmakerBalancesInput = z.infer<typeof UpdateTelegramBookmakerBalancesInput>;

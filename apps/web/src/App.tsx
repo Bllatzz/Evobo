@@ -23,6 +23,8 @@ import { EditProfilePage } from "./app/edit-profile/EditProfilePage";
 import { ProfilePage } from "./app/profile/ProfilePage";
 import { NewTipPage } from "./app/new-tip/NewTipPage";
 import { RobotPage } from "./app/robot/RobotPage";
+import { TelegramTipsPage } from "./app/telegram-tips/TelegramTipsPage";
+import { TelegramReportPage } from "./app/telegram-tips/TelegramReportPage";
 import { MarketChartPage } from "./app/robot/MarketChartPage";
 import { MarketsPage } from "./app/robot/MarketsPage";
 import { AdminPage } from "./app/admin/AdminPage";
@@ -266,6 +268,26 @@ function App() {
               <RouteGuard screen="robo_apostas">
                 <SidebarFrame>
                   <MarketChartPage />
+                </SidebarFrame>
+              </RouteGuard>
+            }
+          />
+          <Route
+            path="/telegram-tips"
+            element={
+              <RouteGuard screen="telegram_banca">
+                <SidebarFrame>
+                  <TelegramTipsPage />
+                </SidebarFrame>
+              </RouteGuard>
+            }
+          />
+          <Route
+            path="/telegram-tips/relatorio"
+            element={
+              <RouteGuard screen="telegram_banca">
+                <SidebarFrame>
+                  <TelegramReportPage />
                 </SidebarFrame>
               </RouteGuard>
             }

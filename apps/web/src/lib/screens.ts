@@ -20,6 +20,7 @@ export const screenRoutes: Record<ScreenKey, { path: string; label: string }> = 
   perfil: { path: "/u/:username", label: "Perfil" },
   nova_tip: { path: "/new-tip", label: "Nova Tip" },
   robo_apostas: { path: "/robot", label: "Robô de Apostas" },
+  telegram_banca: { path: "/telegram-tips", label: "VIP Telegram" },
   admin: { path: "/admin", label: "Admin" },
   admin_roles: { path: "/admin/roles", label: "Gestão de Roles" },
   admin_payments: { path: "/admin/payments", label: "Aprovação de Pagamentos" },

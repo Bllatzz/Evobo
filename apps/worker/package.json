@@ -1,0 +1,28 @@
+{
+  "name": "@evobo/worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch -r dotenv/config src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node -r dotenv/config dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "discover": "tsx -r dotenv/config scripts/discover-dialogs.ts",
+    "backfill": "tsx -r dotenv/config scripts/backfill.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.1",
+    "@supabase/supabase-js": "^2.110.0",
+    "bullmq": "^5.79.2",
+    "dotenv": "^16.6.1",
+    "input": "^1.0.1",
+    "ioredis": "^5.11.1",
+    "telegram": "^2.26.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "tsx": "^4.22.4",
+    "typescript": "~5.9.3"
+  }
+}
