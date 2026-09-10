@@ -1,5 +1,7 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { resolveLeagueImageUrl } from "./leagueImages.js";
+import { fetchNextGames, fetchStats, mapWithConcurrency } from "./robotipClient.js";
+import { fetchTeamForm } from "./teamForm.js";
 
 /**
  * "Jogos" — live scoreboard read straight from robotip's own public feed
@@ -18,44 +20,13 @@ import { resolveLeagueImageUrl } from "./leagueImages.js";
  *    and cached for a short window since this is genuinely live data.
  */
 
-const ROBOTIP_PUBLIC_URL = process.env.GAMES_LIVE_ROBOTIP_URL ?? "https://robotip.com.br";
-const EXTERNAL_FETCH_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 45_000;
 const STATS_FETCH_CONCURRENCY = 25;
 
-type NextGameEntry = {
-  time_status: number; // 0 not started, 1 live, 2 TBD/postponed, 3 finished
-  away_id: string;
-  away_name: string;
-  home_id: string;
-  home_name: string;
-  league_country: string | null;
-  img_time_1: string;
-  img_time_2: string;
-  popularity: number;
-  nome_liga: string;
-  id_liga: string;
-  game_id: string;
-  time: number; // unix seconds, kickoff
-};
-
-type StatsFeedData = {
-  goals_home: number | null;
-  goals_away: number | null;
-  tm: number | null;
-  home_win_odd: number | null;
-  draw_odd: number | null;
-  away_win_odd: number | null;
-  corners_home: number | null;
-  corners_away: number | null;
-  yellowcards_home: number | null;
-  yellowcards_away: number | null;
-  redcards_home: number | null;
-  redcards_away: number | null;
-};
-
 export type LiveGame = {
   gameId: string;
+  homeId: string;
+  awayId: string;
   homeTeam: string;
   awayTeam: string;
   homeImageUrl: string;
@@ -91,46 +62,6 @@ function todayInSaoPaulo(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
 
-function toCustomDateParam(isoDate: string): string {
-  const [y, m, d] = isoDate.split("-");
-  return `${d}/${m}/${y}`;
-}
-
-async function fetchNextGames(isoDate: string): Promise<Record<string, { last: NextGameEntry }>> {
-  const customDate = toCustomDateParam(isoDate);
-  const url = `${ROBOTIP_PUBLIC_URL}/api/next_games?timezoneOffset=-10800&pref_lang=pt-BR&customDate=${encodeURIComponent(customDate)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`robotip next_games responded ${res.status}`);
-  return (await res.json()) as Record<string, { last: NextGameEntry }>;
-}
-
-async function fetchStats(gameId: string): Promise<StatsFeedData | null> {
-  try {
-    const res = await fetch(`${ROBOTIP_PUBLIC_URL}/api/transfer/StatsFeed?game_id=${gameId}`, {
-      signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { data: StatsFeedData };
-    return body.data;
-  } catch {
-    return null; // one game's stats failing shouldn't sink the whole day's list
-  }
-}
-
-/** Runs `fn` over `items` with at most `limit` in flight at once. */
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i]!);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
 const cache = new Map<string, { games: LiveGame[]; fetchedAt: number }>();
 
 async function loadGames(isoDate: string, log: FastifyBaseLogger): Promise<{ games: LiveGame[]; unavailable: boolean }> {
@@ -158,6 +89,8 @@ async function loadGames(isoDate: string, log: FastifyBaseLogger): Promise<{ gam
       const s = stats[i];
       return {
         gameId: e.game_id,
+        homeId: e.home_id,
+        awayId: e.away_id,
         homeTeam: e.home_name,
         awayTeam: e.away_name,
         homeImageUrl: e.img_time_1,
@@ -204,4 +137,31 @@ export async function gamesLiveRoutes(app: FastifyInstance) {
     const { games, unavailable } = await loadGames(isoDate, request.log);
     return { games, unavailable };
   });
+
+  // Single-fixture detail — backs the "Jogo" stats page. `date` must match
+  // the day the fixture was listed under on `/` (there's no per-gameId
+  // lookup upstream), so the frontend always passes along the date it
+  // fetched the game from.
+  app.get<{ Params: { gameId: string }; Querystring: { date?: string } }>(
+    "/:gameId",
+    async (request, reply) => {
+      const { gameId } = request.params;
+      const { date } = request.query;
+      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return reply.code(400).send({ error: "invalid_date" });
+      }
+
+      const isoDate = date ?? todayInSaoPaulo();
+      const { games } = await loadGames(isoDate, request.log);
+      const game = games.find((g) => g.gameId === gameId);
+      if (!game) return reply.code(404).send({ error: "not_found" });
+
+      const [homeForm, awayForm] = await Promise.all([
+        fetchTeamForm(game.homeId).catch(() => []),
+        fetchTeamForm(game.awayId).catch(() => []),
+      ]);
+
+      return { game, homeForm, awayForm };
+    },
+  );
 }

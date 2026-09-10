@@ -12,6 +12,7 @@ import { LivePage } from "./app/live/LivePage";
 import { EvPage } from "./app/ev/EvPage";
 import { RankingPage } from "./app/ranking/RankingPage";
 import { GamesPage } from "./app/games/GamesPage";
+import { GameDetailPage } from "./app/games/GameDetailPage";
 import { SearchPage } from "./app/search/SearchPage";
 import { TipPage } from "./app/tip/TipPage";
 import { AiAnalysisPage } from "./app/ai-analysis/AiAnalysisPage";
@@ -142,6 +143,17 @@ function App() {
                 <AppShell>
                   <GamesPage />
                 </AppShell>
+              </RouteGuard>
+            }
+          />
+
+          <Route
+            path="/games/:gameId"
+            element={
+              <RouteGuard screen="jogos">
+                <SidebarFrame>
+                  <GameDetailPage />
+                </SidebarFrame>
               </RouteGuard>
             }
           />

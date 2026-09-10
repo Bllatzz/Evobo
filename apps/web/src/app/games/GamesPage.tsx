@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { Link } from "react-router-dom";
 import { fetchLiveGames, type LiveGame } from "../../lib/gamesLive";
 import {
   applyGamesFilters,
@@ -188,7 +189,7 @@ function TeamStatRow({
   );
 }
 
-function GameRow({ game }: { game: LiveGame }) {
+function GameRow({ game, date }: { game: LiveGame; date: string }) {
   const isLive = game.status === "live";
   const isFinished = game.status === "finished";
   const showScore = isLive || isFinished;
@@ -196,7 +197,7 @@ function GameRow({ game }: { game: LiveGame }) {
   const showStats = game.cornersHome !== null;
 
   return (
-    <div className="p-3.5">
+    <Link to={`/games/${game.gameId}?date=${date}`} className="block p-3.5">
       <div className="flex items-center gap-3">
         <div className="w-11 flex-none text-center font-mono text-[11px]">
           {isLive ? (
@@ -236,11 +237,11 @@ function GameRow({ game }: { game: LiveGame }) {
           <TeamStatRow yellow={game.yellowAway} red={game.redAway} corners={game.cornersAway} />
         </div>
       )}
-    </div>
+    </Link>
   );
 }
 
-function LeagueCard({ group }: { group: LeagueGroup }) {
+function LeagueCard({ group, date }: { group: LeagueGroup; date: string }) {
   return (
     <div>
       <div className="mb-2 flex items-center gap-2 px-1">
@@ -256,7 +257,7 @@ function LeagueCard({ group }: { group: LeagueGroup }) {
       </div>
       <div className="divide-y divide-border-subtle overflow-hidden rounded-2xl border border-border bg-surface">
         {group.games.map((game) => (
-          <GameRow key={game.gameId} game={game} />
+          <GameRow key={game.gameId} game={game} date={date} />
         ))}
       </div>
     </div>
@@ -489,7 +490,7 @@ export function GamesPage() {
             <>
               <div className="flex flex-col gap-4">
                 {pageLeagues.map((group) => (
-                  <LeagueCard key={group.league} group={group} />
+                  <LeagueCard key={group.league} group={group} date={filters.date} />
                 ))}
               </div>
               <PaginationControl page={page} totalPages={totalPages} onChange={setPage} />
