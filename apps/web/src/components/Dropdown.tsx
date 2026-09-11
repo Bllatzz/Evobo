@@ -41,7 +41,7 @@ export function Dropdown({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex w-full items-center gap-1.5 capitalize ${buttonClassName}`}
+        className={`flex w-full items-center gap-1.5 ${buttonClassName}`}
       >
         <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? placeholder}</span>
         <IconChevronDown size={14} className={`flex-none transition-transform ${open ? "rotate-180" : ""}`} />
@@ -68,7 +68,7 @@ export function Dropdown({
                 onChange(o.value);
                 setOpen(false);
               }}
-              className={`block w-full whitespace-nowrap rounded-lg px-3 py-2 text-left text-[13px] capitalize ${
+              className={`block w-full whitespace-nowrap rounded-lg px-3 py-2 text-left text-[13px] ${
                 value === o.value ? "bg-accent-soft text-accent" : "text-text-secondary hover:bg-surface-alt"
               }`}
             >

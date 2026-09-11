@@ -14,7 +14,15 @@ import {
 import { Modal } from "../../components/Modal";
 import { Dropdown } from "../../components/Dropdown";
 import { bookmakerLabel } from "../../lib/bookmakers";
-import { IconTelegram, IconExternalLink, IconCheck, IconX, IconSearch } from "../../components/Icon";
+import {
+  IconTelegram,
+  IconExternalLink,
+  IconCheck,
+  IconX,
+  IconSearch,
+  IconChevronDown,
+  IconEyeOff,
+} from "../../components/Icon";
 import { useAuth } from "../../stores/auth";
 
 const RESULT_FILTERS = [
@@ -22,7 +30,11 @@ const RESULT_FILTERS = [
   { key: "green", label: "Green" },
   { key: "red", label: "Red" },
   { key: "reembolso", label: "Reemb." },
-  { key: "", label: "Todas" },
+] as const;
+
+const TAKEN_FILTERS = [
+  { key: "taken", label: "Peguei" },
+  { key: "pending", label: "Não peguei" },
 ] as const;
 
 const RESULT_BUTTONS = [
@@ -107,22 +119,23 @@ function TipRow({
   draft,
   unitValue,
   onUpdate,
-  onStartDraft,
   onUpdateDraft,
-  onUntakeServer,
+  onUntake,
 }: {
   tip: TelegramTip;
   draft: DraftEdit | undefined;
   unitValue: number | null;
   onUpdate: (tip: TelegramTip) => void;
-  onStartDraft: (tip: TelegramTip) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
-  onUntakeServer: (tip: TelegramTip) => void;
+  onUntake: (tip: TelegramTip) => void;
 }) {
   const { me } = useAuth();
   const isAdmin = me?.role === "admin";
+  // Rows are always shown expanded/editable by default — "collapsed" is a
+  // purely visual, per-row toggle so a reviewed tip can be tucked away
+  // without needing a separate "peguei"/take step to get there.
+  const [collapsed, setCollapsed] = useState(false);
 
-  const isExpanded = tip.takenStatus === "taken" || draft !== undefined;
   const effUnit = draft?.unit ?? tip.unit;
   const effOdd = draft?.odd ?? tip.odd;
   const effBookmaker = draft?.bookmaker ?? tip.bookmaker;
@@ -135,21 +148,23 @@ function TipRow({
     onUpdate(await patchTelegramTip(tip.id, { result }));
   }
 
-  if (!isExpanded) {
+  if (collapsed) {
     return (
       <div className="flex items-center gap-2.5 border-t border-border-subtle py-2.5 first:border-t-0">
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-semibold">{tip.selection ?? "—"}</p>
           <p className="font-mono text-[11px] text-text-tertiary">
-            {tip.odd != null ? tip.odd.toFixed(2) : "—"}
-            {tip.unit != null && ` · ${tip.unit}u`}
+            {effOdd != null ? effOdd.toFixed(2) : "—"}
+            {effUnit != null && ` · ${effUnit}u`}
+            {tip.takenStatus === "taken" && " · peguei"}
           </p>
         </div>
         <button
-          onClick={() => onStartDraft(tip)}
-          className="flex-none rounded-lg border border-border-strong px-3.5 py-1.5 text-[12px] font-semibold text-text-secondary"
+          onClick={() => setCollapsed(false)}
+          aria-label="Mostrar tip"
+          className="flex-none rounded-lg border border-border-strong p-1.5 text-text-secondary"
         >
-          Pegar
+          <IconChevronDown size={14} />
         </button>
       </div>
     );
@@ -159,11 +174,20 @@ function TipRow({
     <div className="border-t border-border-subtle py-3 first:border-t-0">
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <p className="min-w-0 flex-1 truncate text-[13px] font-semibold">{tip.selection ?? "—"}</p>
+        {tip.takenStatus === "taken" && (
+          <button
+            onClick={() => onUntake(tip)}
+            className="flex flex-none items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-bold text-[#08090A]"
+          >
+            <IconCheck size={11} /> Peguei
+          </button>
+        )}
         <button
-          onClick={() => onUntakeServer(tip)}
-          className="flex flex-none items-center gap-1 rounded-lg bg-accent px-3.5 py-1.5 text-[12px] font-bold text-[#08090A]"
+          onClick={() => setCollapsed(true)}
+          aria-label="Ocultar tip"
+          className="flex-none rounded-lg border border-border-strong p-1.5 text-text-secondary"
         >
-          <IconCheck size={11} /> Peguei
+          <IconChevronDown size={14} className="rotate-180" />
         </button>
       </div>
 
@@ -267,31 +291,28 @@ function MessageGroupCard({
   unitValue,
   onUpdate,
   onOpenPhoto,
-  onStartDraft,
   onUpdateDraft,
-  onUntakeServer,
+  onUntake,
   onSaveGroup,
-  onIgnoreGroup,
 }: {
   group: MessageGroup;
   drafts: Record<string, DraftEdit>;
   unitValue: number | null;
   onUpdate: (tip: TelegramTip) => void;
   onOpenPhoto: (url: string) => void;
-  onStartDraft: (tip: TelegramTip) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
-  onUntakeServer: (tip: TelegramTip) => void;
+  onUntake: (tip: TelegramTip) => void;
   onSaveGroup: (group: MessageGroup) => Promise<void>;
-  onIgnoreGroup: (group: MessageGroup) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
-  const [ignoring, setIgnoring] = useState(false);
+  // The photo starts visible — no click needed to see the bilhete — with
+  // just a close toggle to tuck it away if it's in the way.
+  const [showPhoto, setShowPhoto] = useState(true);
 
   const fotoCount = group.tips.some((t) => t.photoUrl) ? 1 : 0;
   const tipsCount = group.tips.length;
   const pegasCount = group.tips.filter((t) => t.takenStatus === "taken").length;
-  const draftCount = group.tips.filter((t) => t.id in drafts).length;
-  const canIgnore = group.tips.some((t) => t.takenStatus === "pending" && !(t.id in drafts));
+  const pendingCount = tipsCount - pegasCount;
 
   return (
     <div className="rounded-[18px] border border-border bg-surface p-3.5 lg:p-4">
@@ -311,12 +332,32 @@ function MessageGroupCard({
       </div>
 
       {group.photoUrl && (
-        <button
-          onClick={() => onOpenPhoto(group.photoUrl!)}
-          className="mb-2 text-[11px] font-semibold text-accent underline decoration-dotted underline-offset-2"
-        >
-          Ver imagem
-        </button>
+        <div className="mb-2.5">
+          {showPhoto ? (
+            <div className="relative">
+              <img
+                src={group.photoUrl}
+                alt="Bilhete"
+                onClick={() => onOpenPhoto(group.photoUrl!)}
+                className="max-h-[360px] w-full cursor-zoom-in rounded-xl bg-surface-chip object-contain"
+              />
+              <button
+                onClick={() => setShowPhoto(false)}
+                aria-label="Fechar imagem"
+                className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[#08090A]/70 text-white"
+              >
+                <IconX size={13} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowPhoto(true)}
+              className="flex items-center gap-1.5 text-[11px] font-semibold text-accent"
+            >
+              <IconEyeOff size={13} /> Ver imagem
+            </button>
+          )}
+        </div>
       )}
 
       <div className="flex flex-col">
@@ -327,30 +368,15 @@ function MessageGroupCard({
             draft={drafts[tip.id]}
             unitValue={unitValue}
             onUpdate={onUpdate}
-            onStartDraft={onStartDraft}
             onUpdateDraft={onUpdateDraft}
-            onUntakeServer={onUntakeServer}
+            onUntake={onUntake}
           />
         ))}
       </div>
 
-      <div className="mt-3 flex gap-2 border-t border-border-subtle pt-3">
+      <div className="mt-3 border-t border-border-subtle pt-3">
         <button
-          disabled={!canIgnore || ignoring}
-          onClick={async () => {
-            setIgnoring(true);
-            try {
-              await onIgnoreGroup(group);
-            } finally {
-              setIgnoring(false);
-            }
-          }}
-          className="flex-1 rounded-lg border border-border-strong py-2 text-[12px] font-semibold text-text-secondary disabled:opacity-40"
-        >
-          Ignorar mensagem
-        </button>
-        <button
-          disabled={draftCount === 0 || saving}
+          disabled={pendingCount === 0 || saving}
           onClick={async () => {
             setSaving(true);
             try {
@@ -359,9 +385,9 @@ function MessageGroupCard({
               setSaving(false);
             }
           }}
-          className="flex-1 rounded-lg bg-accent py-2 text-[12px] font-bold text-[#08090A] disabled:bg-surface-chip disabled:font-semibold disabled:text-text-tertiary"
+          className="w-full rounded-lg bg-accent py-2 text-[12px] font-bold text-[#08090A] disabled:bg-surface-chip disabled:font-semibold disabled:text-text-tertiary"
         >
-          Salvar{draftCount > 0 ? ` ${draftCount}` : ""} tips
+          Salvar{pendingCount > 0 ? ` ${pendingCount}` : ""} tips
         </button>
       </div>
     </div>
@@ -373,6 +399,7 @@ export function TelegramTipsPage() {
   const [groups, setGroups] = useState<TelegramGroup[]>([]);
   const [groupId, setGroupId] = useState<string>("");
   const [result, setResultFilter] = useState<string>("pending");
+  const [takenStatus, setTakenStatus] = useState<string>("");
   const [bookmaker, setBookmaker] = useState<string>("");
   const [bookmakers, setBookmakers] = useState<string[]>([]);
   const [searchInput, setSearchInput] = useState("");
@@ -425,23 +452,17 @@ export function TelegramTipsPage() {
     fetchTelegramTips({
       groupId: groupId || undefined,
       result: result || undefined,
+      takenStatus: takenStatus || undefined,
       bookmaker: bookmaker || undefined,
       search: search || undefined,
       limit: 60,
     })
       .then((res) => setTips(res.data))
       .catch(() => setTips([]));
-  }, [groupId, result, bookmaker, search]);
+  }, [groupId, result, takenStatus, bookmaker, search]);
 
   function updateTip(updated: TelegramTip) {
     setTips((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev);
-  }
-
-  function startDraft(tip: TelegramTip) {
-    setDrafts((prev) => ({
-      ...prev,
-      [tip.id]: { unit: tip.unit, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl },
-    }));
   }
 
   function updateDraft(tip: TelegramTip, patch: Partial<DraftEdit>) {
@@ -460,22 +481,23 @@ export function TelegramTipsPage() {
     });
   }
 
-  async function untakeServer(tip: TelegramTip) {
-    if (tip.takenStatus === "taken") {
-      const updated = await patchTelegramTip(tip.id, { takenStatus: "pending" });
-      updateTip(updated);
-      refreshSummary();
-      refreshPendingCounts();
-    }
+  async function untake(tip: TelegramTip) {
+    const updated = await patchTelegramTip(tip.id, { takenStatus: "pending" });
+    updateTip(updated);
     discardDraft(tip.id);
+    refreshSummary();
+    refreshPendingCounts();
   }
 
+  // Every tip in the group is always shown editable — Salvar commits
+  // whichever ones aren't taken yet, using any local edits made to them
+  // (falling back to the tip's own parsed values when untouched).
   async function saveGroup(group: MessageGroup) {
-    const toSave = group.tips.filter((t) => t.id in drafts);
+    const toSave = group.tips.filter((t) => t.takenStatus !== "taken");
     if (toSave.length === 0) return;
     const results = await Promise.all(
       toSave.map((tip) => {
-        const d = drafts[tip.id]!;
+        const d = drafts[tip.id] ?? { unit: tip.unit, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl };
         return patchTelegramTip(tip.id, {
           unit: d.unit,
           odd: d.odd,
@@ -491,15 +513,6 @@ export function TelegramTipsPage() {
       for (const t of toSave) delete next[t.id];
       return next;
     });
-    refreshSummary();
-    refreshPendingCounts();
-  }
-
-  async function ignoreGroup(group: MessageGroup) {
-    const toSkip = group.tips.filter((t) => t.takenStatus === "pending" && !(t.id in drafts));
-    if (toSkip.length === 0) return;
-    const results = await Promise.all(toSkip.map((tip) => patchTelegramTip(tip.id, { takenStatus: "skipped" })));
-    results.forEach(updateTip);
     refreshSummary();
     refreshPendingCounts();
   }
@@ -547,22 +560,28 @@ export function TelegramTipsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 px-4 pb-3 lg:flex lg:gap-6 lg:px-0 lg:pb-4">
-        <div className="rounded-xl border border-border-subtle bg-surface-chip px-3 py-2 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0">
-          <div className="text-[9px] font-semibold uppercase tracking-wide text-text-tertiary">Tips pendentes</div>
-          <div className="font-mono text-[15px] font-bold">{summary?.pendingCount ?? "—"}</div>
+      <div className="grid grid-cols-3 gap-2 px-4 pb-4 lg:gap-3 lg:px-0">
+        <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
+          <div className="mb-1 font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
+            TIPS PENDENTES
+          </div>
+          <div className="font-mono text-[18px] font-bold lg:text-[22px]">{summary?.pendingCount ?? "—"}</div>
         </div>
-        <div className="rounded-xl border border-border-subtle bg-surface-chip px-3 py-2 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0">
-          <div className="text-[9px] font-semibold uppercase tracking-wide text-text-tertiary">Peguei hoje</div>
-          <div className="font-mono text-[15px] font-bold">
+        <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
+          <div className="mb-1 font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
+            PEGUEI HOJE
+          </div>
+          <div className="font-mono text-[18px] font-bold lg:text-[22px]">
             {summary?.takenTodayCount ?? "—"}
-            {summary && <span className="text-text-tertiary"> · {formatUnits(summary.takenTodayUnits)}</span>}
+            {summary && <span className="text-[12px] text-text-tertiary lg:text-[14px]"> · {formatUnits(summary.takenTodayUnits)}</span>}
           </div>
         </div>
-        <div className="rounded-xl border border-border-subtle bg-surface-chip px-3 py-2 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0">
-          <div className="text-[9px] font-semibold uppercase tracking-wide text-text-tertiary">Resultado hoje</div>
+        <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
+          <div className="mb-1 font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
+            RESULTADO HOJE
+          </div>
           <div
-            className={`font-mono text-[15px] font-bold ${
+            className={`font-mono text-[18px] font-bold lg:text-[22px] ${
               summary && summary.resultTodayUnits < 0 ? "text-live" : "text-accent"
             }`}
           >
@@ -571,33 +590,9 @@ export function TelegramTipsPage() {
         </div>
       </div>
 
-      {/* Group filter chips + search + bookmaker */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-2 lg:px-0">
-        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
-          <button
-            onClick={() => setGroupId("")}
-            className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
-              groupId === "" ? "bg-accent font-semibold text-[#08090A]" : "bg-surface-alt text-text-secondary"
-            }`}
-          >
-            Todos os grupos {summary?.pendingCount ?? pendingTips.length}
-          </button>
-          {groups.map((g) => (
-            <button
-              key={g.id}
-              onClick={() => setGroupId(g.id)}
-              className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
-                groupId === g.id ? "bg-accent font-semibold text-[#08090A]" : "bg-surface-alt text-text-secondary"
-              }`}
-            >
-              {g.name} {pendingCountsByGroup.get(g.id) ?? 0}
-            </button>
-          ))}
-        </div>
-      </div>
-
+      {/* Filters: grupo, peguei/não peguei, resultado, casa — all selects — plus search */}
       <div className="flex flex-wrap items-center gap-2 px-4 pb-4 lg:px-0">
-        <div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-xl border border-border-subtle bg-surface-chip px-3 py-2 lg:max-w-[260px] lg:flex-none">
+        <div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-xl border border-border-subtle bg-surface-chip px-3 py-2 lg:max-w-[240px] lg:flex-none">
           <IconSearch size={14} className="flex-none text-text-tertiary" />
           <input
             value={searchInput}
@@ -607,27 +602,33 @@ export function TelegramTipsPage() {
           />
         </div>
         <Dropdown
+          value={groupId}
+          onChange={setGroupId}
+          placeholder={`Todos os grupos (${summary?.pendingCount ?? pendingTips.length})`}
+          options={groups.map((g) => ({ value: g.id, label: `${g.name} (${pendingCountsByGroup.get(g.id) ?? 0})` }))}
+          className="w-auto flex-none"
+        />
+        <Dropdown
+          value={takenStatus}
+          onChange={setTakenStatus}
+          placeholder="Peguei ou não"
+          options={TAKEN_FILTERS.map((f) => ({ value: f.key, label: f.label }))}
+          className="w-auto flex-none"
+        />
+        <Dropdown
+          value={result}
+          onChange={setResultFilter}
+          placeholder="Todos os resultados"
+          options={RESULT_FILTERS.map((f) => ({ value: f.key, label: f.label }))}
+          className="w-auto flex-none"
+        />
+        <Dropdown
           value={bookmaker}
           onChange={setBookmaker}
           placeholder="Todas as casas"
           options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
           className="w-auto flex-none"
         />
-      </div>
-
-      {/* Result pills */}
-      <div className="flex gap-2 overflow-x-auto px-4 pb-4 lg:px-0">
-        {RESULT_FILTERS.map((r) => (
-          <button
-            key={r.key}
-            onClick={() => setResultFilter(r.key)}
-            className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
-              result === r.key ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"
-            }`}
-          >
-            {r.label}
-          </button>
-        ))}
       </div>
 
       {/* Tip list */}
@@ -652,11 +653,9 @@ export function TelegramTipsPage() {
             unitValue={unitValue}
             onUpdate={updateTip}
             onOpenPhoto={setPhotoModal}
-            onStartDraft={startDraft}
             onUpdateDraft={updateDraft}
-            onUntakeServer={untakeServer}
+            onUntake={untake}
             onSaveGroup={saveGroup}
-            onIgnoreGroup={ignoreGroup}
           />
         ))}
       </div>
