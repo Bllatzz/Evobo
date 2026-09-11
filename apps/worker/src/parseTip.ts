@@ -3,6 +3,17 @@
  * Ex.: https://www.bet365.bet.br/s/r/ZZnxR -> "bet365"
  *      https://esportiva.bet.br/sports/... -> "esportiva"
  */
+// Shorthand tipsters actually type for a house's visible link label ("🔗
+// Pix") that isn't the brand name itself — expand as new ones show up.
+const BOOKMAKER_ALIASES: Record<string, string> = {
+  pix: "pixbet",
+};
+
+function normalizeBookmaker(name: string | null): string | null {
+  if (!name) return name;
+  return BOOKMAKER_ALIASES[name] ?? name;
+}
+
 export function extractBookmaker(url: string | null): string | null {
   if (!url) return null;
   try {
@@ -10,7 +21,8 @@ export function extractBookmaker(url: string | null): string | null {
     // app.reidopitaco.com.br) so "m.betfast.bet.br", "www.bet365.bet.br" and
     // "app.reidopitaco.com.br" all resolve to the actual brand name instead
     // of the subdomain.
-    return new URL(url).hostname.replace(/^(www|m|app)\./i, "").split(".")[0] ?? null;
+    const label = new URL(url).hostname.replace(/^(www|m|app)\./i, "").split(".")[0] ?? null;
+    return normalizeBookmaker(label);
   } catch {
     return null;
   }
@@ -157,8 +169,8 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
       } else {
         // Mais de uma casa na mesma linha: "Betfair · 🔗 Betnacional".
         for (const part of value.split(/\s*·\s*🔗\s*/)) {
-          const name = part.trim();
-          if (name) bookmakerNames.push(name.toLowerCase());
+          const name = normalizeBookmaker(part.trim().toLowerCase());
+          if (name) bookmakerNames.push(name);
         }
       }
       continue;
