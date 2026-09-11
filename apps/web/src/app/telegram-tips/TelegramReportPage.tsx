@@ -426,7 +426,7 @@ export function TelegramReportPage() {
   }
 
   return (
-    <div className="pb-6 lg:mx-auto lg:max-w-[900px] lg:px-0 lg:pt-6">
+    <div className="pb-6 lg:max-w-[960px] lg:pl-6 lg:pr-6 lg:pt-6">
       <div className="flex items-center gap-2.5 px-5 pb-3 pt-3 lg:px-0">
         <IconTelegram size={22} className="text-accent" />
         <span className="text-[20px] font-bold tracking-[-0.02em] lg:text-[22px]">Relatório · VIP Telegram</span>

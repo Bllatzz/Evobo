@@ -590,7 +590,7 @@ export function MyProfilePage() {
   const hasTelegram = canAccess("telegram_banca");
 
   return (
-    <div className="pb-6 lg:mx-auto lg:max-w-[1180px] lg:px-0 lg:pt-6">
+    <div className="pb-6 lg:max-w-[1180px] lg:pl-6 lg:pr-6 lg:pt-6">
       {/* ---------- Desktop ---------- */}
       <div className="hidden lg:block">
         <div className="mb-6 flex items-center gap-3">

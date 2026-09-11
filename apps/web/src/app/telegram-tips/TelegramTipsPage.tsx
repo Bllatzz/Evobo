@@ -688,7 +688,7 @@ export function TelegramTipsPage() {
   }, [pendingTips]);
 
   return (
-    <div className="pb-6 lg:mx-auto lg:max-w-[1100px] lg:px-0 lg:pt-6">
+    <div className="pb-6 lg:max-w-[1300px] lg:pl-6 lg:pr-6 lg:pt-6">
       {/* Header */}
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-4 lg:px-0">
         <IconTelegram size={22} className="flex-none text-accent" />
