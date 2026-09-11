@@ -187,6 +187,13 @@ function BreakdownRow({ row }: { row: TelegramBancaRowT }) {
     <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 last:border-0">
       <div className="min-w-0">
         <div className="truncate text-[13px] font-semibold capitalize">{row.key}</div>
+        {/* Decorative acerto% bar — same 0-100 scale as the ACERTO stat tile, so rows
+            are visually comparable to each other and to that tile at a glance. */}
+        {row.greenPct != null && (
+          <div className="mt-1 h-1 w-[90px] overflow-hidden rounded-full bg-surface-alt">
+            <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, Math.max(0, row.greenPct))}%` }} />
+          </div>
+        )}
         <div className="mt-0.5 truncate font-mono text-[11px] text-text-tertiary">{stats}</div>
         {row.missingOdd > 0 && (
           <div className="mt-0.5 text-[10px] text-vip">{row.missingOdd} sem odd — fora do lucro</div>
@@ -208,9 +215,11 @@ function BreakdownRow({ row }: { row: TelegramBancaRowT }) {
   );
 }
 
-/** The bottom line: `totals[tab]` summed across every group/bookmaker, so the user sees
- * "am I up or down overall" in one glance instead of mentally summing N cards below. */
-function TotalHero({ row }: { row: TelegramBancaRowT | null }) {
+/** `totals[tab]` summed across every group/bookmaker, as 4 scannable stat tiles (mirrors
+ * the top stat row convention on MyProfilePage.tsx: rounded-2xl/border-border/bg-surface/p-4.5
+ * tiles with a font-mono uppercase label + big number) instead of one hero card, so the
+ * user sees "am I up or down overall" plus ROI/ACERTO/volume in one glance. */
+function StatTiles({ row }: { row: TelegramBancaRowT | null }) {
   if (!row) {
     return (
       <div className="rounded-2xl border border-border bg-surface p-5 text-center text-[13px] text-text-tertiary">
@@ -219,45 +228,59 @@ function TotalHero({ row }: { row: TelegramBancaRowT | null }) {
     );
   }
   const positive = row.profit >= 0;
+  const roiPositive = row.roiPct != null && row.roiPct >= 0;
+  const acertoPct = row.greenPct ?? 0;
   return (
-    <div className="rounded-2xl border border-border bg-surface p-5">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[13px] font-semibold text-text-secondary">Saldo total</span>
-        <span className="text-right">
-          <span className={`font-mono text-[26px] font-bold leading-none ${positive ? "text-accent" : "text-live"}`}>
+    <>
+      <div className="grid grid-cols-4 gap-4">
+        <div className="rounded-2xl border border-border bg-surface p-4.5">
+          <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">LUCRO NO PERÍODO</div>
+          <div className={`font-mono text-[20px] font-bold leading-tight ${positive ? "text-accent" : "text-live"}`}>
             {positive ? "+" : ""}
             {row.profit.toFixed(2)}u
-          </span>
+          </div>
           {row.profitBRL !== null && (
-            <span className="ml-2 font-mono text-[12px] text-text-tertiary">
-              ({positive ? "+" : ""}
-              {row.profitBRL.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})
-            </span>
+            <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
+              {positive ? "+" : ""}
+              {row.profitBRL.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+            </div>
           )}
-        </span>
-      </div>
-      <div className="mt-4 grid grid-cols-4 gap-2 border-t border-border-subtle pt-4 text-center">
-        <div>
-          <div className="font-mono text-[14px] font-bold text-accent">{row.green}</div>
-          <div className="text-[10px] text-text-tertiary">GREEN</div>
         </div>
-        <div>
-          <div className="font-mono text-[14px] font-bold text-live">{row.red}</div>
-          <div className="text-[10px] text-text-tertiary">RED</div>
+
+        <div className="rounded-2xl border border-border bg-surface p-4.5">
+          <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">ROI</div>
+          <div
+            className={`font-mono text-[20px] font-bold leading-tight ${
+              row.roiPct == null ? "" : roiPositive ? "text-accent" : "text-live"
+            }`}
+          >
+            {row.roiPct != null ? `${roiPositive ? "+" : ""}${row.roiPct}%` : "—"}
+          </div>
+          <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">{row.staked.toFixed(2)}u apostados</div>
         </div>
-        <div>
-          <div className="font-mono text-[14px] font-bold">{row.greenPct != null ? `${row.greenPct}%` : "—"}</div>
-          <div className="text-[10px] text-text-tertiary">ACERTO</div>
+
+        <div className="rounded-2xl border border-border bg-surface p-4.5">
+          <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">ACERTO</div>
+          <div className="font-mono text-[20px] font-bold leading-tight">
+            {row.greenPct != null ? `${row.greenPct}%` : "—"}
+          </div>
+          <div className="mt-2.5 h-1 w-full overflow-hidden rounded-full bg-surface-alt">
+            <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, Math.max(0, acertoPct))}%` }} />
+          </div>
         </div>
-        <div>
-          <div className="font-mono text-[14px] font-bold">{row.roiPct != null ? `${row.roiPct}%` : "—"}</div>
-          <div className="text-[10px] text-text-tertiary">ROI</div>
+
+        <div className="rounded-2xl border border-border bg-surface p-4.5">
+          <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">TIPS</div>
+          <div className="font-mono text-[20px] font-bold leading-tight">{row.total}</div>
+          <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
+            {row.green} green · {row.red} red
+          </div>
         </div>
       </div>
       {row.missingOdd > 0 && (
         <div className="mt-3 text-[11px] text-vip">{row.missingOdd} tip(s) sem odd — resultado não entra no lucro.</div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -292,7 +315,7 @@ function ScopeSection({
 }) {
   return (
     <>
-      <TotalHero row={totalRow} />
+      <StatTiles row={totalRow} />
 
       <div className="mt-4 rounded-2xl border border-border bg-surface p-[22px]">
         <div className="mb-5 text-[14px] font-bold">Evolução da banca</div>
@@ -305,11 +328,67 @@ function ScopeSection({
   );
 }
 
+const DATE_RANGES: { label: string; days: number | undefined }[] = [
+  { label: "7d", days: 7 },
+  { label: "30d", days: 30 },
+  { label: "tudo", days: undefined },
+];
+
+/** Wraps a CSV field in quotes (doubling any internal quotes) whenever it contains a
+ * character that would otherwise break column boundaries or line breaks. */
+function csvField(value: string | number): string {
+  const s = String(value);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function csvRow(row: TelegramBancaRowT): string {
+  return [
+    csvField(row.key),
+    csvField(row.green),
+    csvField(row.red),
+    csvField(row.greenPct != null ? row.greenPct : ""),
+    csvField(row.roiPct != null ? row.roiPct : ""),
+    csvField(row.profit.toFixed(2)),
+    csvField(row.profitBRL !== null ? row.profitBRL.toFixed(2) : ""),
+  ].join(",");
+}
+
+/** Builds a two-section CSV (POR GRUPO / POR CASA DE APOSTA) for the currently-visible
+ * breakdown, sorted by profit descending — same order the on-screen list uses. */
+function buildBreakdownCsv(scope: TelegramBancaSummary["geral"]): string {
+  const header = ["grupo-ou-casa", "green", "red", "acerto%", "roi%", "lucro (u)", "lucro (R$)"].join(",");
+  const byGroup = [...scope.byGroup].sort((a, b) => b.profit - a.profit);
+  const byBookmaker = [...scope.byBookmaker].sort((a, b) => b.profit - a.profit);
+  return [
+    "POR GRUPO",
+    header,
+    ...byGroup.map(csvRow),
+    "",
+    "POR CASA DE APOSTA",
+    header,
+    ...byBookmaker.map(csvRow),
+  ].join("\n");
+}
+
+function downloadCsv(filename: string, content: string) {
+  // BOM so accented pt-BR characters open correctly in Excel; the rest is plain CSV.
+  const blob = new Blob(["﻿" + content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function TelegramReportPage() {
   const [summary, setSummary] = useState<TelegramBancaSummary | null>(null);
   const [tab, setTab] = useState<"geral" | "peguei">("geral");
   const [bookmaker, setBookmaker] = useState("");
   const [bookmakers, setBookmakers] = useState<string[]>([]);
+  const [days, setDays] = useState<number | undefined>(30);
 
   useEffect(() => {
     fetchBookmakerNames().then(setBookmakers).catch(() => {});
@@ -317,10 +396,18 @@ export function TelegramReportPage() {
 
   useEffect(() => {
     setSummary(null);
-    fetchTelegramBanca(bookmaker || undefined)
+    fetchTelegramBanca(bookmaker || undefined, days)
       .then(setSummary)
       .catch(() => {});
-  }, [bookmaker]);
+  }, [bookmaker, days]);
+
+  function handleExport() {
+    if (!summary) return;
+    const csv = buildBreakdownCsv(summary[tab]);
+    const rangeLabel = days ? `${days}d` : "tudo";
+    const bookmakerLabel = bookmaker || "todas-casas";
+    downloadCsv(`telegram-banca-${tab}-${bookmakerLabel}-${rangeLabel}.csv`, csv);
+  }
 
   return (
     <div className="pb-6 lg:mx-auto lg:max-w-[900px] lg:px-0 lg:pt-6">
@@ -329,7 +416,7 @@ export function TelegramReportPage() {
         <span className="text-[20px] font-bold tracking-[-0.02em] lg:text-[22px]">Relatório · VIP Telegram</span>
       </div>
 
-      <div className="mx-5 flex items-center gap-3 lg:mx-0">
+      <div className="mx-5 flex flex-wrap items-center gap-3 lg:mx-0">
         <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1 lg:w-fit">
           {(["geral", "peguei"] as const).map((key) => (
             <button
@@ -343,13 +430,36 @@ export function TelegramReportPage() {
             </button>
           ))}
         </div>
+
+        <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1">
+          {DATE_RANGES.map((range) => (
+            <button
+              key={range.label}
+              onClick={() => setDays(range.days)}
+              className={`rounded-[9px] px-3.5 py-1.5 text-center text-[13px] font-semibold ${
+                days === range.days ? "bg-accent text-[#08090A]" : "text-text-secondary"
+              }`}
+            >
+              {range.label}
+            </button>
+          ))}
+        </div>
+
         <Dropdown
           value={bookmaker}
           onChange={setBookmaker}
           placeholder="Todas as casas"
           options={bookmakers.map((b) => ({ value: b, label: b }))}
-          className="ml-auto w-auto flex-none lg:ml-0"
+          className="w-auto flex-none"
         />
+
+        <button
+          onClick={handleExport}
+          disabled={!summary}
+          className="ml-auto flex-none rounded-[11px] border border-border-strong px-3.5 py-1.5 text-[13px] font-semibold text-text disabled:opacity-40 lg:ml-0"
+        >
+          ⤓ Exportar
+        </button>
       </div>
 
       <div className="px-5 lg:px-0">
