@@ -13,6 +13,11 @@ export function roleGuard(screen: ScreenKey) {
       return reply.code(401).send({ error: "unauthenticated" });
     }
 
+    // admin is a hard-coded superuser: it sees every screen regardless of
+    // what's toggled in Admin → Telas, so new screens work for admin the
+    // moment they ship instead of needing a manual grant first.
+    if (request.authUser.roleName === "admin") return;
+
     const access = await prisma.roleScreenAccess.findUnique({
       where: {
         roleId_screenKey: { roleId: request.authUser.roleId, screenKey: screen },

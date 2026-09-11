@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { screenKeys } from "@evobo/shared-types";
 import { authGuard } from "../../middleware/authGuard.js";
 import { prisma } from "../../db/prisma.js";
 
@@ -37,9 +38,11 @@ export async function authRoutes(app: FastifyInstance) {
       role: user.role.name,
       verifiedAt: user.verifiedAt,
       hasActiveVip,
-      accessibleScreens: access
-        .filter((a) => a.tier === "free" || hasActiveVip)
-        .map((a) => a.screenKey),
+      // admin bypasses role_screen_access entirely — see roleGuard.ts.
+      accessibleScreens:
+        user.role.name === "admin"
+          ? [...screenKeys]
+          : access.filter((a) => a.tier === "free" || hasActiveVip).map((a) => a.screenKey),
     };
   });
 }
