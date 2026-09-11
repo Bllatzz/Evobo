@@ -23,10 +23,10 @@ const RESULT_FILTERS = [
 ] as const;
 
 const RESULT_BUTTONS = [
-  { key: "pending", label: "Pendente" },
-  { key: "green", label: "Green" },
-  { key: "red", label: "Red" },
-  { key: "reembolso", label: "Reemb." },
+  { key: "pending", label: "Pendente", activeClassName: "bg-surface-alt text-text" },
+  { key: "green", label: "Green", activeClassName: "bg-accent-soft text-accent" },
+  { key: "red", label: "Red", activeClassName: "bg-live/10 text-live" },
+  { key: "reembolso", label: "Reemb.", activeClassName: "bg-vip-soft text-vip" },
 ] as const;
 
 /** Click-to-edit unit/odd — a personal correction (the tipster's original
@@ -219,7 +219,7 @@ export function TipCard({
               key={r.key}
               onClick={() => setResult(r.key)}
               className={`flex-1 rounded-lg py-1.5 text-[11px] font-semibold ${
-                tip.result === r.key ? "bg-accent-soft text-accent" : "bg-surface-chip text-text-tertiary"
+                tip.result === r.key ? r.activeClassName : "bg-surface-chip text-text-tertiary"
               }`}
             >
               {r.label}

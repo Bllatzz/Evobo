@@ -9,7 +9,10 @@ import { purgeOldTips } from "./purgeOldTips.js";
 
 const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-async function main() {
+/** Telegram MTProto listener + OCR queue consumer. Exported (rather than
+ * run at import time) so apps/api can start it in-process — see run.ts for
+ * the standalone-process entrypoint apps/worker's own dev/start scripts use. */
+export async function startTelegramWorker() {
   const apiId = Number(requireEnv("TELEGRAM_API_ID"));
   const apiHash = requireEnv("TELEGRAM_API_HASH");
   const client = new TelegramClient(new StringSession(process.env.TELEGRAM_SESSION ?? ""), apiId, apiHash, {
@@ -48,8 +51,3 @@ async function main() {
     }
   }, new NewMessage({}));
 }
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});

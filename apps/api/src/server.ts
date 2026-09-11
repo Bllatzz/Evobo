@@ -92,3 +92,12 @@ app
     app.log.error(err);
     process.exit(1);
   });
+
+// Telegram listener + OCR queue, same process/machine as the API — see
+// apps/worker/src/index.ts and apps/api/Dockerfile for why. Only set in
+// production (TELEGRAM_API_ID absent locally), so `npm run dev:api` never
+// tries to connect to Telegram.
+if (process.env.TELEGRAM_API_ID) {
+  const { startTelegramWorker } = await import("@evobo/worker");
+  startTelegramWorker().catch((err) => app.log.error({ err }, "telegram worker crashed"));
+}

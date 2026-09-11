@@ -3,10 +3,12 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./src/index.ts",
   "scripts": {
-    "dev": "tsx watch -r dotenv/config src/index.ts",
+    "dev": "tsx watch -r dotenv/config src/run.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node -r dotenv/config dist/index.js",
+    "start": "node -r dotenv/config dist/src/run.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "discover": "tsx -r dotenv/config scripts/discover-dialogs.ts",
     "backfill": "tsx -r dotenv/config scripts/backfill.ts"
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
+    "prisma": "^6.19.1",
     "tsx": "^4.22.4",
     "typescript": "~5.9.3"
   }

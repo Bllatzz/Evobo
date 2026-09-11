@@ -1,5 +1,7 @@
 # fly.toml for apps/api — build context is the repo root (npm workspaces),
-# so this file lives at the root and `fly deploy` is run from here.
+# so this file lives at the root and `fly deploy` is run from here. Also
+# runs apps/worker's Telegram listener in-process (see server.ts) — one
+# machine instead of two, since this is a single-user hobby deployment.
 app = 'evobo-api'
 primary_region = 'gru'
 
@@ -25,5 +27,5 @@ primary_region = 'gru'
   strategy = 'immediate'
 
 [[vm]]
-  memory = '512mb'
+  memory = '1024mb'
   cpus = 1
