@@ -44,8 +44,23 @@ export const fetchTelegramGroups = (): Promise<TelegramGroup[]> => apiFetch("/te
 export const createTelegramGroup = (input: { name: string; telegramChatId: string }): Promise<TelegramGroup> =>
   apiFetch("/telegram-tips/groups", { method: "POST", body: JSON.stringify(input) });
 
-export const fetchTelegramBanca = (bookmaker?: string): Promise<TelegramBancaSummary> =>
-  apiFetch(`/telegram-tips/banca${bookmaker ? `?bookmaker=${encodeURIComponent(bookmaker)}` : ""}`);
+/** `days`: 7 | 30 | 90 | undefined (all-time) — scopes the chart/totals/breakdowns to that window. */
+export const fetchTelegramBanca = (bookmaker?: string, days?: number): Promise<TelegramBancaSummary> => {
+  const params = new URLSearchParams();
+  if (bookmaker) params.set("bookmaker", bookmaker);
+  if (days) params.set("days", String(days));
+  const qs = params.toString();
+  return apiFetch(`/telegram-tips/banca${qs ? `?${qs}` : ""}`);
+};
+
+export type TelegramTodaySummary = {
+  pendingCount: number;
+  takenTodayCount: number;
+  takenTodayUnits: number;
+  resultTodayUnits: number;
+};
+
+export const fetchTelegramTodaySummary = (): Promise<TelegramTodaySummary> => apiFetch("/telegram-tips/today-summary");
 
 export const fetchTelegramSettings = (): Promise<TelegramBancaSettings> => apiFetch("/telegram-tips/settings");
 

@@ -313,6 +313,9 @@ export const TelegramTipSchema = z.object({
   odd: z.number().nullable(),
   /** "ocr" | "manual" | "text" (already explicit in the Telegram message body). */
   oddSource: z.enum(["ocr", "manual", "text"]).nullable(),
+  /** Last odd that came from the source (text/photo) — differs from `odd`
+   * only after a manual edit, so the UI can flag "a odd mudou". */
+  originalOdd: z.number().nullable(),
   bookmaker: z.string().nullable(),
   betUrl: z.string().nullable(),
   /** Set instead of bookmaker/betUrl when the same bet can be placed at more

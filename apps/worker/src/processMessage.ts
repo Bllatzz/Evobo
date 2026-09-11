@@ -53,6 +53,7 @@ export async function processMessage(message: Api.Message, group: TelegramGroup)
           unit: sel.unit,
           odd: sel.odd ?? null,
           oddSource: sel.odd !== undefined ? "text" : null,
+          originalOdd: sel.odd ?? null,
           bookmaker: sel.bookmaker !== undefined ? sel.bookmaker : parsed.bookmaker,
           betUrl: sel.betUrl !== undefined ? sel.betUrl : parsed.betUrl,
           bookmakerOptions: sel.bookmakerOptions ?? undefined,

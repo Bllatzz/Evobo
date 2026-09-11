@@ -75,6 +75,7 @@ function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>): Telegr
     unit: tip.unit !== null ? Number(tip.unit) : null,
     odd: tip.odd !== null ? Number(tip.odd) : null,
     oddSource: tip.oddSource as TelegramTip["oddSource"],
+    originalOdd: tip.originalOdd !== null ? Number(tip.originalOdd) : null,
     bookmaker: tip.bookmaker,
     betUrl: tip.betUrl,
     bookmakerOptions: (tip.bookmakerOptions as TelegramTip["bookmakerOptions"]) ?? null,
@@ -289,15 +290,56 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     return serializeTip(tip, photoUrls);
   });
 
+  // Cabeçalho do dashboard "VIP Telegram" — backlog de decisão (pendentes,
+  // sem recorte de data) + atividade só de hoje (fuso São Paulo, fixo em
+  // UTC-3 o ano todo desde 2019).
+  app.get("/today-summary", async () => {
+    const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const [y, m, d] = todayIso.split("-").map(Number);
+    const startOfToday = new Date(Date.UTC(y!, m! - 1, d!, 3, 0, 0));
+
+    const [pendingCount, takenToday] = await Promise.all([
+      prisma.telegramTip.count({ where: { takenStatus: "pending" } }),
+      prisma.telegramTip.findMany({
+        where: { takenStatus: "taken", receivedAt: { gte: startOfToday } },
+        select: { unit: true, odd: true, result: true },
+      }),
+    ]);
+
+    let takenTodayUnits = 0;
+    let resultTodayUnits = 0;
+    for (const t of takenToday) {
+      const unit = t.unit !== null ? Number(t.unit) : 0;
+      takenTodayUnits += unit;
+      const odd = t.odd !== null ? Number(t.odd) : null;
+      resultTodayUnits += tipProfit(unit, odd, t.result) ?? 0;
+    }
+
+    return {
+      pendingCount,
+      takenTodayCount: takenToday.length,
+      takenTodayUnits: Math.round(takenTodayUnits * 100) / 100,
+      resultTodayUnits: Math.round(resultTodayUnits * 100) / 100,
+    };
+  });
+
   // ── Gestão de banca ───────────────────────────────────────────────────
   // "geral" = todas as tips resolvidas, independente de terem sido apostadas
   // de fato (mede o grupo/tipster); "peguei" = só as marcadas como
   // takenStatus "taken" (mede o resultado real do usuário).
-  app.get<{ Querystring: { bookmaker?: string } }>("/banca", async (request) => {
+  app.get<{ Querystring: { bookmaker?: string; days?: string } }>("/banca", async (request) => {
     const bookmaker = request.query.bookmaker?.trim();
+    // "7" | "30" | "90" | absent/"all" — scopes the whole summary (chart,
+    // totals, breakdowns) to tips received in that window.
+    const days = request.query.days ? Number(request.query.days) : null;
+    const since = days && Number.isFinite(days) && days > 0 ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : null;
     const [rows, settings] = await Promise.all([
       prisma.telegramTip.findMany({
-        where: { result: { not: "pending" }, ...(bookmaker ? { bookmaker } : {}) },
+        where: {
+          result: { not: "pending" },
+          ...(bookmaker ? { bookmaker } : {}),
+          ...(since ? { receivedAt: { gte: since } } : {}),
+        },
         select: {
           unit: true,
           odd: true,

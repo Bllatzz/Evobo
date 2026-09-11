@@ -94,7 +94,7 @@ async function processJob(data: ExtractDetailsJob) {
       data: {
         ...(tip.needMarket && sel.market ? { selection: sel.market } : {}),
         ...(tip.needGame && sel.game ? { match: sel.game } : {}),
-        ...(tip.needOdd && sel.odd !== null ? { odd: sel.odd, oddSource: "ocr" } : {}),
+        ...(tip.needOdd && sel.odd !== null ? { odd: sel.odd, oddSource: "ocr", originalOdd: sel.odd } : {}),
       },
     });
   }
