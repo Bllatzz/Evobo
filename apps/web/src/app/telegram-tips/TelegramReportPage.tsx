@@ -1,6 +1,7 @@
 import { useEffect, useState, type MouseEvent } from "react";
+import { Link } from "react-router-dom";
 import { fetchTelegramBanca, fetchBookmakerNames, type TelegramBancaSummary } from "../../lib/telegramTips";
-import { IconTelegram } from "../../components/Icon";
+import { IconTelegram, IconChevronLeft } from "../../components/Icon";
 import { Dropdown } from "../../components/Dropdown";
 import { bookmakerLabel } from "../../lib/bookmakers";
 
@@ -170,48 +171,78 @@ export function RowCard({ row }: { row: TelegramBancaRowT }) {
   );
 }
 
-/** Compact, profit-first list row for the POR GRUPO / POR CASA DE APOSTA breakdowns.
- * Profit is the one number that matters at a glance; green/red/acerto/roi are folded
- * into a single muted secondary line instead of four equal-weight stat blocks, so a
- * list of 4-5+ entries scans instead of reading as a wall of near-identical cards. */
-function BreakdownRow({ row, label }: { row: TelegramBancaRowT; label?: (key: string) => string }) {
-  const positive = row.profit >= 0;
-  const stats = [
-    `${row.green}G`,
-    `${row.red}R`,
-    row.greenPct != null ? `${row.greenPct}% acerto` : null,
-    row.roiPct != null ? `ROI ${row.roiPct}%` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+/** Side-by-side compact table for POR GRUPO / POR CASA DE APOSTA — mirrors the
+ * design brief's GRUPO|G/R|ACERTO|ROI|LUCRO columns instead of a stacked list. */
+function BreakdownTable({
+  title,
+  subtitle,
+  columnLabel,
+  rows,
+  label,
+}: {
+  title: string;
+  subtitle: string;
+  columnLabel: string;
+  rows: TelegramBancaRowT[];
+  label?: (key: string) => string;
+}) {
+  const sorted = [...rows].sort((a, b) => b.profit - a.profit);
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 last:border-0">
-      <div className="min-w-0">
-        <div className="truncate text-[13px] font-semibold">{label ? label(row.key) : row.key}</div>
-        {/* Decorative acerto% bar — same 0-100 scale as the ACERTO stat tile, so rows
-            are visually comparable to each other and to that tile at a glance. */}
-        {row.greenPct != null && (
-          <div className="mt-1 h-1 w-[90px] overflow-hidden rounded-full bg-surface-alt">
-            <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, Math.max(0, row.greenPct))}%` }} />
-          </div>
-        )}
-        <div className="mt-0.5 truncate font-mono text-[11px] text-text-tertiary">{stats}</div>
-        {row.missingOdd > 0 && (
-          <div className="mt-0.5 text-[10px] text-vip">{row.missingOdd} sem odd — fora do lucro</div>
-        )}
+    <div className="rounded-2xl border border-border bg-surface p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="text-[13px] font-bold">{title}</span>
+        <span className="font-mono text-[10px] text-text-tertiary">{subtitle}</span>
       </div>
-      <div className="flex-none text-right">
-        <div className={`font-mono text-[14px] font-bold ${positive ? "text-accent" : "text-live"}`}>
-          {positive ? "+" : ""}
-          {row.profit.toFixed(2)}u
+      {sorted.length === 0 ? (
+        <p className="py-8 text-center text-[13px] text-text-tertiary">Nenhuma tip resolvida ainda.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[300px] border-collapse text-[12px]">
+            <thead>
+              <tr className="border-b border-border-subtle text-left font-mono text-[9px] tracking-[0.04em] text-text-tertiary">
+                <th className="pb-2 pr-2 font-normal">{columnLabel}</th>
+                <th className="pb-2 pr-2 text-right font-normal">G/R</th>
+                <th className="pb-2 pr-2 text-right font-normal">ACERTO</th>
+                <th className="pb-2 pr-2 text-right font-normal">ROI</th>
+                <th className="pb-2 text-right font-normal">LUCRO</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((row) => {
+                const positive = row.profit >= 0;
+                return (
+                  <tr key={row.key} className="border-b border-border-subtle last:border-0">
+                    <td className="max-w-[130px] py-2.5 pr-2">
+                      <div className="truncate font-semibold">{label ? label(row.key) : row.key}</div>
+                      {row.greenPct != null && (
+                        <div className="mt-1 h-1 w-full max-w-[90px] overflow-hidden rounded-full bg-surface-alt">
+                          <div
+                            className="h-full rounded-full bg-accent"
+                            style={{ width: `${Math.min(100, Math.max(0, row.greenPct))}%` }}
+                          />
+                        </div>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap py-2.5 pr-2 text-right font-mono">
+                      <span className="text-accent">{row.green}</span> / <span className="text-live">{row.red}</span>
+                    </td>
+                    <td className="py-2.5 pr-2 text-right font-mono text-text-secondary">
+                      {row.greenPct != null ? `${row.greenPct}%` : "—"}
+                    </td>
+                    <td className="py-2.5 pr-2 text-right font-mono text-text-secondary">
+                      {row.roiPct != null ? `${row.roiPct}%` : "—"}
+                    </td>
+                    <td className={`py-2.5 text-right font-mono font-bold ${positive ? "text-accent" : "text-live"}`}>
+                      {positive ? "+" : ""}
+                      {row.profit.toFixed(2)}u
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        {row.profitBRL !== null && (
-          <div className="font-mono text-[10px] text-text-tertiary">
-            {positive ? "+" : ""}
-            {row.profitBRL.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -278,34 +309,6 @@ function StatTiles({ row }: { row: TelegramBancaRowT }) {
   );
 }
 
-function BreakdownSection({
-  title,
-  rows,
-  label,
-}: {
-  title: string;
-  rows: TelegramBancaRowT[];
-  label?: (key: string) => string;
-}) {
-  const sorted = [...rows].sort((a, b) => b.profit - a.profit);
-  return (
-    <>
-      <div className="mb-2.5 mt-6 font-mono text-[11px] tracking-[0.06em] text-text-tertiary">{title}</div>
-      {sorted.length === 0 ? (
-        <p className="rounded-2xl border border-border bg-surface px-4 py-6 text-center text-[13px] text-text-tertiary">
-          Nenhuma tip resolvida ainda.
-        </p>
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
-          {sorted.map((r) => (
-            <BreakdownRow key={r.key} row={r} label={label} />
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
 function ScopeSection({
   scope,
   points,
@@ -338,8 +341,16 @@ function ScopeSection({
         <BankrollChart points={points} />
       </div>
 
-      <BreakdownSection title="POR GRUPO" rows={scope.byGroup} />
-      <BreakdownSection title="POR CASA DE APOSTA" rows={scope.byBookmaker} label={bookmakerLabel} />
+      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <BreakdownTable title="Por grupo" subtitle="ordenado por lucro" columnLabel="GRUPO" rows={scope.byGroup} />
+        <BreakdownTable
+          title="Por casa de aposta"
+          subtitle={`${scope.byBookmaker.length} ${scope.byBookmaker.length === 1 ? "casa" : "casas"} · ordenado por lucro`}
+          columnLabel="CASA"
+          rows={scope.byBookmaker}
+          label={bookmakerLabel}
+        />
+      </div>
     </>
   );
 }
@@ -428,6 +439,13 @@ export function TelegramReportPage() {
   return (
     <div className="pb-6 lg:max-w-[960px] lg:pl-6 lg:pr-6 lg:pt-6">
       <div className="flex items-center gap-2.5 px-5 pb-3 pt-3 lg:px-0">
+        <Link
+          to="/telegram-tips"
+          aria-label="Voltar"
+          className="hidden flex-none items-center justify-center text-text-secondary lg:flex"
+        >
+          <IconChevronLeft size={20} />
+        </Link>
         <IconTelegram size={22} className="text-accent" />
         <span className="text-[20px] font-bold tracking-[-0.02em] lg:text-[22px]">Relatório · VIP Telegram</span>
       </div>

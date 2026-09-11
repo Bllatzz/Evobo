@@ -733,110 +733,114 @@ export function TelegramTipsPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 px-4 pb-4 lg:gap-3 lg:px-0">
-        <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
-          <div className="mb-1 font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
-            TIPS PENDENTES
+      {/* Stats (plain, no card chrome) + search/peguei/casa on the same row at desktop */}
+      <div className="flex flex-col gap-3 px-4 pb-3 lg:flex-row lg:items-center lg:justify-between lg:px-0">
+        <div className="flex items-center gap-6">
+          <div>
+            <div className="mb-1 font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
+              TIPS PENDENTES
+            </div>
+            <div className="font-mono text-[18px] font-bold text-vip lg:text-[20px]">
+              {summary?.pendingCount ?? "—"}
+            </div>
           </div>
-          <div className="font-mono text-[18px] font-bold lg:text-[22px]">{summary?.pendingCount ?? "—"}</div>
+          <div>
+            <div className="mb-1 font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
+              PEGUEI HOJE
+            </div>
+            <div className="font-mono text-[18px] font-bold lg:text-[20px]">
+              {summary?.takenTodayCount ?? "—"}
+              {summary && <span className="text-[12px] text-text-tertiary lg:text-[13px]"> · {formatUnits(summary.takenTodayUnits)}</span>}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1 font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
+              RESULTADO HOJE
+            </div>
+            <div
+              className={`font-mono text-[18px] font-bold lg:text-[20px] ${
+                summary && summary.resultTodayUnits < 0 ? "text-live" : "text-accent"
+              }`}
+            >
+              {summary ? formatUnits(summary.resultTodayUnits, true) : "—"}
+            </div>
+          </div>
         </div>
-        <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
-          <div className="mb-1 font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
-            PEGUEI HOJE
-          </div>
-          <div className="font-mono text-[18px] font-bold lg:text-[22px]">
-            {summary?.takenTodayCount ?? "—"}
-            {summary && <span className="text-[12px] text-text-tertiary lg:text-[14px]"> · {formatUnits(summary.takenTodayUnits)}</span>}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
-          <div className="mb-1 font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
-            RESULTADO HOJE
-          </div>
-          <div
-            className={`font-mono text-[18px] font-bold lg:text-[22px] ${
-              summary && summary.resultTodayUnits < 0 ? "text-live" : "text-accent"
-            }`}
-          >
-            {summary ? formatUnits(summary.resultTodayUnits, true) : "—"}
-          </div>
-        </div>
-      </div>
 
-      {/* Search + peguei/não-peguei + casa */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-2 lg:px-0">
-        <div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-xl border border-border-subtle bg-surface-chip px-3 py-2 lg:max-w-[240px] lg:flex-none">
-          <IconSearch size={14} className="flex-none text-text-tertiary" />
-          <input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Buscar tip"
-            className="w-full min-w-0 bg-transparent text-[13px] text-text outline-none placeholder:text-text-tertiary"
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-xl border border-border-subtle bg-surface-chip px-3 py-2 lg:max-w-[200px] lg:flex-none">
+            <IconSearch size={14} className="flex-none text-text-tertiary" />
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Buscar tip"
+              className="w-full min-w-0 bg-transparent text-[13px] text-text outline-none placeholder:text-text-tertiary"
+            />
+          </div>
+          <Dropdown
+            value={takenStatus}
+            onChange={setTakenStatus}
+            placeholder="Peguei ou não"
+            options={TAKEN_FILTERS.map((f) => ({ value: f.key, label: f.label }))}
+            className="w-auto flex-none"
+          />
+          <Dropdown
+            value={bookmaker}
+            onChange={setBookmaker}
+            placeholder="Todas as casas"
+            options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
+            className="w-auto flex-none"
           />
         </div>
-        <Dropdown
-          value={takenStatus}
-          onChange={setTakenStatus}
-          placeholder="Peguei ou não"
-          options={TAKEN_FILTERS.map((f) => ({ value: f.key, label: f.label }))}
-          className="w-auto flex-none"
-        />
-        <Dropdown
-          value={bookmaker}
-          onChange={setBookmaker}
-          placeholder="Todas as casas"
-          options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
-          className="w-auto flex-none"
-        />
       </div>
 
-      {/* Group filter: staged multi-select, applied groups shown as removable chips */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-2 lg:px-0">
-        <GroupMultiSelect
-          groups={groups}
-          selected={groupIds}
-          onApply={setGroupIds}
-          countByGroup={(id) => pendingCountsByGroup.get(id) ?? 0}
-          totalCount={summary?.pendingCount ?? pendingTips.length}
-        />
-        {groupIds.map((id) => {
-          const g = groups.find((x) => x.id === id);
-          if (!g) return null;
-          return (
+      {/* Group filter (left) + result pills (right) on the same row at desktop */}
+      <div className="flex flex-col gap-2 px-4 pb-4 lg:flex-row lg:items-center lg:justify-between lg:px-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <GroupMultiSelect
+            groups={groups}
+            selected={groupIds}
+            onApply={setGroupIds}
+            countByGroup={(id) => pendingCountsByGroup.get(id) ?? 0}
+            totalCount={summary?.pendingCount ?? pendingTips.length}
+          />
+          {groupIds.map((id) => {
+            const g = groups.find((x) => x.id === id);
+            if (!g) return null;
+            return (
+              <button
+                key={id}
+                onClick={() => setGroupIds(groupIds.filter((x) => x !== id))}
+                className="flex flex-none items-center gap-1.5 rounded-full bg-accent-soft px-3.5 py-1.5 text-[12px] font-semibold text-accent"
+              >
+                {g.name}
+                <IconX size={11} />
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto">
+          {RESULT_FILTERS.map((r) => (
             <button
-              key={id}
-              onClick={() => setGroupIds(groupIds.filter((x) => x !== id))}
-              className="flex flex-none items-center gap-1.5 rounded-full bg-accent-soft px-3.5 py-1.5 text-[12px] font-semibold text-accent"
+              key={r.key}
+              onClick={() => setResultFilter(r.key)}
+              className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
+                result === r.key ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"
+              }`}
             >
-              {g.name}
-              <IconX size={11} />
+              {r.label}
             </button>
-          );
-        })}
-      </div>
-
-      {/* Result pills */}
-      <div className="flex gap-2 overflow-x-auto px-4 pb-4 lg:px-0">
-        {RESULT_FILTERS.map((r) => (
+          ))}
           <button
-            key={r.key}
-            onClick={() => setResultFilter(r.key)}
+            onClick={() => setResultFilter("")}
             className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
-              result === r.key ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"
+              result === "" ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"
             }`}
           >
-            {r.label}
+            Todas
           </button>
-        ))}
-        <button
-          onClick={() => setResultFilter("")}
-          className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
-            result === "" ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"
-          }`}
-        >
-          Todas
-        </button>
+        </div>
       </div>
 
       {/* Tip list */}
