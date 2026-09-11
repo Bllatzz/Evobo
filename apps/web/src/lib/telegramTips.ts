@@ -72,5 +72,13 @@ export const fetchBookmakerBalances = (): Promise<TelegramBookmakerBalance[]> =>
 
 export const fetchBookmakerNames = (): Promise<string[]> => apiFetch("/telegram-tips/bookmakers");
 
+/** Admin only — wipes every TelegramTip and reimports messages since
+ * `sinceUnix` (unix seconds) using the worker's already-connected live
+ * Telegram session. Destructive; the caller should confirm first. */
+export const rebuildTelegramTips = (
+  sinceUnix: number,
+): Promise<{ results: { group: string; messages: number; created: number; skipped: number }[] }> =>
+  apiFetch("/telegram-tips/admin/rebuild", { method: "POST", body: JSON.stringify({ sinceUnix }) });
+
 export const saveBookmakerBalances = (rows: TelegramBookmakerBalance[]): Promise<TelegramBookmakerBalance[]> =>
   apiFetch("/telegram-tips/bookmaker-balances", { method: "PUT", body: JSON.stringify(rows) });

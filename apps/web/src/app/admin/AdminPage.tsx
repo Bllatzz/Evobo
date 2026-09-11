@@ -7,6 +7,7 @@ import {
   type AdminOverview,
   type RobotMarketOddEntry,
 } from "../../lib/admin";
+import { rebuildTelegramTips } from "../../lib/telegramTips";
 import {
   IconChevronLeft,
   IconCheck,
@@ -14,6 +15,7 @@ import {
   IconSparkle,
   IconProfile,
   IconRobotMonitor,
+  IconTelegram,
 } from "../../components/Icon";
 
 const navCards = [
@@ -151,6 +153,76 @@ function RobotMarketOddsCard() {
   );
 }
 
+/** Meia-noite de "ontem" em América/São Paulo, como unix seconds. */
+function startOfYesterdaySaoPauloUnix(): number {
+  const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  const [y, m, d] = todayIso.split("-").map(Number);
+  return Date.UTC(y!, m! - 1, d! - 1, 3, 0, 0) / 1000;
+}
+
+/**
+ * Apaga toda a tip do Telegram e reimporta desde ontem 00:00, reusando a
+ * sessão MTProto já conectada do worker (roda dentro da própria API, sem
+ * SSH). Ação destrutiva — dupla confirmação antes de disparar.
+ */
+function TelegramRebuildCard() {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ group: string; messages: number; created: number; skipped: number }[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleClick() {
+    if (!confirm("Isso apaga TODAS as tips do VIP Telegram e reimporta tudo desde ontem 00:00. Confirma?")) return;
+    if (!confirm("Tem certeza? Essa ação não pode ser desfeita.")) return;
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    try {
+      const { results } = await rebuildTelegramTips(startOfYesterdaySaoPauloUnix());
+      setResult(results);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao reconstruir");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-live/30 bg-surface">
+      <div className="flex items-center gap-3.5 p-4">
+        <div className="flex h-10 w-10 flex-none items-center justify-center rounded-[10px] bg-live/10 text-live">
+          <IconTelegram size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[14.5px] font-semibold">VIP Telegram · reconstruir do zero</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            Apaga toda tip e reimporta desde ontem 00:00, com o parser atual. Ação destrutiva.
+          </div>
+        </div>
+        <button
+          onClick={handleClick}
+          disabled={running}
+          className="flex-none rounded-[11px] border border-live/40 px-4 py-2 text-[13px] font-semibold text-live disabled:opacity-50"
+        >
+          {running ? "Reconstruindo…" : "Reconstruir"}
+        </button>
+      </div>
+      {error && <p className="border-t border-border px-4 py-3 text-[12.5px] text-live">{error}</p>}
+      {result && (
+        <div className="border-t border-border px-4 py-3">
+          {result.map((r) => (
+            <div key={r.group} className="flex items-center justify-between text-[12.5px] text-text-secondary">
+              <span>{r.group}</span>
+              <span className="font-mono text-text-tertiary">
+                {r.messages} msgs · {r.created} criadas · {r.skipped} ignoradas
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdminPage() {
   const navigate = useNavigate();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
@@ -204,6 +276,9 @@ export function AdminPage() {
 
         <div className="mb-3 mt-6 font-mono text-[11px] tracking-[0.1em] text-text-tertiary">ROBÔ</div>
         <RobotMarketOddsCard />
+
+        <div className="mb-3 mt-6 font-mono text-[11px] tracking-[0.1em] text-text-tertiary">MANUTENÇÃO</div>
+        <TelegramRebuildCard />
       </div>
 
       {/* ---------- Mobile ---------- */}
@@ -256,6 +331,13 @@ export function AdminPage() {
       </div>
       <div className="px-4">
         <RobotMarketOddsCard />
+      </div>
+
+      <div className="px-4 pb-2 pt-5 font-mono text-[11px] tracking-[0.1em] text-text-tertiary">
+        MANUTENÇÃO
+      </div>
+      <div className="px-4">
+        <TelegramRebuildCard />
       </div>
       </div>
     </div>
