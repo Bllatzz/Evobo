@@ -6,10 +6,11 @@
 export function extractBookmaker(url: string | null): string | null {
   if (!url) return null;
   try {
-    // Strips generic prefixes (www., m. for mobile) so "m.betfast.bet.br"
-    // and "www.bet365.bet.br" both resolve to the actual brand name instead
+    // Strips generic prefixes (www., m. for mobile, app. for reidopitaco's
+    // app.reidopitaco.com.br) so "m.betfast.bet.br", "www.bet365.bet.br" and
+    // "app.reidopitaco.com.br" all resolve to the actual brand name instead
     // of the subdomain.
-    return new URL(url).hostname.replace(/^(www|m)\./i, "").split(".")[0] ?? null;
+    return new URL(url).hostname.replace(/^(www|m|app)\./i, "").split(".")[0] ?? null;
   } catch {
     return null;
   }
