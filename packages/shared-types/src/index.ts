@@ -384,11 +384,15 @@ export type TelegramBancaSummary = z.infer<typeof TelegramBancaSummary>;
 
 export const TelegramBancaSettingsSchema = z.object({
   unitValue: z.number().positive().nullable(),
+  /// `{ [bookmakerSlug]: "#rrggbb" }` — admin-assigned, drives the color dot
+  /// shown per bookmaker in the report's "Por casa de aposta" table.
+  bookmakerColors: z.record(z.string(), z.string()).nullable(),
 });
 export type TelegramBancaSettings = z.infer<typeof TelegramBancaSettingsSchema>;
 
 export const UpdateTelegramBancaSettingsInput = z.object({
   unitValue: z.number().positive().nullable(),
+  bookmakerColors: z.record(z.string(), z.string()).nullable().optional(),
 });
 export type UpdateTelegramBancaSettingsInput = z.infer<typeof UpdateTelegramBancaSettingsInput>;
 

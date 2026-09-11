@@ -1,6 +1,6 @@
 import { useEffect, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
-import { fetchTelegramBanca, fetchBookmakerNames, type TelegramBancaSummary } from "../../lib/telegramTips";
+import { fetchTelegramBanca, fetchBookmakerNames, fetchTelegramSettings, type TelegramBancaSummary } from "../../lib/telegramTips";
 import { IconTelegram, IconChevronLeft } from "../../components/Icon";
 import { Dropdown } from "../../components/Dropdown";
 import { bookmakerLabel } from "../../lib/bookmakers";
@@ -179,27 +179,29 @@ function BreakdownTable({
   columnLabel,
   rows,
   label,
+  colorFor,
 }: {
   title: string;
   subtitle: string;
   columnLabel: string;
   rows: TelegramBancaRowT[];
   label?: (key: string) => string;
+  colorFor?: (key: string) => string | null;
 }) {
   const sorted = [...rows].sort((a, b) => b.profit - a.profit);
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="text-[13px] font-bold">{title}</span>
-        <span className="font-mono text-[10px] text-text-tertiary">{subtitle}</span>
+        <span className="text-[14px] font-bold">{title}</span>
+        <span className="font-mono text-[11px] text-text-tertiary">{subtitle}</span>
       </div>
       {sorted.length === 0 ? (
         <p className="py-8 text-center text-[13px] text-text-tertiary">Nenhuma tip resolvida ainda.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[300px] border-collapse text-[12px]">
+          <table className="w-full min-w-[340px] border-collapse text-[13.5px]">
             <thead>
-              <tr className="border-b border-border-subtle text-left font-mono text-[9px] tracking-[0.04em] text-text-tertiary">
+              <tr className="border-b border-border-subtle text-left font-mono text-[10.5px] tracking-[0.04em] text-text-tertiary">
                 <th className="pb-2 pr-2 font-normal">{columnLabel}</th>
                 <th className="pb-2 pr-2 text-right font-normal">G/R</th>
                 <th className="pb-2 pr-2 text-right font-normal">ACERTO</th>
@@ -210,12 +212,16 @@ function BreakdownTable({
             <tbody>
               {sorted.map((row) => {
                 const positive = row.profit >= 0;
+                const dotColor = colorFor?.(row.key);
                 return (
                   <tr key={row.key} className="border-b border-border-subtle last:border-0">
-                    <td className="max-w-[130px] py-2.5 pr-2">
-                      <div className="truncate font-semibold">{label ? label(row.key) : row.key}</div>
+                    <td className="max-w-[170px] py-3 pr-2">
+                      <div className="flex items-center gap-2">
+                        {dotColor && <span className="h-2.5 w-2.5 flex-none rounded-[3px]" style={{ backgroundColor: dotColor }} />}
+                        <span className="truncate font-semibold">{label ? label(row.key) : row.key}</span>
+                      </div>
                       {row.greenPct != null && (
-                        <div className="mt-1 h-1 w-full max-w-[90px] overflow-hidden rounded-full bg-surface-alt">
+                        <div className="mt-1.5 h-1 w-full max-w-[100px] overflow-hidden rounded-full bg-surface-alt">
                           <div
                             className="h-full rounded-full bg-accent"
                             style={{ width: `${Math.min(100, Math.max(0, row.greenPct))}%` }}
@@ -223,16 +229,16 @@ function BreakdownTable({
                         </div>
                       )}
                     </td>
-                    <td className="whitespace-nowrap py-2.5 pr-2 text-right font-mono">
+                    <td className="whitespace-nowrap py-3 pr-2 text-right font-mono">
                       <span className="text-accent">{row.green}</span> / <span className="text-live">{row.red}</span>
                     </td>
-                    <td className="py-2.5 pr-2 text-right font-mono text-text-secondary">
+                    <td className="py-3 pr-2 text-right font-mono text-text-secondary">
                       {row.greenPct != null ? `${row.greenPct}%` : "—"}
                     </td>
-                    <td className="py-2.5 pr-2 text-right font-mono text-text-secondary">
+                    <td className="py-3 pr-2 text-right font-mono text-text-secondary">
                       {row.roiPct != null ? `${row.roiPct}%` : "—"}
                     </td>
-                    <td className={`py-2.5 text-right font-mono font-bold ${positive ? "text-accent" : "text-live"}`}>
+                    <td className={`py-3 text-right font-mono font-bold ${positive ? "text-accent" : "text-live"}`}>
                       {positive ? "+" : ""}
                       {row.profit.toFixed(2)}u
                     </td>
@@ -313,10 +319,12 @@ function ScopeSection({
   scope,
   points,
   totalRow,
+  bookmakerColors,
 }: {
   scope: TelegramBancaSummary["geral"];
   points: SeriesPoint[];
   totalRow: TelegramBancaRowT | null;
+  bookmakerColors: Record<string, string> | null;
 }) {
   // Nothing graded yet for this tab/período/casa — one clear message instead
   // of the stat tiles, chart and both breakdowns each repeating their own
@@ -349,6 +357,7 @@ function ScopeSection({
           columnLabel="CASA"
           rows={scope.byBookmaker}
           label={bookmakerLabel}
+          colorFor={(key) => bookmakerColors?.[key] ?? null}
         />
       </div>
     </>
@@ -416,9 +425,11 @@ export function TelegramReportPage() {
   const [bookmaker, setBookmaker] = useState("");
   const [bookmakers, setBookmakers] = useState<string[]>([]);
   const [days, setDays] = useState<number | undefined>(30);
+  const [bookmakerColors, setBookmakerColors] = useState<Record<string, string> | null>(null);
 
   useEffect(() => {
     fetchBookmakerNames().then(setBookmakers).catch(() => {});
+    fetchTelegramSettings().then((s) => setBookmakerColors(s.bookmakerColors)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -437,68 +448,77 @@ export function TelegramReportPage() {
   }
 
   return (
-    <div className="pb-6 lg:max-w-[960px] lg:pl-6 lg:pr-6 lg:pt-6">
-      <div className="flex items-center gap-2.5 px-5 pb-3 pt-3 lg:px-0">
-        <Link
-          to="/telegram-tips"
-          aria-label="Voltar"
-          className="hidden flex-none items-center justify-center text-text-secondary lg:flex"
-        >
-          <IconChevronLeft size={20} />
-        </Link>
-        <IconTelegram size={22} className="text-accent" />
-        <span className="text-[20px] font-bold tracking-[-0.02em] lg:text-[22px]">Relatório · VIP Telegram</span>
-      </div>
-
-      <div className="mx-5 flex flex-wrap items-center gap-3 lg:mx-0">
-        <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1 lg:w-fit">
-          {(["geral", "peguei"] as const).map((key) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`flex-1 rounded-[9px] px-5 py-1.5 text-center text-[13px] font-semibold lg:flex-none ${
-                tab === key ? "bg-accent text-[#08090A]" : "text-text-secondary"
-              }`}
-            >
-              {key === "geral" ? "Geral" : "Peguei"}
-            </button>
-          ))}
+    <div className="pb-6 lg:max-w-[1600px] lg:pl-6 lg:pr-6 lg:pt-6">
+      <div className="flex flex-col gap-3 px-5 pb-3 pt-3 lg:flex-row lg:items-center lg:justify-between lg:px-0">
+        <div className="flex items-center gap-2.5">
+          <Link
+            to="/telegram-tips"
+            aria-label="Voltar"
+            className="hidden flex-none items-center justify-center text-text-secondary lg:flex"
+          >
+            <IconChevronLeft size={20} />
+          </Link>
+          <IconTelegram size={22} className="text-accent" />
+          <span className="text-[20px] font-bold tracking-[-0.02em] lg:text-[22px]">Relatório · VIP Telegram</span>
         </div>
 
-        <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1">
-          {DATE_RANGES.map((range) => (
-            <button
-              key={range.label}
-              onClick={() => setDays(range.days)}
-              className={`rounded-[9px] px-3.5 py-1.5 text-center text-[13px] font-semibold ${
-                days === range.days ? "bg-accent text-[#08090A]" : "text-text-secondary"
-              }`}
-            >
-              {range.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1 lg:w-fit">
+            {(["geral", "peguei"] as const).map((key) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`flex-1 rounded-[9px] px-5 py-1.5 text-center text-[13px] font-semibold lg:flex-none ${
+                  tab === key ? "bg-accent text-[#08090A]" : "text-text-secondary"
+                }`}
+              >
+                {key === "geral" ? "Geral" : "Peguei"}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1">
+            {DATE_RANGES.map((range) => (
+              <button
+                key={range.label}
+                onClick={() => setDays(range.days)}
+                className={`rounded-[9px] px-3.5 py-1.5 text-center text-[13px] font-semibold ${
+                  days === range.days ? "bg-accent text-[#08090A]" : "text-text-secondary"
+                }`}
+              >
+                {range.label}
+              </button>
+            ))}
+          </div>
+
+          <Dropdown
+            value={bookmaker}
+            onChange={setBookmaker}
+            placeholder="Todas as casas"
+            options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
+            className="w-auto flex-none"
+          />
+
+          <button
+            onClick={handleExport}
+            disabled={!summary}
+            className="flex-none rounded-[11px] border border-border-strong px-3.5 py-1.5 text-[13px] font-semibold text-text disabled:opacity-40"
+          >
+            ⤓ Exportar
+          </button>
         </div>
-
-        <Dropdown
-          value={bookmaker}
-          onChange={setBookmaker}
-          placeholder="Todas as casas"
-          options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
-          className="w-auto flex-none"
-        />
-
-        <button
-          onClick={handleExport}
-          disabled={!summary}
-          className="ml-auto flex-none rounded-[11px] border border-border-strong px-3.5 py-1.5 text-[13px] font-semibold text-text disabled:opacity-40 lg:ml-0"
-        >
-          ⤓ Exportar
-        </button>
       </div>
 
       <div className="px-5 lg:px-0">
         {summary === null && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}
-        {summary && <ScopeSection scope={summary[tab]} points={summary.series[tab]} totalRow={summary.totals[tab]} />}
+        {summary && (
+          <ScopeSection
+            scope={summary[tab]}
+            points={summary.series[tab]}
+            totalRow={summary.totals[tab]}
+            bookmakerColors={bookmakerColors}
+          />
+        )}
       </div>
     </div>
   );

@@ -7,7 +7,14 @@ import {
   type AdminOverview,
   type RobotMarketOddEntry,
 } from "../../lib/admin";
-import { rebuildTelegramTips } from "../../lib/telegramTips";
+import {
+  rebuildTelegramTips,
+  fetchBookmakerNames,
+  fetchTelegramSettings,
+  saveTelegramSettings,
+  type TelegramBancaSettings,
+} from "../../lib/telegramTips";
+import { bookmakerLabel } from "../../lib/bookmakers";
 import {
   IconChevronLeft,
   IconCheck,
@@ -223,6 +230,64 @@ function TelegramRebuildCard() {
   );
 }
 
+/** Lets the admin pick a color per bookmaker, shown as a small dot next to
+ * each casa in the VIP Telegram report's "Por casa de aposta" table —
+ * stored in TelegramBancaSettings.bookmakerColors, one PUT per change. */
+function BookmakerColorsCard() {
+  const [names, setNames] = useState<string[]>([]);
+  const [settings, setSettings] = useState<TelegramBancaSettings | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchBookmakerNames().then(setNames).catch(() => {});
+    fetchTelegramSettings().then(setSettings).catch(() => {});
+  }, []);
+
+  async function setColor(bookmaker: string, color: string) {
+    if (!settings) return;
+    setSaving(bookmaker);
+    try {
+      const updated = await saveTelegramSettings({
+        unitValue: settings.unitValue,
+        bookmakerColors: { ...(settings.bookmakerColors ?? {}), [bookmaker]: color },
+      });
+      setSettings(updated);
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-border bg-surface p-4">
+      <div className="text-[14.5px] font-semibold">Cores das casas de aposta</div>
+      <div className="mt-0.5 text-[12px] text-text-tertiary">
+        Escolha uma cor por casa — aparece como uma bolinha ao lado do nome no relatório do VIP Telegram.
+      </div>
+      <div className="mt-3 flex max-h-[420px] flex-col gap-2.5 overflow-y-auto pr-1">
+        {names.map((name) => {
+          const current = settings?.bookmakerColors?.[name] ?? null;
+          return (
+            <div key={name} className="flex items-center gap-3 border-b border-border-subtle pb-2.5 last:border-0">
+              <input
+                type="color"
+                value={current ?? "#8a8a8a"}
+                onChange={(e) => setColor(name, e.target.value)}
+                disabled={saving === name}
+                aria-label={`Cor de ${bookmakerLabel(name)}`}
+                className="h-8 w-8 flex-none cursor-pointer rounded-lg border border-border-strong bg-transparent p-0 disabled:opacity-50"
+              />
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{bookmakerLabel(name)}</span>
+            </div>
+          );
+        })}
+        {names.length === 0 && (
+          <p className="py-6 text-center text-[12px] text-text-tertiary">Nenhuma casa encontrada ainda.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function AdminPage() {
   const navigate = useNavigate();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
@@ -278,7 +343,10 @@ export function AdminPage() {
         <RobotMarketOddsCard />
 
         <div className="mb-3 mt-6 font-mono text-[11px] tracking-[0.1em] text-text-tertiary">MANUTENÇÃO</div>
-        <TelegramRebuildCard />
+        <div className="flex flex-col gap-4">
+          <TelegramRebuildCard />
+          <BookmakerColorsCard />
+        </div>
       </div>
 
       {/* ---------- Mobile ---------- */}
@@ -336,8 +404,9 @@ export function AdminPage() {
       <div className="px-4 pb-2 pt-5 font-mono text-[11px] tracking-[0.1em] text-text-tertiary">
         MANUTENÇÃO
       </div>
-      <div className="px-4">
+      <div className="flex flex-col gap-4 px-4">
         <TelegramRebuildCard />
+        <BookmakerColorsCard />
       </div>
       </div>
     </div>

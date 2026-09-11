@@ -54,6 +54,15 @@ const STATUS_CHIPS: Record<string, { text: string; className: string }> = {
 };
 const NAO_PEGA_CHIP = { text: "NÃO PEGA", className: "bg-surface-alt text-text-tertiary" };
 
+// Small fixed rotation over Evobo's own brand hues (never an invented color)
+// so each Telegram group keeps a stable dot across renders.
+const GROUP_DOT_COLORS = ["bg-accent", "bg-live", "bg-vip", "bg-verified", "bg-orange"];
+function groupColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return GROUP_DOT_COLORS[hash % GROUP_DOT_COLORS.length]!;
+}
+
 function relativeTime(iso: string): string {
   const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
   if (min < 1) return "agora";
@@ -132,6 +141,7 @@ function TipRow({
   onUpdate,
   onUpdateDraft,
   onUntake,
+  onHideAll,
 }: {
   tip: TelegramTip;
   index: number;
@@ -140,6 +150,9 @@ function TipRow({
   onUpdate: (tip: TelegramTip) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onUntake: (tip: TelegramTip) => void;
+  /** Collapsing a tip also tucks away the shared bilhete photo — there's
+   * nothing left to reference it against once the tip itself is hidden. */
+  onHideAll: () => void;
 }) {
   const { me } = useAuth();
   const isAdmin = me?.role === "admin";
@@ -192,7 +205,7 @@ function TipRow({
         <button
           onClick={() => setCollapsed(false)}
           aria-label="Mostrar tip"
-          className="flex-none text-text-tertiary"
+          className="flex-none rounded-lg border border-border-strong bg-surface-chip p-1.5 text-text-secondary"
         >
           <IconChevronDown size={14} />
         </button>
@@ -212,9 +225,12 @@ function TipRow({
           {chip.text}
         </span>
         <button
-          onClick={() => setCollapsed(true)}
+          onClick={() => {
+            setCollapsed(true);
+            onHideAll();
+          }}
           aria-label="Ocultar tip"
-          className="flex-none text-text-tertiary"
+          className="flex-none self-start rounded-lg border border-border-strong bg-surface-chip p-1.5 text-text-secondary"
         >
           <IconChevronDown size={14} className="rotate-180" />
         </button>
@@ -346,6 +362,7 @@ function MessageGroupCard({
   return (
     <div className="rounded-[18px] border border-border bg-surface p-3.5 lg:p-4">
       <div className="mb-2 flex items-center gap-2">
+        <span className={`h-2 w-2 flex-none rounded-full ${groupColor(group.groupName)}`} />
         <IconTelegram size={13} className="flex-none text-accent" />
         <span className="truncate text-[12px] font-semibold text-accent">{group.groupName}</span>
         <span className="flex-none text-[11px] text-text-tertiary">{relativeTime(group.receivedAt)}</span>
@@ -359,13 +376,13 @@ function MessageGroupCard({
 
       <div className="flex gap-3">
         {group.photoUrl && photoVisible && (
-          <div className="w-[170px] flex-none">
+          <div className="w-[210px] flex-none">
             <div className="relative">
               <img
                 src={group.photoUrl}
                 alt="Bilhete"
                 onClick={() => onOpenPhoto(group.photoUrl!)}
-                className="h-[150px] w-full cursor-zoom-in rounded-xl bg-surface-chip object-contain"
+                className="h-[190px] w-full cursor-zoom-in rounded-xl bg-surface-chip object-contain"
               />
               <button
                 onClick={() => onTogglePhoto(group.key, false)}
@@ -413,6 +430,7 @@ function MessageGroupCard({
                 onUpdate={onUpdate}
                 onUpdateDraft={onUpdateDraft}
                 onUntake={onUntake}
+                onHideAll={() => onTogglePhoto(group.key, false)}
               />
             ))}
           </div>
@@ -693,7 +711,7 @@ export function TelegramTipsPage() {
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-4 lg:px-0">
         <IconTelegram size={22} className="flex-none text-accent" />
         <div className="min-w-0 flex-1 text-[19px] font-bold tracking-[-0.02em] lg:text-[22px]">VIP Telegram</div>
-        <div className="hidden items-center gap-2 lg:flex">
+        <div className="hidden items-center gap-2 rounded-full border border-border-strong bg-surface-chip px-3 py-1.5 lg:flex">
           <button
             onClick={toggleGlobalPhotos}
             role="switch"

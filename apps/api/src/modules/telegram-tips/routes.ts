@@ -407,7 +407,10 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   // ── Configurações pessoais (unidade em R$ + saldo por casa) ─────────────
   app.get("/settings", async (request): Promise<TelegramBancaSettings> => {
     const settings = await prisma.telegramBancaSettings.findUnique({ where: { userId: request.authUser!.id } });
-    return { unitValue: settings?.unitValue !== null && settings?.unitValue !== undefined ? Number(settings.unitValue) : null };
+    return {
+      unitValue: settings?.unitValue !== null && settings?.unitValue !== undefined ? Number(settings.unitValue) : null,
+      bookmakerColors: (settings?.bookmakerColors as Record<string, string> | null) ?? null,
+    };
   });
 
   app.put("/settings", async (request, reply): Promise<TelegramBancaSettings> => {
@@ -417,10 +420,20 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     }
     const settings = await prisma.telegramBancaSettings.upsert({
       where: { userId: request.authUser!.id },
-      create: { userId: request.authUser!.id, unitValue: parsed.data.unitValue },
-      update: { unitValue: parsed.data.unitValue },
+      create: {
+        userId: request.authUser!.id,
+        unitValue: parsed.data.unitValue,
+        ...(parsed.data.bookmakerColors !== undefined ? { bookmakerColors: parsed.data.bookmakerColors ?? {} } : {}),
+      },
+      update: {
+        unitValue: parsed.data.unitValue,
+        ...(parsed.data.bookmakerColors !== undefined ? { bookmakerColors: parsed.data.bookmakerColors ?? {} } : {}),
+      },
     });
-    return { unitValue: settings.unitValue !== null ? Number(settings.unitValue) : null };
+    return {
+      unitValue: settings.unitValue !== null ? Number(settings.unitValue) : null,
+      bookmakerColors: (settings.bookmakerColors as Record<string, string> | null) ?? null,
+    };
   });
 
   app.get("/bookmaker-balances", async (request): Promise<TelegramBookmakerBalance[]> => {

@@ -479,6 +479,10 @@ model TelegramTip {
 model TelegramBancaSettings {
   userId    String   @id @map("user_id") @db.Uuid
   unitValue Decimal? @map("unit_value") @db.Decimal(10, 2)
+  /// Admin-assigned `{ [bookmakerSlug]: "#rrggbb" }` map, shown as a small
+  /// color dot next to each bookmaker in the report's "Por casa de aposta"
+  /// table — set from Admin rather than derived automatically.
+  bookmakerColors Json?    @map("bookmaker_colors")
   updatedAt DateTime @updatedAt @map("updated_at")
   user      User     @relation(fields: [userId], references: [id])
 
