@@ -220,14 +220,7 @@ function BreakdownRow({ row, label }: { row: TelegramBancaRowT; label?: (key: st
  * the top stat row convention on MyProfilePage.tsx: rounded-2xl/border-border/bg-surface/p-4.5
  * tiles with a font-mono uppercase label + big number) instead of one hero card, so the
  * user sees "am I up or down overall" plus ROI/ACERTO/volume in one glance. */
-function StatTiles({ row }: { row: TelegramBancaRowT | null }) {
-  if (!row) {
-    return (
-      <div className="rounded-2xl border border-border bg-surface p-5 text-center text-[13px] text-text-tertiary">
-        Nenhuma tip resolvida ainda.
-      </div>
-    );
-  }
+function StatTiles({ row }: { row: TelegramBancaRowT }) {
   const positive = row.profit >= 0;
   const roiPositive = row.roiPct != null && row.roiPct >= 0;
   const acertoPct = row.greenPct ?? 0;
@@ -322,6 +315,20 @@ function ScopeSection({
   points: SeriesPoint[];
   totalRow: TelegramBancaRowT | null;
 }) {
+  // Nothing graded yet for this tab/período/casa — one clear message instead
+  // of the stat tiles, chart and both breakdowns each repeating their own
+  // "sem dados" placeholder.
+  if (!totalRow) {
+    return (
+      <div className="mt-4 rounded-2xl border border-border bg-surface px-5 py-14 text-center">
+        <p className="text-[14px] font-semibold">Nenhuma tip resolvida ainda</p>
+        <p className="mx-auto mt-1.5 max-w-xs text-[12px] text-text-tertiary">
+          Marque o resultado das tips (Green, Red ou Reemb.) no VIP Telegram para o relatório aparecer aqui.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <>
       <StatTiles row={totalRow} />
