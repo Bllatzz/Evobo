@@ -7,6 +7,7 @@ import { AccountMenu } from "../../components/AccountMenu";
 import { useAuth } from "../../stores/auth";
 import { IconCheck, IconX } from "../../components/Icon";
 import { TelegramBancaOverview } from "../telegram-tips/TelegramBancaOverview";
+import { fetchTelegramSettings, fetchBookmakerBalances, fetchTelegramBanca } from "../../lib/telegramTips";
 
 const resultLabel: Record<string, { text: string; className: string; Icon?: typeof IconCheck }> = {
   green: { text: "Green", className: "text-accent", Icon: IconCheck },
@@ -70,9 +71,19 @@ function BankrollChart({ settled }: { settled: ProfileTip[] }) {
   );
 }
 
+/** Resolved-and-taken totals from the Telegram tracker, folded into the
+ * profile's own bankroll/winrate/tips-count — the profile is meant to be
+ * one picture of "my results" for the whole site, not something split
+ * between a native-bets number here and a separately-branded number under
+ * VIP Telegram. Defaults to "no telegram data" for users without the
+ * telegram_banca screen, which leaves every stat exactly as it was before. */
+type TelegramFold = { bancaInicialUnits: number | null; profitUnits: number; total: number; green: number };
+const NO_TELEGRAM_FOLD: TelegramFold = { bancaInicialUnits: null, profitUnits: 0, total: 0, green: 0 };
+
 export function MyProfilePage() {
   const { me, canAccess } = useAuth();
   const [bets, setBets] = useState<ProfileTip[] | null>(null);
+  const [tg, setTg] = useState<TelegramFold | null>(null);
 
   const load = useCallback(() => {
     fetchMyBets().then(setBets);
@@ -82,13 +93,33 @@ export function MyProfilePage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (!canAccess("telegram_banca")) {
+      setTg(NO_TELEGRAM_FOLD);
+      return;
+    }
+    Promise.all([fetchTelegramSettings(), fetchBookmakerBalances(), fetchTelegramBanca()])
+      .then(([settings, balances, banca]) => {
+        const unitValue = settings.unitValue;
+        const depositedTotal = balances.reduce((sum, b) => sum + b.balance, 0);
+        const peguei = banca.totals.peguei;
+        setTg({
+          bancaInicialUnits: unitValue && unitValue > 0 ? depositedTotal / unitValue : null,
+          profitUnits: peguei?.profit ?? 0,
+          total: peguei?.total ?? 0,
+          green: peguei?.green ?? 0,
+        });
+      })
+      .catch(() => setTg(NO_TELEGRAM_FOLD));
+  }, [canAccess]);
+
   const settled = useMemo(
     () => bets?.filter((b) => b.status === "green" || b.status === "red") ?? null,
     [bets],
   );
 
   const stats = useMemo(() => {
-    if (!settled) return null;
+    if (!settled || !tg) return null;
     const pnl = settled.reduce((sum, b) => sum + betProfit(b), 0);
     const staked = settled.reduce((sum, b) => sum + Number(b.stakeUnits), 0);
     const greenCount = settled.filter((b) => b.status === "green").length;
@@ -98,15 +129,21 @@ export function MyProfilePage() {
     const recentStaked = recent.reduce((sum, b) => sum + Number(b.stakeUnits), 0);
     const recentPnl = recent.reduce((sum, b) => sum + betProfit(b), 0);
 
+    const combinedResolved = settled.length + tg.total;
+    const combinedGreen = greenCount + tg.green;
+    const bancaInicial = tg.bancaInicialUnits ?? STARTING_BANKROLL_UNITS;
+
     return {
       pnl,
       roi: staked > 0 ? (pnl / staked) * 100 : 0,
       roi30d: recentStaked > 0 ? (recentPnl / recentStaked) * 100 : 0,
-      hitRate: settled.length > 0 ? (greenCount / settled.length) * 100 : 0,
+      hitRate: combinedResolved > 0 ? (combinedGreen / combinedResolved) * 100 : 0,
       staked,
-      bankroll: STARTING_BANKROLL_UNITS + pnl,
+      tipsCount: (bets?.length ?? 0) + tg.total,
+      bancaInicial,
+      bankroll: bancaInicial + pnl + tg.profitUnits,
     };
-  }, [settled]);
+  }, [settled, tg, bets]);
 
   if (!me) return null;
 
@@ -148,12 +185,15 @@ export function MyProfilePage() {
 
         {stats && (
           <>
-            <div className="mb-6 grid grid-cols-4 gap-4">
+            <div className="mb-6 grid grid-cols-5 gap-4">
               <div className="rounded-2xl border border-border bg-surface p-4.5">
-                <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">ROI 30D</div>
-                <div className={`font-mono text-[26px] font-bold ${stats.roi30d >= 0 ? "text-accent" : "text-live"}`}>
-                  {stats.roi30d >= 0 ? "+" : ""}
-                  {stats.roi30d.toFixed(1)}%
+                <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA INICIAL</div>
+                <div className="font-mono text-[26px] font-bold">{stats.bancaInicial.toFixed(1)}u</div>
+              </div>
+              <div className="rounded-2xl border border-border bg-surface p-4.5">
+                <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA ATUAL</div>
+                <div className={`font-mono text-[26px] font-bold ${stats.bankroll >= stats.bancaInicial ? "text-accent" : "text-live"}`}>
+                  {stats.bankroll.toFixed(1)}u
                 </div>
               </div>
               <div className="rounded-2xl border border-border bg-surface p-4.5">
@@ -162,12 +202,13 @@ export function MyProfilePage() {
               </div>
               <div className="rounded-2xl border border-border bg-surface p-4.5">
                 <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">TIPS PEGAS</div>
-                <div className="font-mono text-[26px] font-bold">{bets?.length ?? 0}</div>
+                <div className="font-mono text-[26px] font-bold">{stats.tipsCount}</div>
               </div>
               <div className="rounded-2xl border border-border bg-surface p-4.5">
-                <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA ATUAL</div>
-                <div className={`font-mono text-[26px] font-bold ${stats.bankroll >= STARTING_BANKROLL_UNITS ? "text-accent" : "text-live"}`}>
-                  {stats.bankroll.toFixed(1)}u
+                <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">ROI 30D</div>
+                <div className={`font-mono text-[26px] font-bold ${stats.roi30d >= 0 ? "text-accent" : "text-live"}`}>
+                  {stats.roi30d >= 0 ? "+" : ""}
+                  {stats.roi30d.toFixed(1)}%
                 </div>
               </div>
             </div>

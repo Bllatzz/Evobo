@@ -443,6 +443,11 @@ model TelegramTip {
   oddSource         String?  @map("odd_source")
   bookmaker         String?
   betUrl            String?  @map("bet_url")
+  /// Set instead of bookmaker/betUrl when the tip can be placed at more than
+  /// one house (e.g. "🔗 Betfair · 🔗 Betnacional") — same bet, not N tips.
+  /// Shape: {bookmaker: string | null, betUrl: string | null}[]. The
+  /// dashboard shows a select; picking one PATCHes bookmaker/betUrl above.
+  bookmakerOptions  Json?    @map("bookmaker_options")
   photoPath         String?  @map("photo_path")
   /// pending | green | red | reembolso
   result            String   @default("pending")

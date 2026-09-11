@@ -100,7 +100,28 @@ export function TipCard({
         </div>
         <div className="col-span-2 flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Casa</span>
-          <span className="truncate text-[13px] font-bold capitalize">{tip.bookmaker ?? "—"}</span>
+          {tip.bookmakerOptions && tip.bookmakerOptions.length > 1 ? (
+            <select
+              value={tip.bookmaker ?? ""}
+              onChange={async (e) => {
+                const chosen = tip.bookmakerOptions!.find((o) => o.bookmaker === e.target.value);
+                if (!chosen) return;
+                onUpdate(await patchTelegramTip(tip.id, { bookmaker: chosen.bookmaker, betUrl: chosen.betUrl }));
+              }}
+              className="-mx-0.5 rounded-md bg-transparent text-[13px] font-bold capitalize"
+            >
+              <option value="" disabled>
+                Escolha a casa
+              </option>
+              {tip.bookmakerOptions.map((o, i) => (
+                <option key={i} value={o.bookmaker ?? ""} className="capitalize">
+                  {o.bookmaker ?? "—"}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="truncate text-[13px] font-bold capitalize">{tip.bookmaker ?? "—"}</span>
+          )}
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Odd</span>

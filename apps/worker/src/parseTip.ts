@@ -103,6 +103,8 @@ export const KNOWN_PATTERNS: Record<string, { description: string; example: stri
   },
 };
 
+export type BookmakerOption = { bookmaker: string | null; betUrl: string | null };
+
 export type ParsedSelection = {
   text: string | null;
   unit: number | null;
@@ -110,6 +112,11 @@ export type ParsedSelection = {
   /** Só quando a tip lista mais de uma casa possível pra mesma seleção — sobrescreve o bookmaker/betUrl do nível do ParsedTip pra essa seleção específica. */
   bookmaker?: string | null;
   betUrl?: string | null;
+  /** Quando a tip pode ser feita em mais de uma casa (ex.: "🔗 Betfair · 🔗
+   * Betnacional"), é a MESMA aposta — não vira N tips duplicados. Fica 1 tip
+   * só, com bookmaker/betUrl em aberto (null) até o usuário escolher em qual
+   * casa realmente apostou (select no dashboard). */
+  bookmakerOptions?: BookmakerOption[];
 };
 
 export type ParsedTip = {
@@ -251,13 +258,24 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
   const unit = toNumber(stakeMatch[1]!);
   const odd = toNumber(stakeMatch[2]!);
 
+  const hasMultipleBookmakers = pairs.length > 1;
+
   return {
     pattern: "padovan_single",
     bookmaker: primary.bookmaker,
     betUrl: primary.betUrl,
     fields: {},
     ...(match ? { match } : {}),
-    selections: pairs.map((p) => ({ text: market, unit, odd, bookmaker: p.bookmaker, betUrl: p.betUrl })),
+    selections: [
+      {
+        text: market,
+        unit,
+        odd,
+        bookmaker: hasMultipleBookmakers ? null : primary.bookmaker,
+        betUrl: hasMultipleBookmakers ? null : primary.betUrl,
+        ...(hasMultipleBookmakers ? { bookmakerOptions: pairs } : {}),
+      },
+    ],
   };
 }
 

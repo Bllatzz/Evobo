@@ -315,6 +315,10 @@ export const TelegramTipSchema = z.object({
   oddSource: z.enum(["ocr", "manual", "text"]).nullable(),
   bookmaker: z.string().nullable(),
   betUrl: z.string().nullable(),
+  /** Set instead of bookmaker/betUrl when the same bet can be placed at more
+   * than one house — the dashboard shows a select over these instead of
+   * splitting into duplicate tips. Null/empty when there's just one house. */
+  bookmakerOptions: z.array(z.object({ bookmaker: z.string().nullable(), betUrl: z.string().nullable() })).nullable(),
   photoUrl: z.string().nullable(),
   result: TelegramTipResult,
   takenStatus: TelegramTipTakenStatus,

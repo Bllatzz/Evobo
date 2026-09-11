@@ -101,7 +101,6 @@ export function TelegramBancaOverview() {
     <div className="mt-8">
       <div className="mb-6 flex items-center gap-2.5">
         <IconTelegram size={18} className="text-accent" />
-        <span className="text-[18px] font-bold tracking-[-0.02em]">VIP Telegram</span>
         <Link to="/telegram-tips" className="ml-auto text-[13px] font-semibold text-accent">
           Ver tips →
         </Link>

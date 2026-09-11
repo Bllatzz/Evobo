@@ -77,6 +77,7 @@ function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>): Telegr
     oddSource: tip.oddSource as TelegramTip["oddSource"],
     bookmaker: tip.bookmaker,
     betUrl: tip.betUrl,
+    bookmakerOptions: (tip.bookmakerOptions as TelegramTip["bookmakerOptions"]) ?? null,
     photoUrl: tip.photoPath ? (photoUrls.get(tip.photoPath) ?? null) : null,
     result: tip.result as TelegramTip["result"],
     takenStatus: tip.takenStatus as TelegramTip["takenStatus"],
