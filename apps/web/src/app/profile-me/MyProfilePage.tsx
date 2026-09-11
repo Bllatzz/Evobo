@@ -24,7 +24,6 @@ const resultLabel: Record<string, { text: string; className: string; Icon?: type
 };
 
 const STARTING_BANKROLL_UNITS = 10;
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 function betProfit(tip: ProfileTip): number {
   const odds = Number(tip.odds);
@@ -93,8 +92,22 @@ function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; st
  * between a native-bets number here and a separately-branded number under
  * VIP Telegram. Defaults to "no telegram data" for users without the
  * telegram_banca screen, which leaves every stat exactly as it was before. */
-type TelegramFold = { bancaInicialUnits: number | null; profitUnits: number; green: number; red: number };
-const NO_TELEGRAM_FOLD: TelegramFold = { bancaInicialUnits: null, profitUnits: 0, green: 0, red: 0 };
+type TelegramFold = {
+  bancaInicialUnits: number | null;
+  unitValue: number | null;
+  profitUnits: number;
+  staked: number;
+  green: number;
+  red: number;
+};
+const NO_TELEGRAM_FOLD: TelegramFold = {
+  bancaInicialUnits: null,
+  unitValue: null,
+  profitUnits: 0,
+  staked: 0,
+  green: 0,
+  red: 0,
+};
 
 export function MyProfilePage() {
   const { me, canAccess } = useAuth();
@@ -123,7 +136,9 @@ export function MyProfilePage() {
         const peguei = banca.totals.peguei;
         setTg({
           bancaInicialUnits: unitValue && unitValue > 0 ? depositedTotal / unitValue : null,
+          unitValue,
           profitUnits: peguei?.profit ?? 0,
+          staked: peguei?.staked ?? 0,
           green: peguei?.green ?? 0,
           red: peguei?.red ?? 0,
         });
@@ -177,27 +192,24 @@ export function MyProfilePage() {
     const greenCount = settled.filter((b) => b.status === "green").length;
     const redCount = settled.length - greenCount;
 
-    const recentCutoff = Date.now() - THIRTY_DAYS_MS;
-    const recent = settled.filter((b) => new Date(b.resultSettledAt ?? b.createdAt).getTime() >= recentCutoff);
-    const recentStaked = recent.reduce((sum, b) => sum + Number(b.stakeUnits), 0);
-    const recentPnl = recent.reduce((sum, b) => sum + betProfit(b), 0);
-
     // Reembolso não é vitória nem derrota — fora do denominador do winrate.
     const combinedDecided = greenCount + redCount + tg.green + tg.red;
     const combinedGreen = greenCount + tg.green;
     const bancaInicial = tg.bancaInicialUnits ?? STARTING_BANKROLL_UNITS;
     const combinedPnl = pnl + tg.profitUnits;
+    const combinedStaked = staked + tg.staked;
 
     return {
       pnl,
       combinedPnl,
       roi: staked > 0 ? (pnl / staked) * 100 : 0,
-      roi30d: recentStaked > 0 ? (recentPnl / recentStaked) * 100 : 0,
+      combinedRoi: combinedStaked > 0 ? (combinedPnl / combinedStaked) * 100 : 0,
       hitRate: combinedDecided > 0 ? (combinedGreen / combinedDecided) * 100 : 0,
       staked,
       tipsCount: (bets?.length ?? 0) + tgTips.length,
       bancaInicial,
       bankroll: bancaInicial + combinedPnl,
+      unitValue: tg.unitValue,
     };
   }, [settled, tg, bets, tgTips]);
 
@@ -245,12 +257,22 @@ export function MyProfilePage() {
               <div className="rounded-2xl border border-border bg-surface p-4.5">
                 <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA INICIAL</div>
                 <div className="font-mono text-[26px] font-bold">{stats.bancaInicial.toFixed(1)}u</div>
+                {stats.unitValue != null && (
+                  <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
+                    {(stats.bancaInicial * stats.unitValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                  </div>
+                )}
               </div>
               <div className="rounded-2xl border border-border bg-surface p-4.5">
                 <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA ATUAL</div>
                 <div className={`font-mono text-[26px] font-bold ${stats.bankroll >= stats.bancaInicial ? "text-accent" : "text-live"}`}>
                   {stats.bankroll.toFixed(1)}u
                 </div>
+                {stats.unitValue != null && (
+                  <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
+                    {(stats.bankroll * stats.unitValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                  </div>
+                )}
               </div>
               <div className="rounded-2xl border border-border bg-surface p-4.5">
                 <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">WINRATE</div>
@@ -261,10 +283,10 @@ export function MyProfilePage() {
                 <div className="font-mono text-[26px] font-bold">{stats.tipsCount}</div>
               </div>
               <div className="rounded-2xl border border-border bg-surface p-4.5">
-                <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">ROI 30D</div>
-                <div className={`font-mono text-[26px] font-bold ${stats.roi30d >= 0 ? "text-accent" : "text-live"}`}>
-                  {stats.roi30d >= 0 ? "+" : ""}
-                  {stats.roi30d.toFixed(1)}%
+                <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">ROI</div>
+                <div className={`font-mono text-[26px] font-bold ${stats.combinedRoi >= 0 ? "text-accent" : "text-live"}`}>
+                  {stats.combinedRoi >= 0 ? "+" : ""}
+                  {stats.combinedRoi.toFixed(1)}%
                 </div>
               </div>
             </div>

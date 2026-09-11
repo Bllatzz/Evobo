@@ -6,7 +6,6 @@ import {
   fetchBookmakerBalances,
   saveBookmakerBalances,
   fetchBookmakerNames,
-  fetchTelegramBanca,
   fetchTelegramTips,
   type TelegramBookmakerBalance,
   type TelegramTip,
@@ -22,11 +21,11 @@ const resultLabel: Record<string, { text: string; className: string }> = {
   pending: { text: "Em aberto", className: "text-text-tertiary" },
 };
 
-/** "VIP Telegram" — a own row of the profile: live Banca Inicial/Atual/Winrate/ROI
- * tiles (same visual weight as the public feed stats above), then unit/saldo
- * settings and the tips the user has actually taken, side by side — same
- * rhythm as "Evolução da banca" + "Tips recentes". Only rendered for users
- * with the telegram_banca screen (see MyProfilePage). */
+/** "VIP Telegram" section of the profile — unit/saldo settings and the tips
+ * the user has actually taken, side by side. The live banca stats
+ * (Inicial/Atual/Winrate/ROI) live in the top-of-profile tiles instead
+ * (MyProfilePage), not duplicated here. Only rendered for users with the
+ * telegram_banca screen. */
 export function TelegramBancaOverview() {
   const [unitValue, setUnitValue] = useState<string>("");
   const [balances, setBalances] = useState<TelegramBookmakerBalance[]>([]);
@@ -35,20 +34,12 @@ export function TelegramBancaOverview() {
   const [customBookmaker, setCustomBookmaker] = useState("");
   const [newBalance, setNewBalance] = useState("");
   const [saving, setSaving] = useState(false);
-  const [takenProfitUnits, setTakenProfitUnits] = useState<number | null>(null);
-  const [greenPct, setGreenPct] = useState<number | null>(null);
-  const [roiPct, setRoiPct] = useState<number | null>(null);
   const [takenTips, setTakenTips] = useState<TelegramTip[] | null>(null);
 
   useEffect(() => {
     fetchTelegramSettings().then((s) => setUnitValue(s.unitValue != null ? String(s.unitValue) : ""));
     fetchBookmakerBalances().then(setBalances);
     fetchBookmakerNames().then(setBookmakerNames);
-    fetchTelegramBanca().then((b) => {
-      setTakenProfitUnits(b.totals.peguei?.profit ?? 0);
-      setGreenPct(b.totals.peguei?.greenPct ?? null);
-      setRoiPct(b.totals.peguei?.roiPct ?? null);
-    });
     fetchTelegramTips({ takenStatus: "taken", limit: 6 })
       .then((res) => setTakenTips(res.data))
       .catch(() => setTakenTips([]));
@@ -58,13 +49,6 @@ export function TelegramBancaOverview() {
     () => bookmakerNames.filter((name) => !balances.some((b) => b.bookmaker === name)),
     [bookmakerNames, balances],
   );
-
-  const unitValueNum = Number(unitValue.replace(",", "."));
-  const depositedTotal = balances.reduce((sum, b) => sum + b.balance, 0);
-  const bancaInicialUnits = unitValueNum > 0 ? depositedTotal / unitValueNum : null;
-  const bancaAtualUnits =
-    bancaInicialUnits !== null && takenProfitUnits !== null ? bancaInicialUnits + takenProfitUnits : null;
-  const positive = bancaAtualUnits === null || bancaInicialUnits === null || bancaAtualUnits >= bancaInicialUnits;
 
   async function saveUnitValue() {
     const value = unitValue.trim() === "" ? null : Number(unitValue.replace(",", "."));
@@ -99,29 +83,6 @@ export function TelegramBancaOverview() {
 
   return (
     <div className="mt-8">
-      <div className="mb-6 grid grid-cols-4 gap-4">
-        <div className="rounded-2xl border border-border bg-surface p-4.5">
-          <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA INICIAL</div>
-          <div className="font-mono text-[26px] font-bold">{bancaInicialUnits !== null ? `${bancaInicialUnits.toFixed(1)}u` : "—"}</div>
-        </div>
-        <div className={`rounded-2xl border p-4.5 ${positive ? "border-accent-border bg-accent-soft" : "border-live/30 bg-live/10"}`}>
-          <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA ATUAL</div>
-          <div className={`font-mono text-[26px] font-bold ${positive ? "text-accent" : "text-live"}`}>
-            {bancaAtualUnits !== null ? `${bancaAtualUnits.toFixed(1)}u` : "—"}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border bg-surface p-4.5">
-          <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">WINRATE</div>
-          <div className="font-mono text-[26px] font-bold">{greenPct != null ? `${greenPct}%` : "—"}</div>
-        </div>
-        <div className="rounded-2xl border border-border bg-surface p-4.5">
-          <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">ROI</div>
-          <div className={`font-mono text-[26px] font-bold ${roiPct == null ? "" : roiPct >= 0 ? "text-accent" : "text-live"}`}>
-            {roiPct != null ? `${roiPct >= 0 ? "+" : ""}${roiPct}%` : "—"}
-          </div>
-        </div>
-      </div>
-
       <div className="flex gap-6">
         <div className="min-w-0 flex-1 rounded-2xl border border-border bg-surface p-[22px]">
           <div className="mb-5 flex items-center justify-between">

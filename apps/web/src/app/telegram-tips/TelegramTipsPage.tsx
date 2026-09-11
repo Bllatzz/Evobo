@@ -29,6 +29,61 @@ const RESULT_BUTTONS = [
   { key: "reembolso", label: "Reemb." },
 ] as const;
 
+/** Click-to-edit unit/odd — a personal correction (the tipster's original
+ * text/photo stays untouched in rawMessage) for cases like an odd dropping
+ * before you place the bet: same tip, different real stake/odd for you. */
+function EditableValue({
+  value,
+  format,
+  onSave,
+  className,
+}: {
+  value: number | null;
+  format: (v: number) => string;
+  onSave: (next: number | null) => Promise<void>;
+  className: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [raw, setRaw] = useState("");
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={raw}
+        inputMode="decimal"
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setRaw(e.target.value)}
+        onBlur={async () => {
+          setEditing(false);
+          const trimmed = raw.trim().replace(",", ".");
+          const next = trimmed === "" ? null : Number(trimmed);
+          if (next !== null && (!Number.isFinite(next) || next <= 0)) return;
+          if (next === value) return;
+          await onSave(next);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        className={`w-full rounded bg-transparent outline-none ${className}`}
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => {
+        setRaw(value != null ? String(value) : "");
+        setEditing(true);
+      }}
+      className={`text-left ${className}`}
+    >
+      {value != null ? format(value) : "—"}
+    </button>
+  );
+}
+
 // Resolvidas antigas têm o detalhe zerado pra economizar espaço (ver
 // purgeOldTips no worker) — nunca marcar essas como "revisar".
 function needsReview(tip: TelegramTip): boolean {
@@ -82,7 +137,12 @@ export function TipCard({
       <div className="mb-3.5 grid grid-cols-3 gap-2">
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-accent-border bg-accent-soft p-2.5">
           <span className="text-[10px] text-text-secondary">Unidade</span>
-          <span className="font-mono text-[14px] font-bold text-accent">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
+          <EditableValue
+            value={tip.unit}
+            format={(v) => `${v}u`}
+            className="font-mono text-[14px] font-bold text-accent"
+            onSave={async (unit) => onUpdate(await patchTelegramTip(tip.id, { unit }))}
+          />
           {tip.unit != null && unitValue != null && (
             <span className="font-mono text-[10px] text-accent/80">
               {(tip.unit * unitValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
@@ -124,7 +184,12 @@ export function TipCard({
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Odd</span>
-          <span className="font-mono text-[14px] font-bold">{tip.odd != null ? tip.odd.toFixed(2) : "—"}</span>
+          <EditableValue
+            value={tip.odd}
+            format={(v) => v.toFixed(2)}
+            className="font-mono text-[14px] font-bold"
+            onSave={async (odd) => onUpdate(await patchTelegramTip(tip.id, { odd }))}
+          />
         </div>
       </div>
 
