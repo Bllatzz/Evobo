@@ -7,6 +7,7 @@ import {
   saveBookmakerBalances,
   fetchBookmakerNames,
   fetchTelegramTips,
+  fetchTelegramBanca,
   type TelegramBookmakerBalance,
   type TelegramTip,
 } from "../../lib/telegramTips";
@@ -35,6 +36,11 @@ export function TelegramBancaOverview() {
   const [newBalance, setNewBalance] = useState("");
   const [saving, setSaving] = useState(false);
   const [takenTips, setTakenTips] = useState<TelegramTip[] | null>(null);
+  // R$ profit from tips actually taken at that bookmaker (peguei.byBookmaker
+  // is already scoped to takenStatus="taken" and converted with the user's
+  // registered unit value) — null while loading, so balances render without
+  // a premature "sem lucro ainda" flash.
+  const [profitByBookmaker, setProfitByBookmaker] = useState<Record<string, number | null> | null>(null);
 
   useEffect(() => {
     fetchTelegramSettings().then((s) => setUnitValue(s.unitValue != null ? String(s.unitValue) : ""));
@@ -43,6 +49,13 @@ export function TelegramBancaOverview() {
     fetchTelegramTips({ takenStatus: "taken", limit: 6 })
       .then((res) => setTakenTips(res.data))
       .catch(() => setTakenTips([]));
+    fetchTelegramBanca()
+      .then((banca) => {
+        const map: Record<string, number | null> = {};
+        for (const row of banca.peguei.byBookmaker) map[row.key] = row.profitBRL;
+        setProfitByBookmaker(map);
+      })
+      .catch(() => setProfitByBookmaker({}));
   }, []);
 
   const availableBookmakers = useMemo(
@@ -102,19 +115,34 @@ export function TelegramBancaOverview() {
             />
           </div>
 
-          <div className="mb-2 text-[11px] text-text-tertiary">Saldo por casa de aposta</div>
+          <div className="mb-2 text-[11px] text-text-tertiary">Evolução por casa de aposta</div>
           <div className="mb-3 flex flex-col gap-2">
-            {balances.map((b) => (
-              <div key={b.bookmaker} className="flex items-center justify-between rounded-[10px] border border-border-subtle bg-surface-chip px-3 py-2">
-                <span className="truncate text-[13px] font-semibold capitalize">{b.bookmaker}</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[13px]">{b.balance.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
-                  <button onClick={() => removeBalance(b.bookmaker)} aria-label="Remover" className="text-text-tertiary">
-                    <IconX size={13} />
-                  </button>
+            {balances.map((b) => {
+              const profit = profitByBookmaker?.[b.bookmaker] ?? null;
+              const current = profit !== null ? b.balance + profit : null;
+              return (
+                <div key={b.bookmaker} className="flex items-center justify-between rounded-[10px] border border-border-subtle bg-surface-chip px-3 py-2">
+                  <span className="truncate text-[13px] font-semibold capitalize">{b.bookmaker}</span>
+                  <div className="flex items-center gap-2.5">
+                    <div className="text-right">
+                      <div className={`font-mono text-[13px] font-bold ${current === null || profit === 0 ? "" : profit! > 0 ? "text-accent" : "text-live"}`}>
+                        {(current ?? b.balance).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      </div>
+                      {profit !== null && profit !== 0 && (
+                        <div className={`font-mono text-[10px] ${profit > 0 ? "text-accent/80" : "text-live/80"}`}>
+                          {profit > 0 ? "+" : ""}
+                          {profit.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} de{" "}
+                          {b.balance.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={() => removeBalance(b.bookmaker)} aria-label="Remover" className="text-text-tertiary">
+                      <IconX size={13} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {balances.length === 0 && <p className="text-[12px] text-text-tertiary">Nenhuma casa cadastrada ainda.</p>}
           </div>
 

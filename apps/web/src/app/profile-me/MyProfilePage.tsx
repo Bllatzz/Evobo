@@ -253,7 +253,7 @@ export function MyProfilePage() {
 
         {stats && (
           <>
-            <div className="mb-6 grid grid-cols-5 gap-4">
+            <div className="mb-6 grid grid-cols-6 gap-4">
               <div className="rounded-2xl border border-border bg-surface p-4.5">
                 <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA INICIAL</div>
                 <div className="font-mono text-[26px] font-bold">{stats.bancaInicial.toFixed(1)}u</div>
@@ -271,6 +271,19 @@ export function MyProfilePage() {
                 {stats.unitValue != null && (
                   <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
                     {(stats.bankroll * stats.unitValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-2xl border border-border bg-surface p-4.5">
+                <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">LUCRO</div>
+                <div className={`font-mono text-[26px] font-bold ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
+                  {stats.combinedPnl >= 0 ? "+" : ""}
+                  {stats.combinedPnl.toFixed(1)}u
+                </div>
+                {stats.unitValue != null && (
+                  <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
+                    {stats.combinedPnl >= 0 ? "+" : ""}
+                    {(stats.combinedPnl * stats.unitValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                   </div>
                 )}
               </div>
