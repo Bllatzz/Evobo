@@ -216,6 +216,9 @@ function RobotPerformancePanel({ summary }: { summary: RobotPerformanceSummary |
             {summary ? `${summary.units >= 0 ? "+" : ""}${summary.units.toFixed(1)}u` : "—"}
           </span>
         </div>
+        <div className="mt-1 text-right text-[10px] text-text-tertiary">
+          Unidades conforme mínimo indicado
+        </div>
       </div>
 
       <div className="rounded-2xl border border-accent-border bg-gradient-to-br from-[#0F1A14] to-surface p-4.5">
@@ -348,6 +351,9 @@ export function RobotPage() {
             {summary ? `${summary.units >= 0 ? "+" : ""}${summary.units.toFixed(1)}u` : "—"}
           </div>
         </div>
+      </div>
+      <div className="px-4 pb-3.5 -mt-2 text-[10px] text-text-tertiary">
+        Unidades conforme mínimo indicado
       </div>
 
       <div className="flex gap-2 overflow-x-auto px-4 pb-3.5">
