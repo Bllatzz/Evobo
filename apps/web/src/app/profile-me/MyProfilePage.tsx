@@ -7,12 +7,19 @@ import { AccountMenu } from "../../components/AccountMenu";
 import { useAuth } from "../../stores/auth";
 import { IconCheck, IconX } from "../../components/Icon";
 import { TelegramBancaOverview } from "../telegram-tips/TelegramBancaOverview";
-import { fetchTelegramSettings, fetchBookmakerBalances, fetchTelegramBanca } from "../../lib/telegramTips";
+import {
+  fetchTelegramSettings,
+  fetchBookmakerBalances,
+  fetchTelegramBanca,
+  fetchTelegramTips,
+  type TelegramTip,
+} from "../../lib/telegramTips";
 
 const resultLabel: Record<string, { text: string; className: string; Icon?: typeof IconCheck }> = {
   green: { text: "Green", className: "text-accent", Icon: IconCheck },
   red: { text: "Red", className: "text-live", Icon: IconX },
   void: { text: "Anulada", className: "text-text-tertiary" },
+  reembolso: { text: "Reembolso", className: "text-text-tertiary" },
   pending: { text: "Em aberto", className: "text-text-tertiary" },
 };
 
@@ -27,11 +34,20 @@ function betProfit(tip: ProfileTip): number {
   return 0;
 }
 
-/** Real cumulative bankroll evolution (starting bankroll + running pnl), chronological — same non-fabricated approach as the Gráfico Robô wallet chart. */
-function BankrollChart({ settled }: { settled: ProfileTip[] }) {
-  const chronological = [...settled].sort(
-    (a, b) => new Date(a.resultSettledAt ?? a.createdAt).getTime() - new Date(b.resultSettledAt ?? b.createdAt).getTime(),
-  );
+function telegramTipProfit(tip: TelegramTip): number {
+  const unit = tip.unit ?? 0;
+  if (tip.result === "green") return tip.odd ? unit * (tip.odd - 1) : 0;
+  if (tip.result === "red") return -unit;
+  return 0; // reembolso — nem ganho nem perda
+}
+
+type TimelineEvent = { date: number; profit: number };
+
+/** Real cumulative bankroll evolution (starting banca inicial + running pnl),
+ * native bets and Telegram taken tips merged into one chronological line —
+ * same non-fabricated approach as the Gráfico Robô wallet chart. */
+function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; startValue: number }) {
+  const chronological = [...timeline].sort((a, b) => a.date - b.date);
   if (chronological.length < 2) {
     return (
       <div className="flex h-[140px] items-center justify-center text-[12px] text-text-tertiary">
@@ -40,13 +56,13 @@ function BankrollChart({ settled }: { settled: ProfileTip[] }) {
     );
   }
 
-  let cumulative = STARTING_BANKROLL_UNITS;
-  const values = chronological.map((tip) => {
-    cumulative += betProfit(tip);
+  let cumulative = startValue;
+  const values = chronological.map((e) => {
+    cumulative += e.profit;
     return cumulative;
   });
-  const min = Math.min(STARTING_BANKROLL_UNITS, ...values);
-  const max = Math.max(STARTING_BANKROLL_UNITS, ...values);
+  const min = Math.min(startValue, ...values);
+  const max = Math.max(startValue, ...values);
   const span = max - min || 1;
   const width = 600;
   const height = 140;
@@ -77,13 +93,14 @@ function BankrollChart({ settled }: { settled: ProfileTip[] }) {
  * between a native-bets number here and a separately-branded number under
  * VIP Telegram. Defaults to "no telegram data" for users without the
  * telegram_banca screen, which leaves every stat exactly as it was before. */
-type TelegramFold = { bancaInicialUnits: number | null; profitUnits: number; total: number; green: number };
-const NO_TELEGRAM_FOLD: TelegramFold = { bancaInicialUnits: null, profitUnits: 0, total: 0, green: 0 };
+type TelegramFold = { bancaInicialUnits: number | null; profitUnits: number; green: number; red: number };
+const NO_TELEGRAM_FOLD: TelegramFold = { bancaInicialUnits: null, profitUnits: 0, green: 0, red: 0 };
 
 export function MyProfilePage() {
   const { me, canAccess } = useAuth();
   const [bets, setBets] = useState<ProfileTip[] | null>(null);
   const [tg, setTg] = useState<TelegramFold | null>(null);
+  const [tgTips, setTgTips] = useState<TelegramTip[] | null>(null);
 
   const load = useCallback(() => {
     fetchMyBets().then(setBets);
@@ -96,6 +113,7 @@ export function MyProfilePage() {
   useEffect(() => {
     if (!canAccess("telegram_banca")) {
       setTg(NO_TELEGRAM_FOLD);
+      setTgTips([]);
       return;
     }
     Promise.all([fetchTelegramSettings(), fetchBookmakerBalances(), fetchTelegramBanca()])
@@ -106,11 +124,14 @@ export function MyProfilePage() {
         setTg({
           bancaInicialUnits: unitValue && unitValue > 0 ? depositedTotal / unitValue : null,
           profitUnits: peguei?.profit ?? 0,
-          total: peguei?.total ?? 0,
           green: peguei?.green ?? 0,
+          red: peguei?.red ?? 0,
         });
       })
       .catch(() => setTg(NO_TELEGRAM_FOLD));
+    fetchTelegramTips({ takenStatus: "taken", limit: 100 })
+      .then((res) => setTgTips(res.data))
+      .catch(() => setTgTips([]));
   }, [canAccess]);
 
   const settled = useMemo(
@@ -118,32 +139,67 @@ export function MyProfilePage() {
     [bets],
   );
 
+  const timeline = useMemo<TimelineEvent[] | null>(() => {
+    if (!settled || !tgTips) return null;
+    const native = settled.map((b) => ({
+      date: new Date(b.resultSettledAt ?? b.createdAt).getTime(),
+      profit: betProfit(b),
+    }));
+    const telegram = tgTips
+      .filter((t) => t.result === "green" || t.result === "red")
+      .map((t) => ({ date: new Date(t.receivedAt).getTime(), profit: telegramTipProfit(t) }));
+    return [...native, ...telegram];
+  }, [settled, tgTips]);
+
+  const recentItems = useMemo(() => {
+    if (!bets || !tgTips) return null;
+    const native = bets.map((b) => ({
+      key: `native-${b.id}`,
+      title: `${b.match.homeTeam} · ${b.market}`,
+      subtitle: `Stake ${formatUnits(b.stakeUnits)}`,
+      status: b.status as string,
+      date: new Date(b.resultSettledAt ?? b.createdAt).getTime(),
+    }));
+    const telegram = tgTips.map((t) => ({
+      key: `tg-${t.id}`,
+      title: t.match ?? t.groupName,
+      subtitle: `${t.unit != null ? `${t.unit}u` : "—"} · ${t.bookmaker ?? "—"}`,
+      status: t.result as string,
+      date: new Date(t.receivedAt).getTime(),
+    }));
+    return [...native, ...telegram].sort((a, b) => b.date - a.date).slice(0, 6);
+  }, [bets, tgTips]);
+
   const stats = useMemo(() => {
-    if (!settled || !tg) return null;
+    if (!settled || !tg || !tgTips) return null;
     const pnl = settled.reduce((sum, b) => sum + betProfit(b), 0);
     const staked = settled.reduce((sum, b) => sum + Number(b.stakeUnits), 0);
     const greenCount = settled.filter((b) => b.status === "green").length;
+    const redCount = settled.length - greenCount;
 
     const recentCutoff = Date.now() - THIRTY_DAYS_MS;
     const recent = settled.filter((b) => new Date(b.resultSettledAt ?? b.createdAt).getTime() >= recentCutoff);
     const recentStaked = recent.reduce((sum, b) => sum + Number(b.stakeUnits), 0);
     const recentPnl = recent.reduce((sum, b) => sum + betProfit(b), 0);
 
-    const combinedResolved = settled.length + tg.total;
+    // Reembolso não é vitória nem derrota — fora do denominador do winrate.
+    const combinedDecided = greenCount + redCount + tg.green + tg.red;
     const combinedGreen = greenCount + tg.green;
     const bancaInicial = tg.bancaInicialUnits ?? STARTING_BANKROLL_UNITS;
+    const combinedPnl = pnl + tg.profitUnits;
 
     return {
       pnl,
+      combinedPnl,
       roi: staked > 0 ? (pnl / staked) * 100 : 0,
       roi30d: recentStaked > 0 ? (recentPnl / recentStaked) * 100 : 0,
-      hitRate: combinedResolved > 0 ? (combinedGreen / combinedResolved) * 100 : 0,
+      hitRate: combinedDecided > 0 ? (combinedGreen / combinedDecided) * 100 : 0,
       staked,
-      tipsCount: (bets?.length ?? 0) + tg.total,
+      tipsCount: (bets?.length ?? 0) + tgTips.length,
       bancaInicial,
-      bankroll: bancaInicial + pnl + tg.profitUnits,
+      bankroll: bancaInicial + combinedPnl,
     };
-  }, [settled, tg, bets]);
+  }, [settled, tg, bets, tgTips]);
 
   if (!me) return null;
 
@@ -218,11 +274,11 @@ export function MyProfilePage() {
                 <div className="mb-5 flex items-center justify-between">
                   <span className="text-[14px] font-bold">Evolução da banca</span>
                   <span className="font-mono text-[11px] text-text-tertiary">
-                    {stats.pnl >= 0 ? "+" : ""}
-                    {stats.pnl.toFixed(1)}u desde o início
+                    {stats.combinedPnl >= 0 ? "+" : ""}
+                    {stats.combinedPnl.toFixed(1)}u desde o início
                   </span>
                 </div>
-                <BankrollChart settled={settled ?? []} />
+                <BankrollChart timeline={timeline ?? []} startValue={stats.bancaInicial} />
               </div>
 
               <div className="w-[320px] flex-none rounded-2xl border border-border bg-surface p-5">
@@ -230,28 +286,24 @@ export function MyProfilePage() {
                   TIPS RECENTES
                 </div>
                 <div className="flex flex-col">
-                  {(bets ?? []).slice(0, 6).map((bet) => {
-                    const result = resultLabel[bet.status] ?? resultLabel.pending!;
+                  {(recentItems ?? []).map((item) => {
+                    const result = resultLabel[item.status] ?? resultLabel.pending!;
                     return (
                       <div
-                        key={bet.id}
+                        key={item.key}
                         className="flex items-center justify-between border-b border-border-subtle py-3 last:border-0"
                       >
-                        <div>
-                          <div className="text-[13px] font-semibold">
-                            {bet.match.homeTeam} · {bet.market}
-                          </div>
-                          <div className="font-mono text-[11px] text-text-tertiary">
-                            Stake {formatUnits(bet.stakeUnits)}
-                          </div>
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] font-semibold">{item.title}</div>
+                          <div className="truncate font-mono text-[11px] text-text-tertiary">{item.subtitle}</div>
                         </div>
-                        <span className={`rounded-lg border px-2 py-1 font-mono text-[10px] font-bold ${result.className} border-current/40`}>
+                        <span className={`flex-none rounded-lg border px-2 py-1 font-mono text-[10px] font-bold ${result.className} border-current/40`}>
                           {result.text.toUpperCase()}
                         </span>
                       </div>
                     );
                   })}
-                  {bets?.length === 0 && (
+                  {recentItems?.length === 0 && (
                     <p className="py-4 text-center text-[12px] text-text-tertiary">
                       Você ainda não pegou nenhuma tip.
                     </p>

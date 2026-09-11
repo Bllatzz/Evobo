@@ -158,7 +158,8 @@ function aggregateBy(rows: BancaSourceRow[], keyFn: (r: BancaSourceRow) => strin
       staked: Math.round(g.staked * 100) / 100,
       profit: Math.round(g.profit * 100) / 100,
       roiPct: g.staked > 0 ? Math.round((g.profit / g.staked) * 1000) / 10 : null,
-      greenPct: g.total > 0 ? Math.round((g.green / g.total) * 1000) / 10 : null,
+      // Reembolso isn't a win or a loss — excluded from the winrate denominator.
+      greenPct: g.green + g.red > 0 ? Math.round((g.green / (g.green + g.red)) * 1000) / 10 : null,
       missingOdd: g.missingOdd,
       stakedBRL: unitValue !== null ? Math.round(g.staked * unitValue * 100) / 100 : null,
       profitBRL: unitValue !== null ? Math.round(g.profit * unitValue * 100) / 100 : null,
@@ -292,10 +293,11 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   // "geral" = todas as tips resolvidas, independente de terem sido apostadas
   // de fato (mede o grupo/tipster); "peguei" = só as marcadas como
   // takenStatus "taken" (mede o resultado real do usuário).
-  app.get("/banca", async (request) => {
+  app.get<{ Querystring: { bookmaker?: string } }>("/banca", async (request) => {
+    const bookmaker = request.query.bookmaker?.trim();
     const [rows, settings] = await Promise.all([
       prisma.telegramTip.findMany({
-        where: { result: { not: "pending" } },
+        where: { result: { not: "pending" }, ...(bookmaker ? { bookmaker } : {}) },
         select: {
           unit: true,
           odd: true,

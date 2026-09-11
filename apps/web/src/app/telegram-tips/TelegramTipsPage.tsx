@@ -4,6 +4,7 @@ import {
   fetchTelegramTips,
   fetchTelegramGroups,
   fetchTelegramSettings,
+  fetchBookmakerNames,
   patchTelegramTip,
   type TelegramTip,
   type TelegramGroup,
@@ -191,19 +192,22 @@ export function TelegramTipsPage() {
   const [groups, setGroups] = useState<TelegramGroup[]>([]);
   const [groupId, setGroupId] = useState<string>("");
   const [result, setResultFilter] = useState<string>("");
+  const [bookmaker, setBookmaker] = useState<string>("");
+  const [bookmakers, setBookmakers] = useState<string[]>([]);
   const [photoModal, setPhotoModal] = useState<string | null>(null);
   const [unitValue, setUnitValue] = useState<number | null>(null);
 
   useEffect(() => {
     fetchTelegramGroups().then(setGroups).catch(() => {});
     fetchTelegramSettings().then((s) => setUnitValue(s.unitValue)).catch(() => {});
+    fetchBookmakerNames().then(setBookmakers).catch(() => {});
   }, []);
 
   useEffect(() => {
-    fetchTelegramTips({ groupId: groupId || undefined, result: result || undefined, limit: 60 })
+    fetchTelegramTips({ groupId: groupId || undefined, result: result || undefined, bookmaker: bookmaker || undefined, limit: 60 })
       .then((res) => setTips(res.data))
       .catch(() => setTips([]));
-  }, [groupId, result]);
+  }, [groupId, result, bookmaker]);
 
   function updateTip(updated: TelegramTip) {
     setTips((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev);
@@ -255,7 +259,7 @@ export function TelegramTipsPage() {
         ))}
       </div>
 
-      <div className="flex gap-2 overflow-x-auto px-5 pb-4 lg:px-0">
+      <div className="flex items-center gap-2 overflow-x-auto px-5 pb-4 lg:px-0">
         {RESULT_FILTERS.map((r) => (
           <button
             key={r.key}
@@ -265,6 +269,18 @@ export function TelegramTipsPage() {
             {r.label}
           </button>
         ))}
+        <select
+          value={bookmaker}
+          onChange={(e) => setBookmaker(e.target.value)}
+          className="ml-auto flex-none rounded-full bg-surface-chip px-3.5 py-1.5 text-[12px] capitalize text-text-secondary"
+        >
+          <option value="">Todas as casas</option>
+          {bookmakers.map((b) => (
+            <option key={b} value={b} className="capitalize">
+              {b}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="px-4 lg:px-0">

@@ -44,7 +44,8 @@ export const fetchTelegramGroups = (): Promise<TelegramGroup[]> => apiFetch("/te
 export const createTelegramGroup = (input: { name: string; telegramChatId: string }): Promise<TelegramGroup> =>
   apiFetch("/telegram-tips/groups", { method: "POST", body: JSON.stringify(input) });
 
-export const fetchTelegramBanca = (): Promise<TelegramBancaSummary> => apiFetch("/telegram-tips/banca");
+export const fetchTelegramBanca = (bookmaker?: string): Promise<TelegramBancaSummary> =>
+  apiFetch(`/telegram-tips/banca${bookmaker ? `?bookmaker=${encodeURIComponent(bookmaker)}` : ""}`);
 
 export const fetchTelegramSettings = (): Promise<TelegramBancaSettings> => apiFetch("/telegram-tips/settings");
 

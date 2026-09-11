@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchTelegramBanca, type TelegramBancaSummary } from "../../lib/telegramTips";
+import { fetchTelegramBanca, fetchBookmakerNames, type TelegramBancaSummary } from "../../lib/telegramTips";
 import { IconTelegram } from "../../components/Icon";
 
 export type TelegramBancaRowT = TelegramBancaSummary["geral"]["byGroup"][number];
@@ -131,10 +131,19 @@ function ScopeSection({ scope, points }: { scope: TelegramBancaSummary["geral"];
 export function TelegramReportPage() {
   const [summary, setSummary] = useState<TelegramBancaSummary | null>(null);
   const [tab, setTab] = useState<"geral" | "peguei">("geral");
+  const [bookmaker, setBookmaker] = useState("");
+  const [bookmakers, setBookmakers] = useState<string[]>([]);
 
   useEffect(() => {
-    fetchTelegramBanca().then(setSummary).catch(() => {});
+    fetchBookmakerNames().then(setBookmakers).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setSummary(null);
+    fetchTelegramBanca(bookmaker || undefined)
+      .then(setSummary)
+      .catch(() => {});
+  }, [bookmaker]);
 
   return (
     <div className="pb-6 lg:mx-auto lg:max-w-[900px] lg:px-0 lg:pt-6">
@@ -143,18 +152,32 @@ export function TelegramReportPage() {
         <span className="text-[20px] font-bold tracking-[-0.02em] lg:text-[22px]">Relatório · VIP Telegram</span>
       </div>
 
-      <div className="mx-5 flex gap-1.5 rounded-[12px] bg-surface-alt p-1 lg:mx-0 lg:w-fit">
-        {(["geral", "peguei"] as const).map((key) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`flex-1 rounded-[9px] px-5 py-1.5 text-center text-[13px] font-semibold lg:flex-none ${
-              tab === key ? "bg-accent text-[#08090A]" : "text-text-secondary"
-            }`}
-          >
-            {key === "geral" ? "Geral" : "Peguei"}
-          </button>
-        ))}
+      <div className="mx-5 flex items-center gap-3 lg:mx-0">
+        <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1 lg:w-fit">
+          {(["geral", "peguei"] as const).map((key) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex-1 rounded-[9px] px-5 py-1.5 text-center text-[13px] font-semibold lg:flex-none ${
+                tab === key ? "bg-accent text-[#08090A]" : "text-text-secondary"
+              }`}
+            >
+              {key === "geral" ? "Geral" : "Peguei"}
+            </button>
+          ))}
+        </div>
+        <select
+          value={bookmaker}
+          onChange={(e) => setBookmaker(e.target.value)}
+          className="ml-auto flex-none rounded-full bg-surface-chip px-3.5 py-1.5 text-[12px] capitalize text-text-secondary lg:ml-0"
+        >
+          <option value="">Todas as casas</option>
+          {bookmakers.map((b) => (
+            <option key={b} value={b} className="capitalize">
+              {b}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="px-5 lg:px-0">

@@ -11,7 +11,7 @@ import {
   type TelegramBookmakerBalance,
   type TelegramTip,
 } from "../../lib/telegramTips";
-import { IconTelegram, IconPlus, IconX } from "../../components/Icon";
+import { IconPlus, IconX } from "../../components/Icon";
 
 const OTHER_OPTION = "__outra__";
 
@@ -99,13 +99,6 @@ export function TelegramBancaOverview() {
 
   return (
     <div className="mt-8">
-      <div className="mb-6 flex items-center gap-2.5">
-        <IconTelegram size={18} className="text-accent" />
-        <Link to="/telegram-tips" className="ml-auto text-[13px] font-semibold text-accent">
-          Ver tips →
-        </Link>
-      </div>
-
       <div className="mb-6 grid grid-cols-4 gap-4">
         <div className="rounded-2xl border border-border bg-surface p-4.5">
           <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA INICIAL</div>
