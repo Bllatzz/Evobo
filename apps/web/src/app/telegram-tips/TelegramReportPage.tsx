@@ -2,6 +2,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { fetchTelegramBanca, fetchBookmakerNames, type TelegramBancaSummary } from "../../lib/telegramTips";
 import { IconTelegram } from "../../components/Icon";
 import { Dropdown } from "../../components/Dropdown";
+import { bookmakerLabel } from "../../lib/bookmakers";
 
 export type TelegramBancaRowT = TelegramBancaSummary["geral"]["byGroup"][number];
 type SeriesPoint = TelegramBancaSummary["series"]["geral"][number];
@@ -173,7 +174,7 @@ export function RowCard({ row }: { row: TelegramBancaRowT }) {
  * Profit is the one number that matters at a glance; green/red/acerto/roi are folded
  * into a single muted secondary line instead of four equal-weight stat blocks, so a
  * list of 4-5+ entries scans instead of reading as a wall of near-identical cards. */
-function BreakdownRow({ row }: { row: TelegramBancaRowT }) {
+function BreakdownRow({ row, label }: { row: TelegramBancaRowT; label?: (key: string) => string }) {
   const positive = row.profit >= 0;
   const stats = [
     `${row.green}G`,
@@ -186,7 +187,7 @@ function BreakdownRow({ row }: { row: TelegramBancaRowT }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 last:border-0">
       <div className="min-w-0">
-        <div className="truncate text-[13px] font-semibold capitalize">{row.key}</div>
+        <div className="truncate text-[13px] font-semibold">{label ? label(row.key) : row.key}</div>
         {/* Decorative acerto% bar — same 0-100 scale as the ACERTO stat tile, so rows
             are visually comparable to each other and to that tile at a glance. */}
         {row.greenPct != null && (
@@ -284,7 +285,15 @@ function StatTiles({ row }: { row: TelegramBancaRowT | null }) {
   );
 }
 
-function BreakdownSection({ title, rows }: { title: string; rows: TelegramBancaRowT[] }) {
+function BreakdownSection({
+  title,
+  rows,
+  label,
+}: {
+  title: string;
+  rows: TelegramBancaRowT[];
+  label?: (key: string) => string;
+}) {
   const sorted = [...rows].sort((a, b) => b.profit - a.profit);
   return (
     <>
@@ -296,7 +305,7 @@ function BreakdownSection({ title, rows }: { title: string; rows: TelegramBancaR
       ) : (
         <div className="overflow-hidden rounded-2xl border border-border bg-surface">
           {sorted.map((r) => (
-            <BreakdownRow key={r.key} row={r} />
+            <BreakdownRow key={r.key} row={r} label={label} />
           ))}
         </div>
       )}
@@ -323,7 +332,7 @@ function ScopeSection({
       </div>
 
       <BreakdownSection title="POR GRUPO" rows={scope.byGroup} />
-      <BreakdownSection title="POR CASA DE APOSTA" rows={scope.byBookmaker} />
+      <BreakdownSection title="POR CASA DE APOSTA" rows={scope.byBookmaker} label={bookmakerLabel} />
     </>
   );
 }
@@ -405,8 +414,8 @@ export function TelegramReportPage() {
     if (!summary) return;
     const csv = buildBreakdownCsv(summary[tab]);
     const rangeLabel = days ? `${days}d` : "tudo";
-    const bookmakerLabel = bookmaker || "todas-casas";
-    downloadCsv(`telegram-banca-${tab}-${bookmakerLabel}-${rangeLabel}.csv`, csv);
+    const bookmakerSlug = bookmaker || "todas-casas";
+    downloadCsv(`telegram-banca-${tab}-${bookmakerSlug}-${rangeLabel}.csv`, csv);
   }
 
   return (
@@ -449,7 +458,7 @@ export function TelegramReportPage() {
           value={bookmaker}
           onChange={setBookmaker}
           placeholder="Todas as casas"
-          options={bookmakers.map((b) => ({ value: b, label: b }))}
+          options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
           className="w-auto flex-none"
         />
 

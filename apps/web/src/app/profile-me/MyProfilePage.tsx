@@ -5,6 +5,7 @@ import { formatOdds, formatUnits, timeAgo } from "../../lib/format";
 import { Avatar } from "../../components/Avatar";
 import { AccountMenu } from "../../components/AccountMenu";
 import { useAuth } from "../../stores/auth";
+import { bookmakerLabel } from "../../lib/bookmakers";
 import { IconCheck, IconX, IconPlus, IconPencil } from "../../components/Icon";
 import {
   fetchTelegramSettings,
@@ -589,7 +590,7 @@ export function MyProfilePage() {
   const hasTelegram = canAccess("telegram_banca");
 
   return (
-    <div className="pb-6 lg:mx-auto lg:max-w-[900px] lg:px-0 lg:pt-6">
+    <div className="pb-6 lg:mx-auto lg:max-w-[1180px] lg:px-0 lg:pt-6">
       {/* ---------- Desktop ---------- */}
       <div className="hidden lg:block">
         <div className="mb-6 flex items-center gap-3">
@@ -731,7 +732,7 @@ export function MyProfilePage() {
               </div>
 
               {hasTelegram && (
-                <div className="w-[360px] flex-none rounded-2xl border border-border bg-surface p-5">
+                <div className="w-[500px] flex-none rounded-2xl border border-border bg-surface p-5">
                   <div className="mb-4 flex items-center justify-between">
                     <span className="text-[14px] font-bold">Unidade & saldos</span>
                     <div className="flex items-center gap-2">
@@ -778,14 +779,14 @@ export function MyProfilePage() {
                       <select
                         value={newBookmaker}
                         onChange={(e) => setNewBookmaker(e.target.value)}
-                        className="min-w-0 flex-1 rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px] capitalize"
+                        className="min-w-0 flex-1 rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
                       >
                         <option value="" disabled>
                           Escolha a casa
                         </option>
                         {availableBookmakers.map((name) => (
-                          <option key={name} value={name} className="capitalize">
-                            {name}
+                          <option key={name} value={name}>
+                            {bookmakerLabel(name)}
                           </option>
                         ))}
                         <option value={OTHER_OPTION}>+ Outra casa…</option>
@@ -815,7 +816,7 @@ export function MyProfilePage() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-[1fr_92px_190px] gap-2 px-1 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
+                  <div className="grid grid-cols-[minmax(140px,1fr)_92px_190px] gap-2 px-1 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
                     <span>CASA</span>
                     <span className="text-right">SALDO</span>
                     <span className="text-right">VARIAÇÃO</span>
@@ -829,11 +830,11 @@ export function MyProfilePage() {
                       return (
                         <div
                           key={b.bookmaker}
-                          className="group grid grid-cols-[1fr_92px_190px] items-center gap-2 border-b border-border-subtle py-2.5 px-1 last:border-0"
+                          className="group grid grid-cols-[minmax(140px,1fr)_92px_190px] items-center gap-2 border-b border-border-subtle py-2.5 px-1 last:border-0"
                         >
                           <div className="flex min-w-0 items-center gap-2">
                             <span className={`h-2 w-2 flex-none rounded-full ${bookmakerColor(b.bookmaker)}`} />
-                            <span className="truncate text-[12.5px] font-semibold capitalize">{b.bookmaker}</span>
+                            <span className="min-w-[64px] truncate text-[12.5px] font-semibold">{bookmakerLabel(b.bookmaker)}</span>
                             <button
                               onClick={() => removeBalance(b.bookmaker)}
                               aria-label="Remover"
@@ -953,7 +954,7 @@ export function MyProfilePage() {
                               {row.subtitle} · {row.timeLabel}
                             </div>
                           </td>
-                          <td className="py-3 pr-3 text-text-secondary">{row.bookmaker}</td>
+                          <td className="py-3 pr-3 text-text-secondary">{bookmakerLabel(row.bookmaker)}</td>
                           <td className="py-3 pr-3 text-right font-mono">{row.stakeLabel}</td>
                           <td className="py-3 pr-3 text-right font-mono">{row.oddLabel}</td>
                           <td

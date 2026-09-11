@@ -13,6 +13,7 @@ import {
 } from "../../lib/telegramTips";
 import { Modal } from "../../components/Modal";
 import { Dropdown } from "../../components/Dropdown";
+import { bookmakerLabel } from "../../lib/bookmakers";
 import { IconTelegram, IconExternalLink, IconCheck, IconX, IconSearch } from "../../components/Icon";
 import { useAuth } from "../../stores/auth";
 
@@ -203,7 +204,7 @@ function TipRow({
               placeholder="Escolha a casa"
               options={tip.bookmakerOptions.map((o, i) => ({
                 value: o.bookmaker ?? "",
-                label: o.bookmaker ?? `casa ${i + 1}`,
+                label: o.bookmaker ? bookmakerLabel(o.bookmaker) : `casa ${i + 1}`,
               }))}
               onChange={(bookmaker) => {
                 const chosen = tip.bookmakerOptions!.find((o) => o.bookmaker === bookmaker);
@@ -213,7 +214,7 @@ function TipRow({
               buttonClassName="rounded-md bg-transparent p-0 text-[13px] font-bold"
             />
           ) : (
-            <span className="truncate text-[13px] font-bold capitalize">{effBookmaker ?? "—"}</span>
+            <span className="truncate text-[13px] font-bold">{bookmakerLabel(effBookmaker)}</span>
           )}
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
@@ -234,7 +235,7 @@ function TipRow({
           betActive ? "bg-accent text-[#08090A]" : "cursor-not-allowed bg-surface-chip text-text-tertiary"
         }`}
       >
-        Abrir aposta{effBookmaker ? ` na ${effBookmaker}` : ""} <IconExternalLink size={12} />
+        Abrir aposta{effBookmaker ? ` na ${bookmakerLabel(effBookmaker)}` : ""} <IconExternalLink size={12} />
       </a>
 
       {isAdmin ? (
@@ -609,7 +610,7 @@ export function TelegramTipsPage() {
           value={bookmaker}
           onChange={setBookmaker}
           placeholder="Todas as casas"
-          options={bookmakers.map((b) => ({ value: b, label: b }))}
+          options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
           className="w-auto flex-none"
         />
       </div>
