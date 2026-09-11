@@ -119,21 +119,18 @@ export function TelegramBancaOverview() {
           <div className="mb-3 flex flex-col gap-2">
             {balances.map((b) => {
               const profit = profitByBookmaker?.[b.bookmaker] ?? null;
-              const current = profit !== null ? b.balance + profit : null;
+              const current = profit !== null && profit !== 0 ? b.balance + profit : null;
               return (
                 <div key={b.bookmaker} className="flex items-center justify-between rounded-[10px] border border-border-subtle bg-surface-chip px-3 py-2">
                   <span className="truncate text-[13px] font-semibold capitalize">{b.bookmaker}</span>
                   <div className="flex items-center gap-2.5">
-                    <div className="text-right">
-                      <div className={`font-mono text-[13px] font-bold ${current === null || profit === 0 ? "" : profit! > 0 ? "text-accent" : "text-live"}`}>
-                        {(current ?? b.balance).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                      </div>
-                      {profit !== null && profit !== 0 && (
-                        <div className={`font-mono text-[10px] ${profit > 0 ? "text-accent/80" : "text-live/80"}`}>
-                          {profit > 0 ? "+" : ""}
-                          {profit.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} de{" "}
-                          {b.balance.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                        </div>
+                    <div className="font-mono text-[13px] font-bold">
+                      {b.balance.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      {current !== null && (
+                        <span className={profit! > 0 ? "text-accent" : "text-live"}>
+                          {" "}
+                          ({current.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })})
+                        </span>
                       )}
                     </div>
                     <button onClick={() => removeBalance(b.bookmaker)} aria-label="Remover" className="text-text-tertiary">
