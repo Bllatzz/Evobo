@@ -1,16 +1,18 @@
 import { Queue, Worker } from "bullmq";
 import { prisma, supabaseAdmin, PHOTO_BUCKET } from "../db.js";
-import { extractTipDetails } from "../geminiVision.js";
+import { extractTipDetails } from "../visionProvider.js";
 
 const QUEUE_NAME = "extract-details";
 
 type TipToFill = { id: string; needMarket: boolean; needGame: boolean; needOdd: boolean };
 
 /**
- * "rows": each tip in `tips` maps 1:1 to one OCR selection, in bet-slip
- * order (parseTip's `unit_lines`/single-selection patterns).
- * "combo": `tips` has exactly 1 entry — the photo shows several legs of one
- * combined bet, joined into that tip's `selection`/`match`/`odd`.
+ * "rows" with >1 tip: each maps 1:1 to one OCR selection, in bet-slip order
+ * (parseTip's `unit_lines` pattern — genuinely independent stakes, each its
+ * own odd). "rows" with exactly 1 tip, or "combo" (always 1 tip): the photo
+ * may show a single selection OR several legs of one combined bet — handled
+ * the same way (applyMultiLegResult), since there's no way to tell which
+ * from the text alone.
  */
 export type ExtractDetailsJob = { photoPath: string; kind: "rows" | "combo"; tips: TipToFill[] };
 
@@ -29,6 +31,37 @@ function connection() {
 
 export const extractDetailsQueue = new Queue<ExtractDetailsJob>(QUEUE_NAME, { connection: connection() });
 
+/** Joins every leg the OCR found for a single tip with a real line break — the
+ * frontend renders `selection.split("\n")` as a list, so this is the one
+ * place that decides where lines break (never Gemini's own "E"/vírgula/hífen
+ * phrasing, which isn't reliable — see buildPrompt in geminiVision.ts). */
+async function applyMultiLegResult(
+  tipId: string,
+  tip: TipToFill,
+  buffer: Buffer,
+  photoPath: string,
+  expectedCount: number | null,
+) {
+  const { selections, totalOdd } = await extractTipDetails(buffer, photoPath, expectedCount);
+  if (selections.length === 0 && totalOdd === null) return;
+
+  const market = selections
+    .map((s) => s.market)
+    .filter((m): m is string => !!m)
+    .join("\n");
+  const games = [...new Set(selections.map((s) => s.game).filter((g): g is string => !!g))];
+  const odd = totalOdd ?? (selections.length === 1 ? selections[0]!.odd : null);
+
+  await prisma.telegramTip.update({
+    where: { id: tipId },
+    data: {
+      ...(tip.needMarket && market ? { selection: market } : {}),
+      ...(tip.needGame && games.length === 1 ? { match: games[0] } : {}),
+      ...(tip.needOdd && odd !== null ? { odd, oddSource: "ocr" } : {}),
+    },
+  });
+}
+
 async function processJob(data: ExtractDetailsJob) {
   const { data: file, error } = await supabaseAdmin.storage.from(PHOTO_BUCKET).download(data.photoPath);
   if (error || !file) {
@@ -37,27 +70,13 @@ async function processJob(data: ExtractDetailsJob) {
   }
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  if (data.kind === "combo") {
+  // Um único tip pra essa foto (padrão comum) — pode ser 1 seleção simples
+  // ou uma combinada com várias pernas, sem saber de antemão qual; sempre
+  // junta o que a OCR achar com quebra de linha real (ver applyMultiLegResult).
+  if (data.kind === "combo" || data.tips.length === 1) {
     const tip = data.tips[0];
     if (!tip) return;
-
-    const { selections, totalOdd } = await extractTipDetails(buffer, data.photoPath, null);
-    if (selections.length === 0 && totalOdd === null) return;
-
-    const market = selections
-      .map((s) => s.market)
-      .filter((m): m is string => !!m)
-      .join(" + ");
-    const games = [...new Set(selections.map((s) => s.game).filter((g): g is string => !!g))];
-
-    await prisma.telegramTip.update({
-      where: { id: tip.id },
-      data: {
-        ...(tip.needMarket && market ? { selection: market } : {}),
-        ...(tip.needGame && games.length === 1 ? { match: games[0] } : {}),
-        ...(tip.needOdd && totalOdd !== null ? { odd: totalOdd, oddSource: "ocr" } : {}),
-      },
-    });
+    await applyMultiLegResult(tip.id, tip, buffer, data.photoPath, data.kind === "combo" ? null : 1);
     return;
   }
 

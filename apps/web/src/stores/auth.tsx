@@ -83,7 +83,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [session, sessionChecked]);
+    // Depende só do user id, não do objeto `session` inteiro: Supabase
+    // dispara onAuthStateChange (TOKEN_REFRESHED) toda vez que a aba volta a
+    // ficar visível, trocando a referência de `session` pro mesmo usuário —
+    // se essa dependência fosse `session`, cada refresh de token reexecutava
+    // isso, jogando `loading` pra true de novo e remontando a tela inteira
+    // (RouteGuard mostra uma div em branco enquanto loading é true), como se
+    // a página tivesse recarregado, perdendo o scroll. apiFetch já pega o
+    // token atual direto do client do Supabase, não precisa desse efeito
+    // rodar de novo só por causa do refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id, sessionChecked]);
 
   const value: AuthContextValue = {
     loading,

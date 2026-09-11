@@ -366,6 +366,8 @@ const TelegramBancaScope = z.object({
 export const TelegramBancaSummary = z.object({
   geral: TelegramBancaScope,
   peguei: TelegramBancaScope,
+  /** One row summing everything (no group/bookmaker split) — feeds "Banca Atual" on the profile. */
+  totals: z.object({ geral: TelegramBancaRow.nullable(), peguei: TelegramBancaRow.nullable() }),
 });
 export type TelegramBancaSummary = z.infer<typeof TelegramBancaSummary>;
 

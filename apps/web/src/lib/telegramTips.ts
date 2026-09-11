@@ -17,6 +17,7 @@ export type TelegramTipsFilter = {
   groupId?: string;
   bookmaker?: string;
   result?: string;
+  takenStatus?: string;
   search?: string;
 };
 
@@ -29,6 +30,7 @@ export function fetchTelegramTips(filter: TelegramTipsFilter = {}): Promise<Tele
   if (filter.groupId) params.set("groupId", filter.groupId);
   if (filter.bookmaker) params.set("bookmaker", filter.bookmaker);
   if (filter.result) params.set("result", filter.result);
+  if (filter.takenStatus) params.set("takenStatus", filter.takenStatus);
   if (filter.search) params.set("search", filter.search);
   const qs = params.toString();
   return apiFetch(`/telegram-tips${qs ? `?${qs}` : ""}`);
@@ -51,6 +53,8 @@ export const saveTelegramSettings = (input: UpdateTelegramBancaSettingsInput): P
 
 export const fetchBookmakerBalances = (): Promise<TelegramBookmakerBalance[]> =>
   apiFetch("/telegram-tips/bookmaker-balances");
+
+export const fetchBookmakerNames = (): Promise<string[]> => apiFetch("/telegram-tips/bookmakers");
 
 export const saveBookmakerBalances = (rows: TelegramBookmakerBalance[]): Promise<TelegramBookmakerBalance[]> =>
   apiFetch("/telegram-tips/bookmaker-balances", { method: "PUT", body: JSON.stringify(rows) });

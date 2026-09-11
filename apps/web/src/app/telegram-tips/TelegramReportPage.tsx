@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { fetchTelegramBanca, type TelegramBancaSummary } from "../../lib/telegramTips";
 import { IconTelegram } from "../../components/Icon";
 
-type TelegramBancaRowT = TelegramBancaSummary["geral"]["byGroup"][number];
+export type TelegramBancaRowT = TelegramBancaSummary["geral"]["byGroup"][number];
 
-function RowCard({ row }: { row: TelegramBancaRowT }) {
+export function RowCard({ row }: { row: TelegramBancaRowT }) {
   const positive = row.profit >= 0;
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">

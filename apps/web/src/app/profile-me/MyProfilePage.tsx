@@ -6,7 +6,7 @@ import { Avatar } from "../../components/Avatar";
 import { AccountMenu } from "../../components/AccountMenu";
 import { useAuth } from "../../stores/auth";
 import { IconCheck, IconX } from "../../components/Icon";
-import { TelegramBancaSettingsSection } from "../telegram-tips/TelegramBancaSettingsSection";
+import { TelegramBancaOverview } from "../telegram-tips/TelegramBancaOverview";
 
 const resultLabel: Record<string, { text: string; className: string; Icon?: typeof IconCheck }> = {
   green: { text: "Green", className: "text-accent", Icon: IconCheck },
@@ -112,12 +112,6 @@ export function MyProfilePage() {
 
   return (
     <div className="pb-6 lg:mx-auto lg:max-w-[900px] lg:px-0 lg:pt-6">
-      {canAccess("telegram_banca") && (
-        <div className="px-5 pt-3 lg:px-0 lg:pt-6">
-          <TelegramBancaSettingsSection />
-        </div>
-      )}
-
       {/* ---------- Desktop ---------- */}
       <div className="hidden lg:block">
         <div className="mb-6 flex items-center gap-3">
@@ -226,6 +220,8 @@ export function MyProfilePage() {
             </div>
           </>
         )}
+
+        {canAccess("telegram_banca") && <TelegramBancaOverview />}
       </div>
 
       {/* ---------- Mobile ---------- */}

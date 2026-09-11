@@ -41,7 +41,6 @@ export async function processMessage(message: Api.Message, group: TelegramGroup)
   if (!parsed) return "skipped_no_signal";
 
   const photoPath = await downloadPhoto(message, group);
-  const singleSelectionOddFromText = parsed.selections.length === 1 ? parsed.fields.odd : undefined;
 
   const createdTips = await Promise.all(
     parsed.selections.map((sel) =>
@@ -52,10 +51,10 @@ export async function processMessage(message: Api.Message, group: TelegramGroup)
           match: parsed.match ?? null,
           selection: sel.text ?? "",
           unit: sel.unit,
-          odd: singleSelectionOddFromText ?? null,
-          oddSource: singleSelectionOddFromText !== undefined ? "text" : null,
-          bookmaker: parsed.bookmaker,
-          betUrl: parsed.betUrl,
+          odd: sel.odd ?? null,
+          oddSource: sel.odd !== undefined ? "text" : null,
+          bookmaker: sel.bookmaker !== undefined ? sel.bookmaker : parsed.bookmaker,
+          betUrl: sel.betUrl !== undefined ? sel.betUrl : parsed.betUrl,
           photoPath,
           parsePattern: parsed.pattern,
           rawMessage: message.message || null,
@@ -66,32 +65,32 @@ export async function processMessage(message: Api.Message, group: TelegramGroup)
 
   if (!photoPath) return "created"; // nada pra OCR sem foto — campos ficam pra edição manual
 
+  const needsGame = parsed.match === undefined;
+  const tipsToFill = createdTips.map((tip, i) => ({
+    id: tip.id,
+    needMarket: parsed.selections[i]!.text === null,
+    needGame: needsGame,
+    needOdd: parsed.selections[i]!.odd === undefined,
+  }));
+
+  // Formatos mais completos (Padovan) já trazem mercado/jogo/odd no texto —
+  // nesse caso não há nada pra OCR buscar, economiza uma chamada à toa.
+  if (tipsToFill.every((t) => !t.needMarket && !t.needGame && !t.needOdd)) return "created";
+
   // Gemini ocasionalmente devolve 503 (alta demanda) — transitório, então
   // vale tentar de novo antes de deixar pra edição manual.
   const retryOpts = { attempts: 3, backoff: { type: "exponential" as const, delay: 5_000 } };
 
-  if (parsed.pattern === "combo") {
+  if (parsed.pattern === "combo" || tipsToFill.length === 1) {
+    const tip = tipsToFill[0]!;
     await extractDetailsQueue.add(
       "extract",
-      { photoPath, kind: "combo", tips: [{ id: createdTips[0]!.id, needMarket: true, needGame: parsed.match === undefined, needOdd: true }] },
+      { photoPath, kind: parsed.pattern === "combo" ? "combo" : "rows", tips: [tip] },
       retryOpts,
     );
     return "created";
   }
 
-  await extractDetailsQueue.add(
-    "extract",
-    {
-      photoPath,
-      kind: "rows",
-      tips: createdTips.map((tip, i) => ({
-        id: tip.id,
-        needMarket: parsed.selections[i]!.text === null,
-        needGame: parsed.match === undefined,
-        needOdd: singleSelectionOddFromText === undefined,
-      })),
-    },
-    retryOpts,
-  );
+  await extractDetailsQueue.add("extract", { photoPath, kind: "rows", tips: tipsToFill }, retryOpts);
   return "created";
 }

@@ -157,6 +157,17 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
 
   void ensurePhotoBucket();
 
+  // Nomes de casa já vistos nas tips — alimenta o select de saldo por casa
+  // no perfil, pra digitar sempre o mesmo nome ("betano" vs "Betano").
+  app.get("/bookmakers", async (): Promise<string[]> => {
+    const rows = await prisma.telegramTip.findMany({
+      where: { bookmaker: { not: null } },
+      select: { bookmaker: true },
+      distinct: ["bookmaker"],
+    });
+    return rows.map((r) => r.bookmaker!).sort((a, b) => a.localeCompare(b));
+  });
+
   // ── Grupos rastreados ──────────────────────────────────────────────────
   app.get("/groups", async () => {
     return prisma.telegramGroup.findMany({ orderBy: { name: "asc" } });
@@ -188,17 +199,19 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       groupId?: string;
       bookmaker?: string;
       result?: string;
+      takenStatus?: string;
       search?: string;
     };
   }>("/", async (request) => {
     const page = Math.max(1, parseInt(request.query.page ?? "1", 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "20", 10) || 20));
-    const { groupId, bookmaker, result, search } = request.query;
+    const { groupId, bookmaker, result, takenStatus, search } = request.query;
 
     const where: Prisma.TelegramTipWhereInput = {
       ...(groupId ? { groupId } : {}),
       ...(bookmaker ? { bookmaker } : {}),
       ...(result ? { result } : {}),
+      ...(takenStatus ? { takenStatus } : {}),
       ...(search ? { OR: [{ match: { contains: search, mode: "insensitive" } }, { selection: { contains: search, mode: "insensitive" } }] } : {}),
     };
 
@@ -274,6 +287,11 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     }));
     const taken = source.filter((r) => r.takenStatus === "taken");
 
+    // Uma linha só somando tudo (independente de grupo/casa) — alimenta o
+    // "Banca Atual" do perfil: Banca Inicial (saldo depositado) + lucro em
+    // unidades das tips que o usuário realmente pegou.
+    const totalRow = (rows: BancaSourceRow[]) => aggregateBy(rows, () => "total", unitValue)[0] ?? null;
+
     return {
       geral: {
         byGroup: aggregateBy(source, (r) => r.groupName, unitValue),
@@ -283,6 +301,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         byGroup: aggregateBy(taken, (r) => r.groupName, unitValue),
         byBookmaker: aggregateBy(taken, (r) => r.bookmaker, unitValue),
       },
+      totals: { geral: totalRow(source), peguei: totalRow(taken) },
     };
   });
 

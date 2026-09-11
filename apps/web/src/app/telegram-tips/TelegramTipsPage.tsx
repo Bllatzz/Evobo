@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   fetchTelegramTips,
   fetchTelegramGroups,
+  fetchTelegramSettings,
   patchTelegramTip,
   type TelegramTip,
   type TelegramGroup,
@@ -32,7 +33,17 @@ function needsReview(tip: TelegramTip): boolean {
   return tip.parsePattern === null || !tip.selection || tip.selection.trim() === "";
 }
 
-function TipCard({ tip, onUpdate, onOpenPhoto }: { tip: TelegramTip; onUpdate: (tip: TelegramTip) => void; onOpenPhoto: (url: string) => void }) {
+export function TipCard({
+  tip,
+  unitValue,
+  onUpdate,
+  onOpenPhoto,
+}: {
+  tip: TelegramTip;
+  unitValue: number | null;
+  onUpdate: (tip: TelegramTip) => void;
+  onOpenPhoto: (url: string) => void;
+}) {
   async function setTaken(status: "taken" | "skipped") {
     const next = tip.takenStatus === status ? "pending" : status;
     onUpdate(await patchTelegramTip(tip.id, { takenStatus: next }));
@@ -58,7 +69,7 @@ function TipCard({ tip, onUpdate, onOpenPhoto }: { tip: TelegramTip; onUpdate: (
 
       {tip.photoUrl && (
         <button onClick={() => onOpenPhoto(tip.photoUrl!)} className="mb-3 block w-full">
-          <img src={tip.photoUrl} alt="Bilhete" className="max-h-40 w-full rounded-xl border border-border-subtle object-cover" />
+          <img src={tip.photoUrl} alt="Bilhete" className="w-full rounded-xl border border-border-subtle" />
         </button>
       )}
 
@@ -66,10 +77,26 @@ function TipCard({ tip, onUpdate, onOpenPhoto }: { tip: TelegramTip; onUpdate: (
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-accent-border bg-accent-soft p-2.5">
           <span className="text-[10px] text-text-secondary">Unidade</span>
           <span className="font-mono text-[14px] font-bold text-accent">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
+          {tip.unit != null && unitValue != null && (
+            <span className="font-mono text-[10px] text-accent/80">
+              {(tip.unit * unitValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+            </span>
+          )}
         </div>
         <div className="col-span-2 flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Mercado</span>
-          <span className="truncate text-[13px] font-bold">{tip.selection || "—"}</span>
+          {tip.selection ? (
+            <ul className="flex flex-col gap-0.5">
+              {tip.selection.split("\n").map((market, i, all) => (
+                <li key={i} className="text-[13px] font-bold leading-snug">
+                  {all.length > 1 && "• "}
+                  {market}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <span className="text-[13px] font-bold">—</span>
+          )}
         </div>
         <div className="col-span-2 flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Casa</span>
@@ -134,9 +161,11 @@ export function TelegramTipsPage() {
   const [groupId, setGroupId] = useState<string>("");
   const [result, setResultFilter] = useState<string>("");
   const [photoModal, setPhotoModal] = useState<string | null>(null);
+  const [unitValue, setUnitValue] = useState<number | null>(null);
 
   useEffect(() => {
     fetchTelegramGroups().then(setGroups).catch(() => {});
+    fetchTelegramSettings().then((s) => setUnitValue(s.unitValue)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -161,12 +190,20 @@ export function TelegramTipsPage() {
             {reviewCount} pra revisar
           </span>
         )}
-        <Link
-          to="/telegram-tips/relatorio"
-          className="ml-auto flex-none rounded-[11px] border border-border-strong px-3.5 py-2 text-[13px] font-semibold text-text-secondary"
-        >
-          Relatório
-        </Link>
+        <div className="ml-auto flex flex-none items-center gap-2">
+          <Link
+            to="/profile"
+            className="rounded-[11px] border border-border-strong px-3.5 py-2 text-[13px] font-semibold text-text-secondary"
+          >
+            Minha banca
+          </Link>
+          <Link
+            to="/telegram-tips/relatorio"
+            className="rounded-[11px] border border-border-strong px-3.5 py-2 text-[13px] font-semibold text-text-secondary"
+          >
+            Relatório
+          </Link>
+        </div>
       </div>
 
       <div className="flex gap-2 overflow-x-auto px-5 pb-2 lg:px-0">
@@ -205,7 +242,7 @@ export function TelegramTipsPage() {
         {tips && tips.length > 0 && (
           <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
             {tips.map((tip) => (
-              <TipCard key={tip.id} tip={tip} onUpdate={updateTip} onOpenPhoto={setPhotoModal} />
+              <TipCard key={tip.id} tip={tip} unitValue={unitValue} onUpdate={updateTip} onOpenPhoto={setPhotoModal} />
             ))}
           </div>
         )}
