@@ -132,7 +132,6 @@ function TipRow({
   onUpdate,
   onUpdateDraft,
   onUntake,
-  onTakeOne,
 }: {
   tip: TelegramTip;
   index: number;
@@ -141,7 +140,6 @@ function TipRow({
   onUpdate: (tip: TelegramTip) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onUntake: (tip: TelegramTip) => void;
-  onTakeOne: (tip: TelegramTip) => void;
 }) {
   const { me } = useAuth();
   const isAdmin = me?.role === "admin";
@@ -163,6 +161,9 @@ function TipRow({
     onUpdate(await patchTelegramTip(tip.id, { result }));
   }
 
+  // Taking a tip now only happens via the group's "Peguei" button below —
+  // no more per-row "Pegar" pill — so this only ever renders for an
+  // already-taken tip, as a click-to-undo affordance.
   const takenPill =
     tip.takenStatus === "taken" ? (
       <button
@@ -171,14 +172,7 @@ function TipRow({
       >
         <IconCheck size={10} /> Peguei
       </button>
-    ) : (
-      <button
-        onClick={() => onTakeOne(tip)}
-        className="flex-none rounded-lg border border-border-strong px-2.5 py-1 text-[11px] font-semibold text-text-secondary"
-      >
-        Pegar
-      </button>
-    );
+    ) : null;
 
   if (collapsed) {
     return (
@@ -326,7 +320,6 @@ function MessageGroupCard({
   onOpenPhoto,
   onUpdateDraft,
   onUntake,
-  onTakeOne,
   onSaveGroup,
 }: {
   group: MessageGroup;
@@ -338,12 +331,10 @@ function MessageGroupCard({
   onOpenPhoto: (url: string) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onUntake: (tip: TelegramTip) => void;
-  onTakeOne: (tip: TelegramTip) => void;
   onSaveGroup: (group: MessageGroup) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
 
-  const fotoCount = group.tips.some((t) => t.photoUrl) ? 1 : 0;
   const tipsCount = group.tips.length;
   const pegasCount = group.tips.filter((t) => t.takenStatus === "taken").length;
   const pendingCount = tipsCount - pegasCount;
@@ -360,9 +351,6 @@ function MessageGroupCard({
             <span className="min-w-0 truncate text-[11px] text-text-secondary">{group.match}</span>
           </>
         )}
-        <span className="ml-auto flex-none text-[11px] text-text-tertiary">
-          {fotoCount} foto · {tipsCount} {tipsCount === 1 ? "tip" : "tips"} · {pegasCount} pegas
-        </span>
       </div>
 
       <div className="flex gap-3">
@@ -424,7 +412,6 @@ function MessageGroupCard({
                 onUpdate={onUpdate}
                 onUpdateDraft={onUpdateDraft}
                 onUntake={onUntake}
-                onTakeOne={onTakeOne}
               />
             ))}
           </div>
@@ -442,7 +429,7 @@ function MessageGroupCard({
               }}
               className="rounded-lg bg-accent px-4 py-2 text-[12px] font-bold text-[#08090A] disabled:bg-surface-chip disabled:font-semibold disabled:text-text-tertiary"
             >
-              Salvar{pendingCount > 0 ? ` ${pendingCount}` : ""} tips
+              Peguei{pendingCount > 0 ? ` ${pendingCount}` : ""} tips
             </button>
           </div>
         </div>
@@ -644,17 +631,6 @@ export function TelegramTipsPage() {
 
   async function untake(tip: TelegramTip) {
     const updated = await patchTelegramTip(tip.id, { takenStatus: "pending" });
-    updateTip(updated);
-    discardDraft(tip.id);
-    refreshSummary();
-    refreshPendingCounts();
-  }
-
-  // Per-row "Pegar" — a quick single-tip confirm, distinct from the
-  // group-level "Salvar" which commits every not-yet-taken tip at once.
-  async function takeOne(tip: TelegramTip) {
-    const d = drafts[tip.id] ?? { unit: tip.unit, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl };
-    const updated = await patchTelegramTip(tip.id, { ...d, takenStatus: "taken" });
     updateTip(updated);
     discardDraft(tip.id);
     refreshSummary();
@@ -879,7 +855,6 @@ export function TelegramTipsPage() {
             onOpenPhoto={setPhotoModal}
             onUpdateDraft={updateDraft}
             onUntake={untake}
-            onTakeOne={takeOne}
             onSaveGroup={saveGroup}
           />
         ))}
