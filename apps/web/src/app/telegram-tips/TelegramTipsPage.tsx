@@ -10,6 +10,7 @@ import {
 } from "../../lib/telegramTips";
 import { Modal } from "../../components/Modal";
 import { IconTelegram, IconExternalLink, IconCheck, IconX } from "../../components/Icon";
+import { useAuth } from "../../stores/auth";
 
 const RESULT_FILTERS = [
   { key: "", label: "Todas" },
@@ -44,6 +45,9 @@ export function TipCard({
   onUpdate: (tip: TelegramTip) => void;
   onOpenPhoto: (url: string) => void;
 }) {
+  const { me } = useAuth();
+  const isAdmin = me?.role === "admin";
+
   async function setTaken(status: "taken" | "skipped") {
     const next = tip.takenStatus === status ? "pending" : status;
     onUpdate(await patchTelegramTip(tip.id, { takenStatus: next }));
@@ -148,19 +152,25 @@ export function TipCard({
         </button>
       </div>
 
-      <div className="mb-3.5 flex gap-1.5">
-        {RESULT_BUTTONS.map((r) => (
-          <button
-            key={r.key}
-            onClick={() => setResult(r.key)}
-            className={`flex-1 rounded-lg py-1.5 text-[11px] font-semibold ${
-              tip.result === r.key ? "bg-accent-soft text-accent" : "bg-surface-chip text-text-tertiary"
-            }`}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
+      {isAdmin ? (
+        <div className="mb-3.5 flex gap-1.5">
+          {RESULT_BUTTONS.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setResult(r.key)}
+              className={`flex-1 rounded-lg py-1.5 text-[11px] font-semibold ${
+                tip.result === r.key ? "bg-accent-soft text-accent" : "bg-surface-chip text-text-tertiary"
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="mb-3.5 flex items-center justify-center rounded-lg bg-surface-chip py-1.5 text-[11px] font-semibold text-text-tertiary">
+          {RESULT_BUTTONS.find((r) => r.key === tip.result)?.label ?? "Pendente"}
+        </div>
+      )}
 
       {tip.betUrl && (
         <a

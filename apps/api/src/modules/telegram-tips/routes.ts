@@ -245,6 +245,13 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     }
     const input = parsed.data;
 
+    // Grading a tip's result affects everyone else's read of the group/
+    // tipster performance (GET /banca's "geral" scope) — reserved for admin,
+    // unlike takenStatus/manual corrections which are per-user judgment calls.
+    if (input.result !== undefined && request.authUser!.roleName !== "admin") {
+      return reply.code(403).send({ error: "forbidden", field: "result" });
+    }
+
     const tip = await prisma.telegramTip.update({
       where: { id: request.params.id },
       data: {
