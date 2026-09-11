@@ -1,12 +1,14 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../stores/auth";
-import { IconHome, IconLive, IconRanking, IconProfile, IconRobot, IconTrendingUp } from "./Icon";
+import { IconHome, IconLive, IconRanking, IconProfile, IconRobot, IconTrendingUp, IconTelegram } from "./Icon";
 
 /**
  * Bottom tab bar — matches the current BANCA App.dc.html: Home (feed), Ao
- * Vivo, Robô, EV+, Ranking, Perfil. Robô used to be a permanently-raised
- * green badge regardless of route; per feedback it's now a plain tab like
- * the rest — only the active one gets the accent treatment.
+ * Vivo, Robô, EV+, Ranking, VIP (Telegram), Perfil. Robô used to be a
+ * permanently-raised green badge regardless of route; per feedback it's now
+ * a plain tab like the rest — only the active one gets the accent
+ * treatment. VIP only shows for users with the telegram_banca screen, same
+ * gating as every other conditional tab here.
  */
 const items = [
   { to: "/", label: "Home", Icon: IconHome, end: true, screen: null },
@@ -14,6 +16,7 @@ const items = [
   { to: "/robot", label: "Robô", Icon: IconRobot, end: false, screen: "robo_apostas" },
   { to: "/ev", label: "EV+", Icon: IconTrendingUp, end: false, screen: "ev_plus" },
   { to: "/ranking", label: "Ranking", Icon: IconRanking, end: false, screen: "ranking" },
+  { to: "/telegram-tips", label: "VIP", Icon: IconTelegram, end: false, screen: "telegram_banca" },
   { to: "/profile", label: "Perfil", Icon: IconProfile, end: false, screen: "meu_perfil" },
 ] as const;
 
