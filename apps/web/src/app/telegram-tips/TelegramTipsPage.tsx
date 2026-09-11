@@ -44,6 +44,16 @@ const RESULT_BUTTONS = [
   { key: "reembolso", label: "Reemb.", activeClassName: "bg-vip-soft text-vip" },
 ] as const;
 
+/** Compact status chip on each row: "NÃO PEGA" while untaken (result is
+ * irrelevant until you've taken it), otherwise the tip's own result. */
+const STATUS_CHIPS: Record<string, { text: string; className: string }> = {
+  pending: { text: "PENDENTE", className: "bg-vip-soft text-vip" },
+  green: { text: "GREEN", className: "bg-accent-soft text-accent" },
+  red: { text: "RED", className: "bg-live/10 text-live" },
+  reembolso: { text: "REEMB.", className: "bg-surface-alt text-text-secondary" },
+};
+const NAO_PEGA_CHIP = { text: "NÃO PEGA", className: "bg-surface-alt text-text-tertiary" };
+
 function relativeTime(iso: string): string {
   const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
   if (min < 1) return "agora";
@@ -116,18 +126,22 @@ function groupTipsByMessage(tips: TelegramTip[]): MessageGroup[] {
 
 function TipRow({
   tip,
+  index,
   draft,
   unitValue,
   onUpdate,
   onUpdateDraft,
   onUntake,
+  onTakeOne,
 }: {
   tip: TelegramTip;
+  index: number;
   draft: DraftEdit | undefined;
   unitValue: number | null;
   onUpdate: (tip: TelegramTip) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onUntake: (tip: TelegramTip) => void;
+  onTakeOne: (tip: TelegramTip) => void;
 }) {
   const { me } = useAuth();
   const isAdmin = me?.role === "admin";
@@ -143,26 +157,44 @@ function TipRow({
   const retorno = effUnit != null && effOdd != null && unitValue != null ? effUnit * unitValue * effOdd : null;
   const oddDrifted = tip.originalOdd !== null && tip.odd !== null && tip.originalOdd !== tip.odd;
   const betActive = !!effBetUrl;
+  const chip = tip.takenStatus === "taken" ? (STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!) : NAO_PEGA_CHIP;
 
   async function setResult(result: (typeof RESULT_BUTTONS)[number]["key"]) {
     onUpdate(await patchTelegramTip(tip.id, { result }));
   }
 
+  const takenPill =
+    tip.takenStatus === "taken" ? (
+      <button
+        onClick={() => onUntake(tip)}
+        className="flex flex-none items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-bold text-[#08090A]"
+      >
+        <IconCheck size={10} /> Peguei
+      </button>
+    ) : (
+      <button
+        onClick={() => onTakeOne(tip)}
+        className="flex-none rounded-lg border border-border-strong px-2.5 py-1 text-[11px] font-semibold text-text-secondary"
+      >
+        Pegar
+      </button>
+    );
+
   if (collapsed) {
     return (
       <div className="flex items-center gap-2.5 border-t border-border-subtle py-2.5 first:border-t-0">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-semibold">{tip.selection ?? "—"}</p>
-          <p className="font-mono text-[11px] text-text-tertiary">
-            {effOdd != null ? effOdd.toFixed(2) : "—"}
-            {effUnit != null && ` · ${effUnit}u`}
-            {tip.takenStatus === "taken" && " · peguei"}
-          </p>
-        </div>
+        <span className="w-3.5 flex-none text-center font-mono text-[11px] text-text-tertiary">{index}</span>
+        {takenPill}
+        <p className="min-w-0 flex-1 truncate text-[13px] font-semibold">{tip.selection ?? "—"}</p>
+        <span className="flex-none font-mono text-[12px] font-bold">{effOdd != null ? effOdd.toFixed(2) : "—"}</span>
+        <span className="flex-none font-mono text-[12px] text-text-tertiary">{effUnit != null ? `${effUnit}u` : "—"}</span>
+        <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
+          {chip.text}
+        </span>
         <button
           onClick={() => setCollapsed(false)}
           aria-label="Mostrar tip"
-          className="flex-none rounded-lg border border-border-strong p-1.5 text-text-secondary"
+          className="flex-none text-text-tertiary"
         >
           <IconChevronDown size={14} />
         </button>
@@ -172,20 +204,19 @@ function TipRow({
 
   return (
     <div className="border-t border-border-subtle py-3 first:border-t-0">
-      <div className="mb-2.5 flex items-center justify-between gap-2">
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <span className="w-3.5 flex-none text-center font-mono text-[11px] text-text-tertiary">{index}</span>
+        {takenPill}
         <p className="min-w-0 flex-1 truncate text-[13px] font-semibold">{tip.selection ?? "—"}</p>
-        {tip.takenStatus === "taken" && (
-          <button
-            onClick={() => onUntake(tip)}
-            className="flex flex-none items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-bold text-[#08090A]"
-          >
-            <IconCheck size={11} /> Peguei
-          </button>
-        )}
+        <span className="flex-none font-mono text-[12px] font-bold">{effOdd != null ? effOdd.toFixed(2) : "—"}</span>
+        <span className="flex-none font-mono text-[12px] text-text-tertiary">{effUnit != null ? `${effUnit}u` : "—"}</span>
+        <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
+          {chip.text}
+        </span>
         <button
           onClick={() => setCollapsed(true)}
           aria-label="Ocultar tip"
-          className="flex-none rounded-lg border border-border-strong p-1.5 text-text-secondary"
+          className="flex-none text-text-tertiary"
         >
           <IconChevronDown size={14} className="rotate-180" />
         </button>
@@ -289,25 +320,28 @@ function MessageGroupCard({
   group,
   drafts,
   unitValue,
+  photoVisible,
+  onTogglePhoto,
   onUpdate,
   onOpenPhoto,
   onUpdateDraft,
   onUntake,
+  onTakeOne,
   onSaveGroup,
 }: {
   group: MessageGroup;
   drafts: Record<string, DraftEdit>;
   unitValue: number | null;
+  photoVisible: boolean;
+  onTogglePhoto: (key: string, visible: boolean) => void;
   onUpdate: (tip: TelegramTip) => void;
   onOpenPhoto: (url: string) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onUntake: (tip: TelegramTip) => void;
+  onTakeOne: (tip: TelegramTip) => void;
   onSaveGroup: (group: MessageGroup) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
-  // The photo starts visible — no click needed to see the bilhete — with
-  // just a close toggle to tuck it away if it's in the way.
-  const [showPhoto, setShowPhoto] = useState(true);
 
   const fotoCount = group.tips.some((t) => t.photoUrl) ? 1 : 0;
   const tipsCount = group.tips.length;
@@ -331,85 +365,110 @@ function MessageGroupCard({
         </span>
       </div>
 
-      {group.photoUrl && (
-        <div className="mb-2.5">
-          {showPhoto ? (
+      <div className="flex gap-3">
+        {group.photoUrl && photoVisible && (
+          <div className="w-[170px] flex-none">
             <div className="relative">
               <img
                 src={group.photoUrl}
                 alt="Bilhete"
                 onClick={() => onOpenPhoto(group.photoUrl!)}
-                className="max-h-[160px] w-full cursor-zoom-in rounded-xl bg-surface-chip object-contain"
+                className="h-[150px] w-full cursor-zoom-in rounded-xl bg-surface-chip object-contain"
               />
               <button
-                onClick={() => setShowPhoto(false)}
-                aria-label="Fechar imagem"
-                className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-[#08090A]/70 text-white"
+                onClick={() => onTogglePhoto(group.key, false)}
+                aria-label="Ocultar imagem"
+                className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#08090A]/70 text-white"
               >
-                <IconX size={13} />
+                <IconX size={12} />
               </button>
             </div>
-          ) : (
+            <p className="mt-1.5 text-center text-[10px] text-text-tertiary">
+              {tipsCount} {tipsCount === 1 ? "tip nesta foto" : "tips nesta foto"}
+            </p>
+            <div className="mt-1.5 flex gap-1.5">
+              <button
+                onClick={() => onOpenPhoto(group.photoUrl!)}
+                className="flex-1 rounded-lg border border-border-strong py-1.5 text-[11px] font-semibold text-text-secondary"
+              >
+                Ampliar
+              </button>
+              <button
+                onClick={() => onTogglePhoto(group.key, false)}
+                className="flex-1 rounded-lg border border-border-strong py-1.5 text-[11px] font-semibold text-text-secondary"
+              >
+                Ocultar
+              </button>
+            </div>
+          </div>
+        )}
+        {group.photoUrl && !photoVisible && (
+          <button
+            onClick={() => onTogglePhoto(group.key, true)}
+            className="flex w-[64px] flex-none flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-strong py-4 text-[11px] font-semibold text-accent"
+          >
+            <IconEyeOff size={14} />
+            Ver
+          </button>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-col">
+            {group.tips.map((tip, i) => (
+              <TipRow
+                key={tip.id}
+                tip={tip}
+                index={i + 1}
+                draft={drafts[tip.id]}
+                unitValue={unitValue}
+                onUpdate={onUpdate}
+                onUpdateDraft={onUpdateDraft}
+                onUntake={onUntake}
+                onTakeOne={onTakeOne}
+              />
+            ))}
+          </div>
+
+          <div className="mt-3 flex justify-end border-t border-border-subtle pt-3">
             <button
-              onClick={() => setShowPhoto(true)}
-              className="flex items-center gap-1.5 text-[11px] font-semibold text-accent"
+              disabled={pendingCount === 0 || saving}
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await onSaveGroup(group);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              className="rounded-lg bg-accent px-4 py-2 text-[12px] font-bold text-[#08090A] disabled:bg-surface-chip disabled:font-semibold disabled:text-text-tertiary"
             >
-              <IconEyeOff size={13} /> Ver imagem
+              Salvar{pendingCount > 0 ? ` ${pendingCount}` : ""} tips
             </button>
-          )}
+          </div>
         </div>
-      )}
-
-      <div className="flex flex-col">
-        {group.tips.map((tip) => (
-          <TipRow
-            key={tip.id}
-            tip={tip}
-            draft={drafts[tip.id]}
-            unitValue={unitValue}
-            onUpdate={onUpdate}
-            onUpdateDraft={onUpdateDraft}
-            onUntake={onUntake}
-          />
-        ))}
-      </div>
-
-      <div className="mt-3 border-t border-border-subtle pt-3">
-        <button
-          disabled={pendingCount === 0 || saving}
-          onClick={async () => {
-            setSaving(true);
-            try {
-              await onSaveGroup(group);
-            } finally {
-              setSaving(false);
-            }
-          }}
-          className="w-full rounded-lg bg-accent py-2 text-[12px] font-bold text-[#08090A] disabled:bg-surface-chip disabled:font-semibold disabled:text-text-tertiary"
-        >
-          Salvar{pendingCount > 0 ? ` ${pendingCount}` : ""} tips
-        </button>
       </div>
     </div>
   );
 }
 
-/** "Todos os grupos" pill doubles as a multi-select: closed it reads as a
- * normal filter pill (highlighted when nothing more specific is picked),
- * open it's a checklist so 2+ groups can be selected together — the other
- * per-group pills stay as plain single-click filters beside it. */
+/** "N grupos selecionados" trigger opens a staged checklist (nothing
+ * applies until "Aplicar") — selections themselves render as removable
+ * chips next to the trigger, not as a permanent row of every group. */
 function GroupMultiSelect({
   groups,
   selected,
-  onChange,
+  onApply,
+  countByGroup,
   totalCount,
 }: {
   groups: TelegramGroup[];
   selected: string[];
-  onChange: (ids: string[]) => void;
+  onApply: (ids: string[]) => void;
+  countByGroup: (id: string) => number;
   totalCount: number;
 }) {
   const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<string[]>(selected);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -421,8 +480,13 @@ function GroupMultiSelect({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [open]);
 
+  function openPanel() {
+    setPending(selected);
+    setOpen(true);
+  }
+
   function toggle(id: string) {
-    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+    setPending((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   const label = selected.length === 0 ? `Todos os grupos ${totalCount}` : `${selected.length} grupos selecionados`;
@@ -431,7 +495,7 @@ function GroupMultiSelect({
     <div ref={ref} className="relative flex-none">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? setOpen(false) : openPanel())}
         className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] ${
           selected.length === 0 ? "bg-accent font-semibold text-[#08090A]" : "bg-surface-alt text-text-secondary"
         }`}
@@ -440,33 +504,52 @@ function GroupMultiSelect({
         <IconChevronDown size={13} className={`transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute left-0 z-20 mt-1.5 max-h-64 w-max min-w-[220px] overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent">
-          <button
-            type="button"
-            onClick={() => {
-              onChange([]);
-              setOpen(false);
-            }}
-            className={`block w-full rounded-lg px-3 py-2 text-left text-[13px] ${
-              selected.length === 0 ? "bg-accent-soft text-accent" : "text-text-secondary hover:bg-surface-alt"
-            }`}
-          >
-            Todos os grupos
-          </button>
-          {groups.map((g) => (
-            <label
-              key={g.id}
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-text-secondary hover:bg-surface-alt"
-            >
+        <div className="absolute left-0 z-20 mt-1.5 w-max min-w-[240px] rounded-xl border border-border bg-surface p-1 shadow-lg">
+          <div className="flex items-center justify-between px-3 py-1.5">
+            <span className="font-mono text-[10px] tracking-[0.05em] text-text-tertiary">FILTRAR POR GRUPO</span>
+            <button type="button" onClick={() => setPending([])} className="text-[11px] font-semibold text-accent">
+              limpar
+            </button>
+          </div>
+          <div className="max-h-56 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent">
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-text-secondary hover:bg-surface-alt">
               <input
                 type="checkbox"
-                checked={selected.includes(g.id)}
-                onChange={() => toggle(g.id)}
+                checked={pending.length === 0}
+                onChange={() => setPending([])}
                 className="h-3.5 w-3.5 flex-none accent-accent"
               />
-              <span className="truncate">{g.name}</span>
+              <span className="min-w-0 flex-1 truncate">Todos os grupos</span>
+              <span className="flex-none font-mono text-[11px] text-text-tertiary">{totalCount}</span>
             </label>
-          ))}
+            {groups.map((g) => (
+              <label
+                key={g.id}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-text-secondary hover:bg-surface-alt"
+              >
+                <input
+                  type="checkbox"
+                  checked={pending.includes(g.id)}
+                  onChange={() => toggle(g.id)}
+                  className="h-3.5 w-3.5 flex-none accent-accent"
+                />
+                <span className="min-w-0 flex-1 truncate">{g.name}</span>
+                <span className="flex-none font-mono text-[11px] text-text-tertiary">{countByGroup(g.id)}</span>
+              </label>
+            ))}
+          </div>
+          <div className="p-1 pt-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                onApply(pending);
+                setOpen(false);
+              }}
+              className="w-full rounded-lg bg-accent py-2 text-[12px] font-bold text-[#08090A]"
+            >
+              Aplicar{pending.length > 0 ? ` (${pending.length})` : ""}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -489,6 +572,10 @@ export function TelegramTipsPage() {
   const [pendingTips, setPendingTips] = useState<TelegramTip[]>([]);
   const [drafts, setDrafts] = useState<Record<string, DraftEdit>>({});
   const [, forceTick] = useState(0);
+  // Global photo visibility default, plus per-card overrides so one bilhete
+  // can be peeked at (or tucked away) without flipping every other card.
+  const [showPhotosGlobal, setShowPhotosGlobal] = useState(true);
+  const [photoOverrides, setPhotoOverrides] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetchTelegramGroups().then(setGroups).catch(() => {});
@@ -563,6 +650,30 @@ export function TelegramTipsPage() {
     refreshPendingCounts();
   }
 
+  // Per-row "Pegar" — a quick single-tip confirm, distinct from the
+  // group-level "Salvar" which commits every not-yet-taken tip at once.
+  async function takeOne(tip: TelegramTip) {
+    const d = drafts[tip.id] ?? { unit: tip.unit, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl };
+    const updated = await patchTelegramTip(tip.id, { ...d, takenStatus: "taken" });
+    updateTip(updated);
+    discardDraft(tip.id);
+    refreshSummary();
+    refreshPendingCounts();
+  }
+
+  function isPhotoVisible(key: string): boolean {
+    return photoOverrides[key] ?? showPhotosGlobal;
+  }
+
+  function togglePhoto(key: string, visible: boolean) {
+    setPhotoOverrides((prev) => ({ ...prev, [key]: visible }));
+  }
+
+  function toggleGlobalPhotos() {
+    setShowPhotosGlobal((v) => !v);
+    setPhotoOverrides({});
+  }
+
   // Every tip in the group is always shown editable — Salvar commits
   // whichever ones aren't taken yet, using any local edits made to them
   // (falling back to the tip's own parsed values when untouched).
@@ -605,6 +716,23 @@ export function TelegramTipsPage() {
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-4 lg:px-0">
         <IconTelegram size={22} className="flex-none text-accent" />
         <div className="min-w-0 flex-1 text-[19px] font-bold tracking-[-0.02em] lg:text-[22px]">VIP Telegram</div>
+        <div className="hidden items-center gap-2 lg:flex">
+          <button
+            onClick={toggleGlobalPhotos}
+            role="switch"
+            aria-checked={showPhotosGlobal}
+            className={`relative h-5 w-9 flex-none rounded-full border-0 p-0 transition-colors ${
+              showPhotosGlobal ? "bg-accent" : "bg-surface-alt"
+            }`}
+          >
+            <span
+              className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                showPhotosGlobal ? "translate-x-4" : "translate-x-0"
+              }`}
+            />
+          </button>
+          <span className="text-[13px] font-semibold text-text-secondary">Mostrar fotos</span>
+        </div>
         <div className="flex flex-none items-center gap-2">
           <Link
             to="/profile"
@@ -686,27 +814,29 @@ export function TelegramTipsPage() {
         />
       </div>
 
-      {/* Group filter: "Todos os grupos" is a multi-select, individual groups stay one-click */}
+      {/* Group filter: staged multi-select, applied groups shown as removable chips */}
       <div className="flex flex-wrap items-center gap-2 px-4 pb-2 lg:px-0">
         <GroupMultiSelect
           groups={groups}
           selected={groupIds}
-          onChange={setGroupIds}
+          onApply={setGroupIds}
+          countByGroup={(id) => pendingCountsByGroup.get(id) ?? 0}
           totalCount={summary?.pendingCount ?? pendingTips.length}
         />
-        {groups.map((g) => (
-          <button
-            key={g.id}
-            onClick={() => setGroupIds(groupIds.length === 1 && groupIds[0] === g.id ? [] : [g.id])}
-            className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
-              groupIds.length === 1 && groupIds[0] === g.id
-                ? "bg-accent font-semibold text-[#08090A]"
-                : "bg-surface-alt text-text-secondary"
-            }`}
-          >
-            {g.name} {pendingCountsByGroup.get(g.id) ?? 0}
-          </button>
-        ))}
+        {groupIds.map((id) => {
+          const g = groups.find((x) => x.id === id);
+          if (!g) return null;
+          return (
+            <button
+              key={id}
+              onClick={() => setGroupIds(groupIds.filter((x) => x !== id))}
+              className="flex flex-none items-center gap-1.5 rounded-full bg-accent-soft px-3.5 py-1.5 text-[12px] font-semibold text-accent"
+            >
+              {g.name}
+              <IconX size={11} />
+            </button>
+          );
+        })}
       </div>
 
       {/* Result pills */}
@@ -743,10 +873,13 @@ export function TelegramTipsPage() {
             group={group}
             drafts={drafts}
             unitValue={unitValue}
+            photoVisible={isPhotoVisible(group.key)}
+            onTogglePhoto={togglePhoto}
             onUpdate={updateTip}
             onOpenPhoto={setPhotoModal}
             onUpdateDraft={updateDraft}
             onUntake={untake}
+            onTakeOne={takeOne}
             onSaveGroup={saveGroup}
           />
         ))}
