@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { fetchMyBets, type ProfileTip } from "../../lib/profile";
 import { formatOdds, formatUnits } from "../../lib/format";
@@ -46,6 +46,7 @@ type TimelineEvent = { date: number; profit: number };
  * native bets and Telegram taken tips merged into one chronological line —
  * same non-fabricated approach as the Gráfico Robô wallet chart. */
 function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; startValue: number }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const chronological = [...timeline].sort((a, b) => a.date - b.date);
   if (chronological.length < 2) {
     return (
@@ -72,17 +73,82 @@ function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; st
   });
   const areaPoints = `0,${height} ${points.join(" ")} ${width},${height}`;
 
+  function handleMove(e: MouseEvent<SVGSVGElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const fraction = (e.clientX - rect.left) / rect.width;
+    const index = Math.round(fraction * (values.length - 1));
+    setHoverIndex(Math.min(values.length - 1, Math.max(0, index)));
+  }
+
+  const hovered = hoverIndex !== null ? chronological[hoverIndex] : null;
+  const hoveredValue = hoverIndex !== null ? values[hoverIndex]! : null;
+  const hoverX = hoverIndex !== null ? (hoverIndex / (values.length - 1)) * width : 0;
+  const hoverY = hoverIndex !== null ? height - ((values[hoverIndex]! - min) / span) * height : 0;
+  // Flip the tooltip to the left half once the point crosses the chart's midline, so it never clips outside the svg.
+  const tooltipLeftPct = (hoverX / width) * 100;
+  const tooltipAlign = tooltipLeftPct > 60 ? "right" : tooltipLeftPct < 40 ? "left" : "center";
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="bankrollFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="currentColor" stopOpacity="0.4" className="text-accent" />
-          <stop offset="1" stopColor="currentColor" stopOpacity="0" className="text-accent" />
-        </linearGradient>
-      </defs>
-      <polygon points={areaPoints} fill="url(#bankrollFill)" />
-      <polyline points={points.join(" ")} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" className="text-accent" />
-    </svg>
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        width="100%"
+        height={height}
+        preserveAspectRatio="none"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIndex(null)}
+        className="cursor-crosshair"
+      >
+        <defs>
+          <linearGradient id="bankrollFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="currentColor" stopOpacity="0.4" className="text-accent" />
+            <stop offset="1" stopColor="currentColor" stopOpacity="0" className="text-accent" />
+          </linearGradient>
+        </defs>
+        <polygon points={areaPoints} fill="url(#bankrollFill)" />
+        <polyline points={points.join(" ")} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" className="text-accent" />
+        {hovered && (
+          <>
+            <line
+              x1={hoverX}
+              y1={0}
+              x2={hoverX}
+              y2={height}
+              stroke="currentColor"
+              strokeWidth="1"
+              strokeDasharray="4 3"
+              className="text-border-strong"
+              vectorEffect="non-scaling-stroke"
+            />
+            <circle
+              cx={hoverX}
+              cy={hoverY}
+              r="4"
+              className="text-accent"
+              fill="currentColor"
+              stroke="var(--color-surface-chip, #fff)"
+              strokeWidth="2"
+              vectorEffect="non-scaling-stroke"
+            />
+          </>
+        )}
+      </svg>
+      {hovered && hoveredValue !== null && (
+        <div
+          className="pointer-events-none absolute top-1 z-10 rounded-lg border border-border bg-surface-alt px-2.5 py-1.5 font-mono text-[11px] shadow-lg"
+          style={{
+            left: tooltipAlign === "center" ? `${tooltipLeftPct}%` : tooltipAlign === "left" ? "0%" : undefined,
+            right: tooltipAlign === "right" ? "0%" : undefined,
+            transform: tooltipAlign === "center" ? "translateX(-50%)" : undefined,
+          }}
+        >
+          <div className="text-text-tertiary">{new Date(hovered.date).toLocaleDateString("pt-BR")}</div>
+          <div className={`font-bold ${hoveredValue >= startValue ? "text-accent" : "text-live"}`}>
+            {hoveredValue.toFixed(1)}u
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -305,16 +371,22 @@ export function MyProfilePage() {
             </div>
 
             <div className="flex gap-6">
-              <div className="min-w-0 flex-1 rounded-2xl border border-border bg-surface p-[22px]">
+              <Link
+                to="/telegram-tips/relatorio"
+                className="min-w-0 flex-1 rounded-2xl border border-border bg-surface p-[22px] transition-colors hover:border-border-strong"
+              >
                 <div className="mb-5 flex items-center justify-between">
                   <span className="text-[14px] font-bold">Evolução da banca</span>
-                  <span className="font-mono text-[11px] text-text-tertiary">
-                    {stats.combinedPnl >= 0 ? "+" : ""}
-                    {stats.combinedPnl.toFixed(1)}u desde o início
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-[11px] text-text-tertiary">
+                      {stats.combinedPnl >= 0 ? "+" : ""}
+                      {stats.combinedPnl.toFixed(1)}u desde o início
+                    </span>
+                    <span className="font-mono text-[11px] text-accent">ver detalhes →</span>
+                  </div>
                 </div>
                 <BankrollChart timeline={timeline ?? []} startValue={stats.bancaInicial} />
-              </div>
+              </Link>
 
               <div className="w-[320px] flex-none rounded-2xl border border-border bg-surface p-5">
                 <div className="mb-4 font-mono text-[11px] tracking-[0.06em] text-text-tertiary">
