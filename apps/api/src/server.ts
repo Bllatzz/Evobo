@@ -86,7 +86,11 @@ await app.register(adminRoutes, { prefix: "/admin" });
 await app.register(searchRoutes, { prefix: "/search" });
 
 app
-  .listen({ port: env.PORT, host: "0.0.0.0" })
+  // "::" binds dual-stack (IPv4 + IPv6) — needed because Windows, under
+  // WSL2 mirrored networking, resolves "localhost" to [::1] first; a
+  // v4-only "0.0.0.0" bind gets that connection RST instead of accepted,
+  // which Chrome surfaces as net::ERR_CONNECTION_RESET on /auth/me.
+  .listen({ port: env.PORT, host: "::" })
   .then(() => app.log.info(`evobo api listening on :${env.PORT}`))
   .catch((err) => {
     app.log.error(err);

@@ -47,7 +47,9 @@ export function Dropdown({
         <IconChevronDown size={14} className={`flex-none transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute right-0 z-20 mt-1.5 max-h-64 w-max min-w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg">
+        <div
+          className="absolute right-0 z-20 mt-1.5 max-h-64 w-max min-w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent"
+        >
           <button
             type="button"
             onClick={() => {

@@ -226,9 +226,11 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const page = Math.max(1, parseInt(request.query.page ?? "1", 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "20", 10) || 20));
     const { groupId, bookmaker, result, takenStatus, search } = request.query;
+    // groupId accepts a comma-separated list so the UI can filter by 2+ groups at once.
+    const groupIds = groupId ? groupId.split(",").filter(Boolean) : [];
 
     const where: Prisma.TelegramTipWhereInput = {
-      ...(groupId ? { groupId } : {}),
+      ...(groupIds.length === 1 ? { groupId: groupIds[0] } : groupIds.length > 1 ? { groupId: { in: groupIds } } : {}),
       ...(bookmaker ? { bookmaker } : {}),
       ...(result ? { result } : {}),
       ...(takenStatus ? { takenStatus } : {}),

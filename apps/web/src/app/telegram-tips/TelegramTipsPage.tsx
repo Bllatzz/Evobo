@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   fetchTelegramTips,
@@ -142,7 +142,7 @@ function TipRow({
   const effBetUrl = draft?.betUrl ?? tip.betUrl;
   const retorno = effUnit != null && effOdd != null && unitValue != null ? effUnit * unitValue * effOdd : null;
   const oddDrifted = tip.originalOdd !== null && tip.odd !== null && tip.originalOdd !== tip.odd;
-  const betActive = tip.takenStatus === "taken" && !!effBetUrl;
+  const betActive = !!effBetUrl;
 
   async function setResult(result: (typeof RESULT_BUTTONS)[number]["key"]) {
     onUpdate(await patchTelegramTip(tip.id, { result }));
@@ -339,7 +339,7 @@ function MessageGroupCard({
                 src={group.photoUrl}
                 alt="Bilhete"
                 onClick={() => onOpenPhoto(group.photoUrl!)}
-                className="max-h-[360px] w-full cursor-zoom-in rounded-xl bg-surface-chip object-contain"
+                className="max-h-[160px] w-full cursor-zoom-in rounded-xl bg-surface-chip object-contain"
               />
               <button
                 onClick={() => setShowPhoto(false)}
@@ -394,10 +394,89 @@ function MessageGroupCard({
   );
 }
 
+/** "Todos os grupos" pill doubles as a multi-select: closed it reads as a
+ * normal filter pill (highlighted when nothing more specific is picked),
+ * open it's a checklist so 2+ groups can be selected together — the other
+ * per-group pills stay as plain single-click filters beside it. */
+function GroupMultiSelect({
+  groups,
+  selected,
+  onChange,
+  totalCount,
+}: {
+  groups: TelegramGroup[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  totalCount: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+
+  const label = selected.length === 0 ? `Todos os grupos ${totalCount}` : `${selected.length} grupos selecionados`;
+
+  return (
+    <div ref={ref} className="relative flex-none">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] ${
+          selected.length === 0 ? "bg-accent font-semibold text-[#08090A]" : "bg-surface-alt text-text-secondary"
+        }`}
+      >
+        {label}
+        <IconChevronDown size={13} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 z-20 mt-1.5 max-h-64 w-max min-w-[220px] overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent">
+          <button
+            type="button"
+            onClick={() => {
+              onChange([]);
+              setOpen(false);
+            }}
+            className={`block w-full rounded-lg px-3 py-2 text-left text-[13px] ${
+              selected.length === 0 ? "bg-accent-soft text-accent" : "text-text-secondary hover:bg-surface-alt"
+            }`}
+          >
+            Todos os grupos
+          </button>
+          {groups.map((g) => (
+            <label
+              key={g.id}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-text-secondary hover:bg-surface-alt"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(g.id)}
+                onChange={() => toggle(g.id)}
+                className="h-3.5 w-3.5 flex-none accent-accent"
+              />
+              <span className="truncate">{g.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TelegramTipsPage() {
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [groups, setGroups] = useState<TelegramGroup[]>([]);
-  const [groupId, setGroupId] = useState<string>("");
+  const [groupIds, setGroupIds] = useState<string[]>([]);
   const [result, setResultFilter] = useState<string>("pending");
   const [takenStatus, setTakenStatus] = useState<string>("");
   const [bookmaker, setBookmaker] = useState<string>("");
@@ -408,21 +487,16 @@ export function TelegramTipsPage() {
   const [unitValue, setUnitValue] = useState<number | null>(null);
   const [summary, setSummary] = useState<TelegramTodaySummary | null>(null);
   const [pendingTips, setPendingTips] = useState<TelegramTip[]>([]);
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DraftEdit>>({});
-  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [, forceTick] = useState(0);
 
   useEffect(() => {
     fetchTelegramGroups().then(setGroups).catch(() => {});
     fetchTelegramSettings().then((s) => setUnitValue(s.unitValue)).catch(() => {});
     fetchBookmakerNames().then(setBookmakers).catch(() => {});
-    fetchTelegramTips({ limit: 1 })
-      .then((res) => setLastSyncAt(res.data[0]?.receivedAt ?? null))
-      .catch(() => {});
   }, []);
 
-  // Keeps the "sincronizado há Nmin" line fresh without refetching.
+  // Keeps each card's "há Nmin" freshness label current without refetching.
   useEffect(() => {
     const id = setInterval(() => forceTick((t) => t + 1), 60_000);
     return () => clearInterval(id);
@@ -450,7 +524,7 @@ export function TelegramTipsPage() {
 
   useEffect(() => {
     fetchTelegramTips({
-      groupId: groupId || undefined,
+      groupId: groupIds.length > 0 ? groupIds.join(",") : undefined,
       result: result || undefined,
       takenStatus: takenStatus || undefined,
       bookmaker: bookmaker || undefined,
@@ -459,7 +533,7 @@ export function TelegramTipsPage() {
     })
       .then((res) => setTips(res.data))
       .catch(() => setTips([]));
-  }, [groupId, result, takenStatus, bookmaker, search]);
+  }, [groupIds, result, takenStatus, bookmaker, search]);
 
   function updateTip(updated: TelegramTip) {
     setTips((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev);
@@ -530,12 +604,7 @@ export function TelegramTipsPage() {
       {/* Header */}
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-4 lg:px-0">
         <IconTelegram size={22} className="flex-none text-accent" />
-        <div className="min-w-0 flex-1">
-          <div className="text-[19px] font-bold tracking-[-0.02em] lg:text-[22px]">VIP Telegram</div>
-          <p className="truncate text-[11px] text-text-tertiary">
-            {lastSyncAt ? `sincronizado ${relativeTime(lastSyncAt)}` : "sincronizando…"} · {groups.length} grupos
-          </p>
-        </div>
+        <div className="min-w-0 flex-1 text-[19px] font-bold tracking-[-0.02em] lg:text-[22px]">VIP Telegram</div>
         <div className="flex flex-none items-center gap-2">
           <Link
             to="/profile"
@@ -590,8 +659,8 @@ export function TelegramTipsPage() {
         </div>
       </div>
 
-      {/* Filters: grupo, peguei/não peguei, resultado, casa — all selects — plus search */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-4 lg:px-0">
+      {/* Search + peguei/não-peguei + casa */}
+      <div className="flex flex-wrap items-center gap-2 px-4 pb-2 lg:px-0">
         <div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-xl border border-border-subtle bg-surface-chip px-3 py-2 lg:max-w-[240px] lg:flex-none">
           <IconSearch size={14} className="flex-none text-text-tertiary" />
           <input
@@ -602,24 +671,10 @@ export function TelegramTipsPage() {
           />
         </div>
         <Dropdown
-          value={groupId}
-          onChange={setGroupId}
-          placeholder={`Todos os grupos (${summary?.pendingCount ?? pendingTips.length})`}
-          options={groups.map((g) => ({ value: g.id, label: `${g.name} (${pendingCountsByGroup.get(g.id) ?? 0})` }))}
-          className="w-auto flex-none"
-        />
-        <Dropdown
           value={takenStatus}
           onChange={setTakenStatus}
           placeholder="Peguei ou não"
           options={TAKEN_FILTERS.map((f) => ({ value: f.key, label: f.label }))}
-          className="w-auto flex-none"
-        />
-        <Dropdown
-          value={result}
-          onChange={setResultFilter}
-          placeholder="Todos os resultados"
-          options={RESULT_FILTERS.map((f) => ({ value: f.key, label: f.label }))}
           className="w-auto flex-none"
         />
         <Dropdown
@@ -631,19 +686,56 @@ export function TelegramTipsPage() {
         />
       </div>
 
+      {/* Group filter: "Todos os grupos" is a multi-select, individual groups stay one-click */}
+      <div className="flex flex-wrap items-center gap-2 px-4 pb-2 lg:px-0">
+        <GroupMultiSelect
+          groups={groups}
+          selected={groupIds}
+          onChange={setGroupIds}
+          totalCount={summary?.pendingCount ?? pendingTips.length}
+        />
+        {groups.map((g) => (
+          <button
+            key={g.id}
+            onClick={() => setGroupIds(groupIds.length === 1 && groupIds[0] === g.id ? [] : [g.id])}
+            className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
+              groupIds.length === 1 && groupIds[0] === g.id
+                ? "bg-accent font-semibold text-[#08090A]"
+                : "bg-surface-alt text-text-secondary"
+            }`}
+          >
+            {g.name} {pendingCountsByGroup.get(g.id) ?? 0}
+          </button>
+        ))}
+      </div>
+
+      {/* Result pills */}
+      <div className="flex gap-2 overflow-x-auto px-4 pb-4 lg:px-0">
+        {RESULT_FILTERS.map((r) => (
+          <button
+            key={r.key}
+            onClick={() => setResultFilter(r.key)}
+            className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
+              result === r.key ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"
+            }`}
+          >
+            {r.label}
+          </button>
+        ))}
+        <button
+          onClick={() => setResultFilter("")}
+          className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
+            result === "" ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"
+          }`}
+        >
+          Todas
+        </button>
+      </div>
+
       {/* Tip list */}
       <div className="flex flex-col gap-3 px-4 lg:px-0">
         {tips === null && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}
         {tips?.length === 0 && <p className="py-10 text-center text-sm text-text-tertiary">Nenhuma tip encontrada.</p>}
-
-        {!bannerDismissed && groupedList.length > 0 && (
-          <div className="flex items-center gap-2 rounded-xl border border-border-subtle bg-surface-chip px-3.5 py-2.5 text-[11px] text-text-tertiary">
-            <span className="flex-1">Unidade, odd e a casa vêm da mensagem — a odd que você pegou é opcional.</span>
-            <button onClick={() => setBannerDismissed(true)} aria-label="Dispensar" className="flex-none text-text-tertiary">
-              <IconX size={12} />
-            </button>
-          </div>
-        )}
 
         {groupedList.map((group) => (
           <MessageGroupCard
