@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { fetchMyBets, type ProfileTip } from "../../lib/profile";
-import { formatOdds, formatUnits } from "../../lib/format";
+import { formatOdds, formatUnits, timeAgo } from "../../lib/format";
 import { Avatar } from "../../components/Avatar";
 import { AccountMenu } from "../../components/AccountMenu";
 import { useAuth } from "../../stores/auth";
-import { IconCheck, IconX } from "../../components/Icon";
-import { TelegramBancaOverview } from "../telegram-tips/TelegramBancaOverview";
+import { IconCheck, IconX, IconPlus, IconPencil } from "../../components/Icon";
 import {
   fetchTelegramSettings,
+  saveTelegramSettings,
   fetchBookmakerBalances,
+  saveBookmakerBalances,
+  fetchBookmakerNames,
   fetchTelegramBanca,
   fetchTelegramTips,
   type TelegramTip,
+  type TelegramBookmakerBalance,
+  type TelegramBancaSummary,
 } from "../../lib/telegramTips";
 
 const resultLabel: Record<string, { text: string; className: string; Icon?: typeof IconCheck }> = {
@@ -24,6 +28,7 @@ const resultLabel: Record<string, { text: string; className: string; Icon?: type
 };
 
 const STARTING_BANKROLL_UNITS = 10;
+const OTHER_OPTION = "__outra__";
 
 function betProfit(tip: ProfileTip): number {
   const odds = Number(tip.odds);
@@ -40,14 +45,84 @@ function telegramTipProfit(tip: TelegramTip): number {
   return 0; // reembolso — nem ganho nem perda
 }
 
+function brl(v: number): string {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// Small fixed rotation over Evobo's own brand hues (never a per-bookmaker
+// invented color) so each bookmaker keeps a stable dot across renders.
+const DOT_COLORS = ["bg-accent", "bg-live", "bg-vip", "bg-verified", "bg-orange"];
+function bookmakerColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return DOT_COLORS[hash % DOT_COLORS.length]!;
+}
+
+// `Tip.house` stores the bet link, not a bookmaker name — read the domain
+// as a human-friendly stand-in for "casa" on native bets, which don't carry
+// a dedicated bookmaker field.
+function hostFromUrl(url: string): string {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    const base = host.split(".")[0] ?? host;
+    return base.charAt(0).toUpperCase() + base.slice(1);
+  } catch {
+    return url || "—";
+  }
+}
+
+function formatFixtureLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const hm = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return `hoje ${hm}`;
+  if (d.toDateString() === tomorrow.toDateString()) return `amanhã ${hm}`;
+  return `${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${hm}`;
+}
+
 type TimelineEvent = { date: number; profit: number };
+type SeriesPoint = TelegramBancaSummary["series"]["peguei"][number];
+
+const RANGE_OPTIONS = [
+  { key: "7", label: "7d" },
+  { key: "30", label: "30d" },
+  { key: "90", label: "90d" },
+  { key: "all", label: "tudo" },
+] as const;
+type RangeKey = (typeof RANGE_OPTIONS)[number]["key"];
 
 /** Real cumulative bankroll evolution (starting banca inicial + running pnl),
  * native bets and Telegram taken tips merged into one chronological line —
- * same non-fabricated approach as the Gráfico Robô wallet chart. */
-function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; startValue: number }) {
+ * same non-fabricated approach as the Gráfico Robô wallet chart. `startValue`
+ * is the bankroll at the start of the visible window (equals `referenceValue`
+ * — the true, all-time banca inicial — only when the window is "tudo"); the
+ * dashed reference line always marks the true banca inicial so the user can
+ * tell at a glance whether they're above or below where they started, even
+ * when zoomed into a shorter window. */
+function BankrollChart({
+  timeline,
+  startValue,
+  referenceValue,
+  unitValue,
+  displayUnit,
+}: {
+  timeline: TimelineEvent[];
+  startValue: number;
+  referenceValue: number;
+  unitValue: number | null;
+  displayUnit: "u" | "brl";
+}) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const chronological = [...timeline].sort((a, b) => a.date - b.date);
+
+  function formatValue(v: number): string {
+    if (displayUnit === "brl" && unitValue != null) return brl(v * unitValue);
+    return `${v.toFixed(1)}u`;
+  }
+
   if (chronological.length < 2) {
     return (
       <div className="flex h-[140px] items-center justify-center text-[12px] text-text-tertiary">
@@ -61,8 +136,8 @@ function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; st
     cumulative += e.profit;
     return cumulative;
   });
-  const min = Math.min(startValue, ...values);
-  const max = Math.max(startValue, ...values);
+  const min = Math.min(startValue, referenceValue, ...values);
+  const max = Math.max(startValue, referenceValue, ...values);
   const span = max - min || 1;
   const width = 600;
   const height = 140;
@@ -72,6 +147,8 @@ function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; st
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
   const areaPoints = `0,${height} ${points.join(" ")} ${width},${height}`;
+  const refY = height - ((referenceValue - min) / span) * height;
+  const yLabels = [max, (max + min) / 2, min];
 
   function handleMove(e: MouseEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -106,6 +183,17 @@ function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; st
           </linearGradient>
         </defs>
         <polygon points={areaPoints} fill="url(#bankrollFill)" />
+        <line
+          x1={0}
+          y1={refY}
+          x2={width}
+          y2={refY}
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeDasharray="5 4"
+          className="text-text-quaternary"
+          vectorEffect="non-scaling-stroke"
+        />
         <polyline points={points.join(" ")} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" className="text-accent" />
         {hovered && (
           <>
@@ -133,6 +221,25 @@ function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; st
           </>
         )}
       </svg>
+
+      <div className="pointer-events-none absolute inset-0">
+        {yLabels.map((v, i) => (
+          <span
+            key={i}
+            className="absolute left-1 -translate-y-1/2 rounded bg-surface/80 px-1 font-mono text-[10px] text-text-tertiary"
+            style={{ top: `${(((height - ((v - min) / span) * height) / height) * 100).toFixed(2)}%` }}
+          >
+            {formatValue(v)}
+          </span>
+        ))}
+        <span
+          className="absolute right-1 -translate-y-full rounded bg-surface/80 px-1 font-mono text-[10px] text-text-tertiary"
+          style={{ top: `${((refY / height) * 100).toFixed(2)}%` }}
+        >
+          banca inicial {formatValue(referenceValue)}
+        </span>
+      </div>
+
       {hovered && hoveredValue !== null && (
         <div
           className="pointer-events-none absolute top-1 z-10 rounded-lg border border-border bg-surface-alt px-2.5 py-1.5 font-mono text-[11px] shadow-lg"
@@ -143,8 +250,8 @@ function BankrollChart({ timeline, startValue }: { timeline: TimelineEvent[]; st
           }}
         >
           <div className="text-text-tertiary">{new Date(hovered.date).toLocaleDateString("pt-BR")}</div>
-          <div className={`font-bold ${hoveredValue >= startValue ? "text-accent" : "text-live"}`}>
-            {hoveredValue.toFixed(1)}u
+          <div className={`font-bold ${hoveredValue >= referenceValue ? "text-accent" : "text-live"}`}>
+            {formatValue(hoveredValue)}
           </div>
         </div>
       )}
@@ -175,11 +282,88 @@ const NO_TELEGRAM_FOLD: TelegramFold = {
   red: 0,
 };
 
+type UnifiedTipRow = {
+  key: string;
+  title: string;
+  subtitle: string;
+  timeLabel: string;
+  bookmaker: string;
+  stakeLabel: string;
+  oddLabel: string;
+  profitValue: number | null;
+  status: string;
+  date: number;
+};
+
+function nativeRow(b: ProfileTip): UnifiedTipRow {
+  const profit = b.status === "green" || b.status === "red" ? betProfit(b) : null;
+  return {
+    key: `native-${b.id}`,
+    title: `${b.match.homeTeam} x ${b.match.awayTeam}`,
+    subtitle: b.market,
+    timeLabel: formatFixtureLabel(b.match.startsAt),
+    bookmaker: hostFromUrl(b.house),
+    stakeLabel: formatUnits(b.stakeUnits),
+    oddLabel: formatOdds(b.odds),
+    profitValue: profit,
+    status: b.status,
+    date: new Date(b.resultSettledAt ?? b.createdAt).getTime(),
+  };
+}
+
+function telegramRow(t: TelegramTip): UnifiedTipRow {
+  const profit = t.result === "green" || t.result === "red" ? telegramTipProfit(t) : null;
+  return {
+    key: `tg-${t.id}`,
+    title: t.match ?? t.groupName,
+    subtitle: t.selection ?? "—",
+    timeLabel: timeAgo(t.receivedAt),
+    bookmaker: t.bookmaker ?? "—",
+    stakeLabel: t.unit != null ? formatUnits(t.unit) : "—",
+    oddLabel: t.odd != null ? formatOdds(t.odd) : "—",
+    profitValue: profit,
+    status: t.result,
+    date: new Date(t.receivedAt).getTime(),
+  };
+}
+
+const RESULT_FILTERS = [
+  { key: "all", label: "Todas" },
+  { key: "green", label: "Green" },
+  { key: "red", label: "Red" },
+  { key: "pending", label: "Em aberto" },
+] as const;
+type ResultFilterKey = (typeof RESULT_FILTERS)[number]["key"];
+
 export function MyProfilePage() {
   const { me, canAccess } = useAuth();
   const [bets, setBets] = useState<ProfileTip[] | null>(null);
   const [tg, setTg] = useState<TelegramFold | null>(null);
   const [tgTips, setTgTips] = useState<TelegramTip[] | null>(null);
+
+  // "Unidade & saldos" — folded in from the old TelegramBancaOverview.
+  const [unitValueRaw, setUnitValueRaw] = useState<string>("");
+  const [editingUnitValue, setEditingUnitValue] = useState(false);
+  const [balances, setBalances] = useState<TelegramBookmakerBalance[]>([]);
+  const [bookmakerNames, setBookmakerNames] = useState<string[]>([]);
+  const [addingBookmaker, setAddingBookmaker] = useState(false);
+  const [newBookmaker, setNewBookmaker] = useState("");
+  const [customBookmaker, setCustomBookmaker] = useState("");
+  const [newBalance, setNewBalance] = useState("");
+  const [savingBalances, setSavingBalances] = useState(false);
+  // R$ profit from tips actually taken at that bookmaker — null while loading,
+  // so balances render without a premature "sem lucro ainda" flash.
+  const [profitByBookmaker, setProfitByBookmaker] = useState<Record<string, number | null> | null>(null);
+  const [editingBookmaker, setEditingBookmaker] = useState<string | null>(null);
+
+  // "Evolução da banca" chart controls.
+  const [chartRange, setChartRange] = useState<RangeKey>("30");
+  const [chartUnit, setChartUnit] = useState<"u" | "brl">("u");
+  const [telegramSeries, setTelegramSeries] = useState<SeriesPoint[] | null>(null);
+
+  // Unified tips section.
+  const [tipsTab, setTipsTab] = useState<"peguei" | "minhas">("peguei");
+  const [resultFilter, setResultFilter] = useState<ResultFilterKey>("all");
 
   const load = useCallback(() => {
     fetchMyBets().then(setBets);
@@ -193,12 +377,15 @@ export function MyProfilePage() {
     if (!canAccess("telegram_banca")) {
       setTg(NO_TELEGRAM_FOLD);
       setTgTips([]);
+      setBalances([]);
+      setBookmakerNames([]);
+      setProfitByBookmaker({});
       return;
     }
-    Promise.all([fetchTelegramSettings(), fetchBookmakerBalances(), fetchTelegramBanca()])
-      .then(([settings, balances, banca]) => {
+    Promise.all([fetchTelegramSettings(), fetchBookmakerBalances(), fetchTelegramBanca(), fetchBookmakerNames()])
+      .then(([settings, bals, banca, names]) => {
         const unitValue = settings.unitValue;
-        const depositedTotal = balances.reduce((sum, b) => sum + b.balance, 0);
+        const depositedTotal = bals.reduce((sum, b) => sum + b.balance, 0);
         const peguei = banca.totals.peguei;
         setTg({
           bancaInicialUnits: unitValue && unitValue > 0 ? depositedTotal / unitValue : null,
@@ -208,48 +395,38 @@ export function MyProfilePage() {
           green: peguei?.green ?? 0,
           red: peguei?.red ?? 0,
         });
+        setUnitValueRaw(unitValue != null ? String(unitValue) : "");
+        setBalances(bals);
+        setBookmakerNames(names);
+        const map: Record<string, number | null> = {};
+        for (const row of banca.peguei.byBookmaker) map[row.key] = row.profitBRL;
+        setProfitByBookmaker(map);
       })
-      .catch(() => setTg(NO_TELEGRAM_FOLD));
+      .catch(() => {
+        setTg(NO_TELEGRAM_FOLD);
+        setBalances([]);
+        setProfitByBookmaker({});
+      });
     fetchTelegramTips({ takenStatus: "taken", limit: 100 })
       .then((res) => setTgTips(res.data))
       .catch(() => setTgTips([]));
   }, [canAccess]);
 
+  useEffect(() => {
+    if (!canAccess("telegram_banca")) {
+      setTelegramSeries([]);
+      return;
+    }
+    const days = chartRange === "all" ? undefined : Number(chartRange);
+    fetchTelegramBanca(undefined, days)
+      .then((res) => setTelegramSeries(res.series.peguei))
+      .catch(() => setTelegramSeries([]));
+  }, [chartRange, canAccess]);
+
   const settled = useMemo(
     () => bets?.filter((b) => b.status === "green" || b.status === "red") ?? null,
     [bets],
   );
-
-  const timeline = useMemo<TimelineEvent[] | null>(() => {
-    if (!settled || !tgTips) return null;
-    const native = settled.map((b) => ({
-      date: new Date(b.resultSettledAt ?? b.createdAt).getTime(),
-      profit: betProfit(b),
-    }));
-    const telegram = tgTips
-      .filter((t) => t.result === "green" || t.result === "red")
-      .map((t) => ({ date: new Date(t.receivedAt).getTime(), profit: telegramTipProfit(t) }));
-    return [...native, ...telegram];
-  }, [settled, tgTips]);
-
-  const recentItems = useMemo(() => {
-    if (!bets || !tgTips) return null;
-    const native = bets.map((b) => ({
-      key: `native-${b.id}`,
-      title: `${b.match.homeTeam} · ${b.market}`,
-      subtitle: `Stake ${formatUnits(b.stakeUnits)}`,
-      status: b.status as string,
-      date: new Date(b.resultSettledAt ?? b.createdAt).getTime(),
-    }));
-    const telegram = tgTips.map((t) => ({
-      key: `tg-${t.id}`,
-      title: t.match ?? t.groupName,
-      subtitle: `${t.unit != null ? `${t.unit}u` : "—"} · ${t.bookmaker ?? "—"}`,
-      status: t.result as string,
-      date: new Date(t.receivedAt).getTime(),
-    }));
-    return [...native, ...telegram].sort((a, b) => b.date - a.date).slice(0, 6);
-  }, [bets, tgTips]);
 
   const stats = useMemo(() => {
     if (!settled || !tg || !tgTips) return null;
@@ -279,7 +456,137 @@ export function MyProfilePage() {
     };
   }, [settled, tg, bets, tgTips]);
 
+  // Windowed chart data: native bets are filtered client-side (no server date
+  // filter for fetchMyBets), the Telegram half comes straight from
+  // fetchTelegramBanca's own `days` param so it isn't capped by the 100-row
+  // tgTips fetch. Both are converted to per-event deltas and merged so the
+  // existing BankrollChart accumulation logic doesn't change.
+  const rangeCutoffMs = useMemo(() => {
+    if (chartRange === "all") return null;
+    return Date.now() - Number(chartRange) * 86_400_000;
+  }, [chartRange]);
+
+  const nativeWindowEvents = useMemo<TimelineEvent[]>(() => {
+    if (!settled) return [];
+    return settled
+      .filter((b) => {
+        if (rangeCutoffMs === null) return true;
+        return new Date(b.resultSettledAt ?? b.createdAt).getTime() >= rangeCutoffMs;
+      })
+      .map((b) => ({ date: new Date(b.resultSettledAt ?? b.createdAt).getTime(), profit: betProfit(b) }));
+  }, [settled, rangeCutoffMs]);
+
+  const telegramWindowEvents = useMemo<TimelineEvent[]>(() => {
+    if (!telegramSeries || telegramSeries.length === 0) return [];
+    const sorted = [...telegramSeries].sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+    return sorted.map((p, i) => ({
+      date: new Date(p.t).getTime(),
+      profit: i === 0 ? p.profit : p.profit - sorted[i - 1]!.profit,
+    }));
+  }, [telegramSeries]);
+
+  const windowTimeline = useMemo<TimelineEvent[]>(
+    () => [...nativeWindowEvents, ...telegramWindowEvents],
+    [nativeWindowEvents, telegramWindowEvents],
+  );
+
+  const chartStartValue = useMemo(() => {
+    if (!stats) return 0;
+    if (chartRange === "all") return stats.bancaInicial;
+    const windowProfit = windowTimeline.reduce((sum, e) => sum + e.profit, 0);
+    return stats.bankroll - windowProfit;
+  }, [stats, chartRange, windowTimeline]);
+
+  const availableBookmakers = useMemo(
+    () => bookmakerNames.filter((name) => !balances.some((b) => b.bookmaker === name)),
+    [bookmakerNames, balances],
+  );
+
+  async function saveUnitValue(raw: string) {
+    const value = raw.trim() === "" ? null : Number(raw.replace(",", "."));
+    if (value !== null && (Number.isNaN(value) || value <= 0)) {
+      setEditingUnitValue(false);
+      return;
+    }
+    setSavingBalances(true);
+    try {
+      const saved = await saveTelegramSettings({ unitValue: value });
+      setUnitValueRaw(saved.unitValue != null ? String(saved.unitValue) : "");
+      setTg((prev) => (prev ? { ...prev, unitValue: saved.unitValue } : prev));
+    } finally {
+      setSavingBalances(false);
+      setEditingUnitValue(false);
+    }
+  }
+
+  async function persistBalances(next: TelegramBookmakerBalance[]) {
+    setBalances(next);
+    setSavingBalances(true);
+    try {
+      await saveBookmakerBalances(next);
+    } finally {
+      setSavingBalances(false);
+    }
+  }
+
+  function addBalance() {
+    const bookmaker = (newBookmaker === OTHER_OPTION ? customBookmaker : newBookmaker).trim();
+    if (!bookmaker || newBalance.trim() === "") return;
+    const next = [...balances, { bookmaker, balance: Number(newBalance.replace(",", ".")) }];
+    setNewBookmaker("");
+    setCustomBookmaker("");
+    setNewBalance("");
+    setAddingBookmaker(false);
+    void persistBalances(next);
+  }
+
+  function removeBalance(bookmaker: string) {
+    void persistBalances(balances.filter((b) => b.bookmaker !== bookmaker));
+  }
+
+  function saveEditedBalance(bookmaker: string, raw: string) {
+    setEditingBookmaker(null);
+    const trimmed = raw.trim().replace(",", ".");
+    if (trimmed === "") return;
+    const value = Number(trimmed);
+    if (!Number.isFinite(value)) return;
+    const current = balances.find((b) => b.bookmaker === bookmaker);
+    if (current && current.balance === value) return;
+    const next = balances.map((b) => (b.bookmaker === bookmaker ? { ...b, balance: value } : b));
+    void persistBalances(next);
+  }
+
+  const peguiRows = useMemo(() => {
+    if (!bets || !tgTips) return null;
+    return [...bets.map(nativeRow), ...tgTips.map(telegramRow)].sort((a, b) => b.date - a.date);
+  }, [bets, tgTips]);
+
+  const minhasRows = useMemo(() => {
+    if (!bets) return null;
+    return bets.map(nativeRow).sort((a, b) => b.date - a.date);
+  }, [bets]);
+
+  const activeRows = tipsTab === "peguei" ? peguiRows : minhasRows;
+
+  const filterCounts = useMemo(() => {
+    const rows = activeRows ?? [];
+    return {
+      all: rows.length,
+      green: rows.filter((r) => r.status === "green").length,
+      red: rows.filter((r) => r.status === "red").length,
+      pending: rows.filter((r) => r.status === "pending").length,
+    };
+  }, [activeRows]);
+
+  const visibleRows = useMemo(() => {
+    const rows = activeRows ?? [];
+    const filtered = resultFilter === "all" ? rows : rows.filter((r) => r.status === resultFilter);
+    return filtered.slice(0, 30);
+  }, [activeRows, resultFilter]);
+
   if (!me) return null;
+
+  const hasTelegram = canAccess("telegram_banca");
 
   return (
     <div className="pb-6 lg:mx-auto lg:max-w-[900px] lg:px-0 lg:pt-6">
@@ -325,7 +632,7 @@ export function MyProfilePage() {
                 <div className="font-mono text-[26px] font-bold">{stats.bancaInicial.toFixed(1)}u</div>
                 {stats.unitValue != null && (
                   <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
-                    {(stats.bancaInicial * stats.unitValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    {brl(stats.bancaInicial * stats.unitValue)}
                   </div>
                 )}
               </div>
@@ -336,7 +643,7 @@ export function MyProfilePage() {
                 </div>
                 {stats.unitValue != null && (
                   <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
-                    {(stats.bankroll * stats.unitValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    {brl(stats.bankroll * stats.unitValue)}
                   </div>
                 )}
               </div>
@@ -349,7 +656,7 @@ export function MyProfilePage() {
                 {stats.unitValue != null && (
                   <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
                     {stats.combinedPnl >= 0 ? "+" : ""}
-                    {(stats.combinedPnl * stats.unitValue).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    {brl(stats.combinedPnl * stats.unitValue)}
                   </div>
                 )}
               </div>
@@ -371,57 +678,312 @@ export function MyProfilePage() {
             </div>
 
             <div className="flex gap-6">
-              <Link
-                to="/telegram-tips/relatorio"
-                className="min-w-0 flex-1 rounded-2xl border border-border bg-surface p-[22px] transition-colors hover:border-border-strong"
-              >
-                <div className="mb-5 flex items-center justify-between">
+              <div className="min-w-0 flex-1 rounded-2xl border border-border bg-surface p-[22px]">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[14px] font-bold">Evolução da banca</span>
                   <div className="flex items-center gap-3">
                     <span className="font-mono text-[11px] text-text-tertiary">
                       {stats.combinedPnl >= 0 ? "+" : ""}
                       {stats.combinedPnl.toFixed(1)}u desde o início
                     </span>
-                    <span className="font-mono text-[11px] text-accent">ver detalhes →</span>
+                    <Link to="/telegram-tips/relatorio" className="font-mono text-[11px] text-accent">
+                      ver detalhes →
+                    </Link>
                   </div>
                 </div>
-                <BankrollChart timeline={timeline ?? []} startValue={stats.bancaInicial} />
-              </Link>
-
-              <div className="w-[320px] flex-none rounded-2xl border border-border bg-surface p-5">
-                <div className="mb-4 font-mono text-[11px] tracking-[0.06em] text-text-tertiary">
-                  TIPS RECENTES
-                </div>
-                <div className="flex flex-col">
-                  {(recentItems ?? []).map((item) => {
-                    const result = resultLabel[item.status] ?? resultLabel.pending!;
-                    return (
-                      <div
-                        key={item.key}
-                        className="flex items-center justify-between border-b border-border-subtle py-3 last:border-0"
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1">
+                    {RANGE_OPTIONS.map((r) => (
+                      <button
+                        key={r.key}
+                        onClick={() => setChartRange(r.key)}
+                        className={`rounded-[9px] px-3 py-1 font-mono text-[11px] font-semibold ${
+                          chartRange === r.key ? "bg-accent text-[#08090A]" : "text-text-secondary"
+                        }`}
                       >
-                        <div className="min-w-0">
-                          <div className="truncate text-[13px] font-semibold">{item.title}</div>
-                          <div className="truncate font-mono text-[11px] text-text-tertiary">{item.subtitle}</div>
-                        </div>
-                        <span className={`flex-none rounded-lg border px-2 py-1 font-mono text-[10px] font-bold ${result.className} border-current/40`}>
-                          {result.text.toUpperCase()}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {recentItems?.length === 0 && (
-                    <p className="py-4 text-center text-[12px] text-text-tertiary">
-                      Você ainda não pegou nenhuma tip.
-                    </p>
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                  {stats.unitValue != null && (
+                    <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1">
+                      {(["u", "brl"] as const).map((u) => (
+                        <button
+                          key={u}
+                          onClick={() => setChartUnit(u)}
+                          className={`rounded-[9px] px-3 py-1 font-mono text-[11px] font-semibold ${
+                            chartUnit === u ? "bg-accent text-[#08090A]" : "text-text-secondary"
+                          }`}
+                        >
+                          {u === "u" ? "u" : "R$"}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
+                <BankrollChart
+                  timeline={windowTimeline}
+                  startValue={chartStartValue}
+                  referenceValue={stats.bancaInicial}
+                  unitValue={stats.unitValue}
+                  displayUnit={stats.unitValue != null ? chartUnit : "u"}
+                />
+              </div>
+
+              {hasTelegram && (
+                <div className="w-[360px] flex-none rounded-2xl border border-border bg-surface p-5">
+                  <div className="mb-4 flex items-center justify-between">
+                    <span className="text-[14px] font-bold">Unidade & saldos</span>
+                    <div className="flex items-center gap-2">
+                      {savingBalances && <span className="text-[11px] text-text-tertiary">salvando…</span>}
+                      <button
+                        onClick={() => setAddingBookmaker((v) => !v)}
+                        className="flex items-center gap-1 rounded-[10px] border border-border-strong px-2.5 py-1.5 text-[11px] font-semibold text-text-secondary"
+                      >
+                        <IconPlus size={12} />
+                        casa
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="mb-1 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">VALOR DA UNIDADE</div>
+                    {editingUnitValue ? (
+                      <input
+                        autoFocus
+                        defaultValue={unitValueRaw}
+                        inputMode="decimal"
+                        onFocus={(e) => e.currentTarget.select()}
+                        onBlur={(e) => void saveUnitValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
+                          if (e.key === "Escape") setEditingUnitValue(false);
+                        }}
+                        className="w-full rounded-[10px] border border-border-strong bg-surface-chip px-3 py-2 text-[13px]"
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[18px] font-bold">
+                          {unitValueRaw.trim() !== "" ? brl(Number(unitValueRaw.replace(",", "."))) : "—"}
+                        </span>
+                        <button onClick={() => setEditingUnitValue(true)} className="text-[11px] font-semibold text-accent">
+                          editar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {addingBookmaker && (
+                    <div className="mb-4 flex items-center gap-1.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2">
+                      <select
+                        value={newBookmaker}
+                        onChange={(e) => setNewBookmaker(e.target.value)}
+                        className="min-w-0 flex-1 rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px] capitalize"
+                      >
+                        <option value="" disabled>
+                          Escolha a casa
+                        </option>
+                        {availableBookmakers.map((name) => (
+                          <option key={name} value={name} className="capitalize">
+                            {name}
+                          </option>
+                        ))}
+                        <option value={OTHER_OPTION}>+ Outra casa…</option>
+                      </select>
+                      {newBookmaker === OTHER_OPTION && (
+                        <input
+                          value={customBookmaker}
+                          onChange={(e) => setCustomBookmaker(e.target.value)}
+                          placeholder="Nome"
+                          className="w-20 flex-none rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
+                        />
+                      )}
+                      <input
+                        value={newBalance}
+                        onChange={(e) => setNewBalance(e.target.value)}
+                        inputMode="decimal"
+                        placeholder="Saldo"
+                        className="w-16 flex-none rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
+                      />
+                      <button
+                        onClick={addBalance}
+                        className="flex h-7 w-7 flex-none items-center justify-center rounded-[8px] bg-accent text-[#08090A]"
+                        aria-label="Adicionar casa"
+                      >
+                        <IconPlus size={14} />
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-[1fr_92px_190px] gap-2 px-1 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
+                    <span>CASA</span>
+                    <span className="text-right">SALDO</span>
+                    <span className="text-right">VARIAÇÃO</span>
+                  </div>
+
+                  <div className="flex flex-col">
+                    {balances.map((b) => {
+                      const profit = profitByBookmaker?.[b.bookmaker] ?? null;
+                      const current = b.balance + (profit ?? 0);
+                      const isEditing = editingBookmaker === b.bookmaker;
+                      return (
+                        <div
+                          key={b.bookmaker}
+                          className="group grid grid-cols-[1fr_92px_190px] items-center gap-2 border-b border-border-subtle py-2.5 px-1 last:border-0"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className={`h-2 w-2 flex-none rounded-full ${bookmakerColor(b.bookmaker)}`} />
+                            <span className="truncate text-[12.5px] font-semibold capitalize">{b.bookmaker}</span>
+                            <button
+                              onClick={() => removeBalance(b.bookmaker)}
+                              aria-label="Remover"
+                              className="ml-auto flex-none text-text-tertiary opacity-0 group-hover:opacity-100"
+                            >
+                              <IconX size={11} />
+                            </button>
+                          </div>
+                          <div className="text-right font-mono text-[12.5px] font-bold">{brl(current)}</div>
+                          <div className="text-right">
+                            {isEditing ? (
+                              <input
+                                autoFocus
+                                defaultValue={String(b.balance)}
+                                inputMode="decimal"
+                                onFocus={(e) => e.currentTarget.select()}
+                                onBlur={(e) => saveEditedBalance(b.bookmaker, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") e.currentTarget.blur();
+                                  if (e.key === "Escape") setEditingBookmaker(null);
+                                }}
+                                className="w-24 rounded bg-surface-chip px-1 py-0.5 text-right font-mono text-[11px] outline-none"
+                              />
+                            ) : (
+                              <button
+                                onClick={() => setEditingBookmaker(b.bookmaker)}
+                                className="inline-flex items-center gap-1 font-mono text-[11px]"
+                              >
+                                {profit !== null && profit !== 0 && (
+                                  <span className={profit > 0 ? "text-accent" : "text-live"}>
+                                    {profit > 0 ? "+" : ""}
+                                    {brl(profit)} de{" "}
+                                  </span>
+                                )}
+                                <span className="text-text-tertiary">{brl(b.balance)}</span>
+                                <IconPencil size={10} className="text-text-quaternary" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {balances.length === 0 && (
+                      <p className="py-4 text-center text-[12px] text-text-tertiary">Nenhuma casa cadastrada ainda.</p>
+                    )}
+                  </div>
+
+                  {balances.length > 0 && (
+                    <div className="mt-2 flex items-center justify-between border-t border-border pt-3">
+                      <span className="font-mono text-[11px] text-text-tertiary">
+                        TOTAL · {balances.length} casa{balances.length !== 1 ? "s" : ""}
+                      </span>
+                      <span className="font-mono text-[14px] font-bold">
+                        {brl(balances.reduce((sum, b) => sum + b.balance + (profitByBookmaker?.[b.bookmaker] ?? 0), 0))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-border bg-surface p-[22px]">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1">
+                  <button
+                    onClick={() => setTipsTab("peguei")}
+                    className={`rounded-[9px] px-4 py-1.5 text-[13px] font-semibold ${
+                      tipsTab === "peguei" ? "bg-accent text-[#08090A]" : "text-text-secondary"
+                    }`}
+                  >
+                    Tips que peguei ({stats.tipsCount})
+                  </button>
+                  <button
+                    onClick={() => setTipsTab("minhas")}
+                    className={`rounded-[9px] px-4 py-1.5 text-[13px] font-semibold ${
+                      tipsTab === "minhas" ? "bg-accent text-[#08090A]" : "text-text-secondary"
+                    }`}
+                  >
+                    Minhas tips ({bets?.length ?? 0})
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {RESULT_FILTERS.map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setResultFilter(f.key)}
+                      className={`rounded-[9px] px-3 py-1.5 font-mono text-[11px] font-semibold ${
+                        resultFilter === f.key ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
+                      }`}
+                    >
+                      {f.label} {filterCounts[f.key]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] border-collapse text-[13px]">
+                  <thead>
+                    <tr className="border-b border-border-subtle text-left font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
+                      <th className="py-2 pr-3 font-normal">JOGO/MERCADO</th>
+                      <th className="py-2 pr-3 font-normal">CASA</th>
+                      <th className="py-2 pr-3 text-right font-normal">STAKE</th>
+                      <th className="py-2 pr-3 text-right font-normal">ODD</th>
+                      <th className="py-2 pr-3 text-right font-normal">RETORNO</th>
+                      <th className="py-2 pl-3 text-right font-normal">STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRows.map((row) => {
+                      const result = resultLabel[row.status] ?? resultLabel.pending!;
+                      return (
+                        <tr key={row.key} className="border-b border-border-subtle last:border-0">
+                          <td className="py-3 pr-3">
+                            <div className="font-semibold">{row.title}</div>
+                            <div className="mt-0.5 truncate font-mono text-[11px] text-text-tertiary">
+                              {row.subtitle} · {row.timeLabel}
+                            </div>
+                          </td>
+                          <td className="py-3 pr-3 text-text-secondary">{row.bookmaker}</td>
+                          <td className="py-3 pr-3 text-right font-mono">{row.stakeLabel}</td>
+                          <td className="py-3 pr-3 text-right font-mono">{row.oddLabel}</td>
+                          <td
+                            className={`py-3 pr-3 text-right font-mono font-semibold ${
+                              row.profitValue == null ? "text-text-tertiary" : row.profitValue >= 0 ? "text-accent" : "text-live"
+                            }`}
+                          >
+                            {row.profitValue == null ? "—" : `${row.profitValue >= 0 ? "+" : ""}${row.profitValue.toFixed(2)}u`}
+                          </td>
+                          <td className="py-3 pl-3 text-right">
+                            <span className={`inline-block rounded-lg border px-2 py-1 font-mono text-[10px] font-bold border-current/40 ${result.className}`}>
+                              {result.text.toUpperCase()}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {visibleRows.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-[13px] text-text-tertiary">
+                          Nenhuma tip encontrada.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </>
         )}
-
-        {canAccess("telegram_banca") && <TelegramBancaOverview />}
       </div>
 
       {/* ---------- Mobile ---------- */}
