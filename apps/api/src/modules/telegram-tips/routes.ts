@@ -102,7 +102,24 @@ type BancaSourceRow = {
   groupName: string;
   result: string;
   takenStatus: string;
+  receivedAt: Date;
 };
+
+/** Cumulative profit in units, chronological by receivedAt — feeds the
+ * "Evolução da banca" chart on the report page. Tips with a result but no
+ * odd (missingOdd) contribute 0, same as they're excluded from `profit`
+ * in aggregateBy. */
+function series(rows: BancaSourceRow[]): { t: string; profit: number }[] {
+  let cumulative = 0;
+  return [...rows]
+    .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
+    .map((r) => {
+      const unit = r.unit !== null ? Number(r.unit) : 0;
+      const odd = r.odd !== null ? Number(r.odd) : null;
+      cumulative += tipProfit(unit, odd, r.result) ?? 0;
+      return { t: r.receivedAt.toISOString(), profit: Math.round(cumulative * 100) / 100 };
+    });
+}
 
 /** `unitValue` (R$ per 1u) converts staked/profit to currency — null when the admin hasn't registered one yet. */
 function aggregateBy(rows: BancaSourceRow[], keyFn: (r: BancaSourceRow) => string | null, unitValue: number | null): TelegramBancaRow[] {
@@ -279,7 +296,15 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const [rows, settings] = await Promise.all([
       prisma.telegramTip.findMany({
         where: { result: { not: "pending" } },
-        select: { unit: true, odd: true, bookmaker: true, result: true, takenStatus: true, group: { select: { name: true } } },
+        select: {
+          unit: true,
+          odd: true,
+          bookmaker: true,
+          result: true,
+          takenStatus: true,
+          receivedAt: true,
+          group: { select: { name: true } },
+        },
       }),
       prisma.telegramBancaSettings.findUnique({ where: { userId: request.authUser!.id } }),
     ]);
@@ -292,6 +317,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       result: r.result,
       takenStatus: r.takenStatus,
       groupName: r.group.name,
+      receivedAt: r.receivedAt,
     }));
     const taken = source.filter((r) => r.takenStatus === "taken");
 
@@ -310,6 +336,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         byBookmaker: aggregateBy(taken, (r) => r.bookmaker, unitValue),
       },
       totals: { geral: totalRow(source), peguei: totalRow(taken) },
+      series: { geral: series(source), peguei: series(taken) },
     };
   });
 

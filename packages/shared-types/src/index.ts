@@ -367,11 +367,15 @@ const TelegramBancaScope = z.object({
 
 /** "geral" = every resolved tip regardless of takenStatus (how good the group's calls are);
  * "peguei" = only the ones the user marked as taken (the user's real P&L). */
+const TelegramBancaSeriesPoint = z.object({ t: z.string(), profit: z.number() });
+
 export const TelegramBancaSummary = z.object({
   geral: TelegramBancaScope,
   peguei: TelegramBancaScope,
   /** One row summing everything (no group/bookmaker split) — feeds "Banca Atual" on the profile. */
   totals: z.object({ geral: TelegramBancaRow.nullable(), peguei: TelegramBancaRow.nullable() }),
+  /** Chronological cumulative profit (units) — feeds the report page's "Evolução da banca" chart. */
+  series: z.object({ geral: z.array(TelegramBancaSeriesPoint), peguei: z.array(TelegramBancaSeriesPoint) }),
 });
 export type TelegramBancaSummary = z.infer<typeof TelegramBancaSummary>;
 

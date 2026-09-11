@@ -3,6 +3,54 @@ import { fetchTelegramBanca, type TelegramBancaSummary } from "../../lib/telegra
 import { IconTelegram } from "../../components/Icon";
 
 export type TelegramBancaRowT = TelegramBancaSummary["geral"]["byGroup"][number];
+type SeriesPoint = TelegramBancaSummary["series"]["geral"][number];
+
+/** Cumulative profit curve for the active tab, same visual language as the
+ * profile's own "Evolução da banca" chart. */
+function BankrollChart({ points }: { points: SeriesPoint[] }) {
+  if (points.length < 2) {
+    return (
+      <div className="flex h-[140px] items-center justify-center text-[12px] text-text-tertiary">
+        Poucas tips resolvidas para desenhar o gráfico.
+      </div>
+    );
+  }
+
+  const values = points.map((p) => p.profit);
+  const min = Math.min(0, ...values);
+  const max = Math.max(0, ...values);
+  const span = max - min || 1;
+  const width = 600;
+  const height = 140;
+  const coords = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width;
+    const y = height - ((v - min) / span) * height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const areaPoints = `0,${height} ${coords.join(" ")} ${width},${height}`;
+  const positive = values[values.length - 1]! >= 0;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="telegramBankrollFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="currentColor" stopOpacity="0.4" className={positive ? "text-accent" : "text-live"} />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0" className={positive ? "text-accent" : "text-live"} />
+        </linearGradient>
+      </defs>
+      <polygon points={areaPoints} fill="url(#telegramBankrollFill)" />
+      <polyline
+        points={coords.join(" ")}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        className={positive ? "text-accent" : "text-live"}
+      />
+    </svg>
+  );
+}
 
 export function RowCard({ row }: { row: TelegramBancaRowT }) {
   const positive = row.profit >= 0;
@@ -46,10 +94,22 @@ export function RowCard({ row }: { row: TelegramBancaRowT }) {
   );
 }
 
-function ScopeSection({ scope }: { scope: TelegramBancaSummary["geral"] }) {
+function ScopeSection({ scope, points }: { scope: TelegramBancaSummary["geral"]; points: SeriesPoint[] }) {
+  const totalProfit = points.length > 0 ? points[points.length - 1]!.profit : 0;
   return (
     <>
-      <div className="mb-2.5 mt-5 font-mono text-[11px] tracking-[0.06em] text-text-tertiary">POR GRUPO</div>
+      <div className="mt-5 rounded-2xl border border-border bg-surface p-[22px]">
+        <div className="mb-5 flex items-center justify-between">
+          <span className="text-[14px] font-bold">Evolução da banca</span>
+          <span className="font-mono text-[11px] text-text-tertiary">
+            {totalProfit >= 0 ? "+" : ""}
+            {totalProfit.toFixed(1)}u no período
+          </span>
+        </div>
+        <BankrollChart points={points} />
+      </div>
+
+      <div className="mb-2.5 mt-6 font-mono text-[11px] tracking-[0.06em] text-text-tertiary">POR GRUPO</div>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {scope.byGroup.map((r) => (
           <RowCard key={r.key} row={r} />
@@ -99,7 +159,7 @@ export function TelegramReportPage() {
 
       <div className="px-5 lg:px-0">
         {summary === null && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}
-        {summary && <ScopeSection scope={summary[tab]} />}
+        {summary && <ScopeSection scope={summary[tab]} points={summary.series[tab]} />}
       </div>
     </div>
   );
