@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchTelegramBanca, fetchBookmakerNames, type TelegramBancaSummary } from "../../lib/telegramTips";
 import { IconTelegram } from "../../components/Icon";
+import { Dropdown } from "../../components/Dropdown";
 
 export type TelegramBancaRowT = TelegramBancaSummary["geral"]["byGroup"][number];
 type SeriesPoint = TelegramBancaSummary["series"]["geral"][number];
@@ -166,18 +167,13 @@ export function TelegramReportPage() {
             </button>
           ))}
         </div>
-        <select
+        <Dropdown
           value={bookmaker}
-          onChange={(e) => setBookmaker(e.target.value)}
-          className="ml-auto flex-none rounded-full bg-surface-chip px-3.5 py-1.5 text-[12px] capitalize text-text-secondary lg:ml-0"
-        >
-          <option value="">Todas as casas</option>
-          {bookmakers.map((b) => (
-            <option key={b} value={b} className="capitalize">
-              {b}
-            </option>
-          ))}
-        </select>
+          onChange={setBookmaker}
+          placeholder="Todas as casas"
+          options={bookmakers.map((b) => ({ value: b, label: b }))}
+          className="ml-auto w-auto flex-none lg:ml-0"
+        />
       </div>
 
       <div className="px-5 lg:px-0">

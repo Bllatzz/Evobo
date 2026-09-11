@@ -10,6 +10,7 @@ import {
   type TelegramGroup,
 } from "../../lib/telegramTips";
 import { Modal } from "../../components/Modal";
+import { Dropdown } from "../../components/Dropdown";
 import { IconTelegram, IconExternalLink, IconCheck, IconX } from "../../components/Icon";
 import { useAuth } from "../../stores/auth";
 
@@ -106,24 +107,17 @@ export function TipCard({
         <div className="col-span-2 flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Casa</span>
           {tip.bookmakerOptions && tip.bookmakerOptions.length > 1 ? (
-            <select
+            <Dropdown
               value={tip.bookmaker ?? ""}
-              onChange={async (e) => {
-                const chosen = tip.bookmakerOptions!.find((o) => o.bookmaker === e.target.value);
+              placeholder="Escolha a casa"
+              options={tip.bookmakerOptions.map((o, i) => ({ value: o.bookmaker ?? "", label: o.bookmaker ?? `casa ${i + 1}` }))}
+              onChange={async (bookmaker) => {
+                const chosen = tip.bookmakerOptions!.find((o) => o.bookmaker === bookmaker);
                 if (!chosen) return;
                 onUpdate(await patchTelegramTip(tip.id, { bookmaker: chosen.bookmaker, betUrl: chosen.betUrl }));
               }}
-              className="-mx-0.5 rounded-md bg-transparent text-[13px] font-bold capitalize"
-            >
-              <option value="" disabled>
-                Escolha a casa
-              </option>
-              {tip.bookmakerOptions.map((o, i) => (
-                <option key={i} value={o.bookmaker ?? ""} className="capitalize">
-                  {o.bookmaker ?? "—"}
-                </option>
-              ))}
-            </select>
+              buttonClassName="rounded-md bg-transparent p-0 text-[13px] font-bold"
+            />
           ) : (
             <span className="truncate text-[13px] font-bold capitalize">{tip.bookmaker ?? "—"}</span>
           )}
@@ -259,28 +253,25 @@ export function TelegramTipsPage() {
         ))}
       </div>
 
-      <div className="flex items-center gap-2 overflow-x-auto px-5 pb-4 lg:px-0">
-        {RESULT_FILTERS.map((r) => (
-          <button
-            key={r.key}
-            onClick={() => setResultFilter(r.key)}
-            className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${result === r.key ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"}`}
-          >
-            {r.label}
-          </button>
-        ))}
-        <select
-          value={bookmaker}
-          onChange={(e) => setBookmaker(e.target.value)}
-          className="ml-auto flex-none rounded-full bg-surface-chip px-3.5 py-1.5 text-[12px] capitalize text-text-secondary"
-        >
-          <option value="">Todas as casas</option>
-          {bookmakers.map((b) => (
-            <option key={b} value={b} className="capitalize">
-              {b}
-            </option>
+      <div className="flex items-center gap-2 px-5 pb-4 lg:px-0">
+        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
+          {RESULT_FILTERS.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setResultFilter(r.key)}
+              className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${result === r.key ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"}`}
+            >
+              {r.label}
+            </button>
           ))}
-        </select>
+        </div>
+        <Dropdown
+          value={bookmaker}
+          onChange={setBookmaker}
+          placeholder="Todas as casas"
+          options={bookmakers.map((b) => ({ value: b, label: b }))}
+          className="w-auto flex-none"
+        />
       </div>
 
       <div className="px-4 lg:px-0">
