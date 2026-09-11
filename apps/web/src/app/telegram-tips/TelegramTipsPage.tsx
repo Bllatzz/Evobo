@@ -150,8 +150,12 @@ function TipRow({
 
   const effUnit = draft?.unit ?? tip.unit;
   const effOdd = draft?.odd ?? tip.odd;
-  const effBookmaker = draft?.bookmaker ?? tip.bookmaker;
-  const effBetUrl = draft?.betUrl ?? tip.betUrl;
+  // Falls back to the first parsed option so "Abrir aposta" already has
+  // somewhere to go before the user explicitly picks a casa — otherwise
+  // every multi-bookmaker tip started with the link dead until that pick.
+  const firstOption = tip.bookmakerOptions?.[0];
+  const effBookmaker = draft?.bookmaker ?? tip.bookmaker ?? firstOption?.bookmaker ?? null;
+  const effBetUrl = draft?.betUrl ?? tip.betUrl ?? firstOption?.betUrl ?? null;
   const retorno = effUnit != null && effOdd != null && unitValue != null ? effUnit * unitValue * effOdd : null;
   const oddDrifted = tip.originalOdd !== null && tip.odd !== null && tip.originalOdd !== tip.odd;
   const betActive = !!effBetUrl;
@@ -371,9 +375,6 @@ function MessageGroupCard({
                 <IconX size={12} />
               </button>
             </div>
-            <p className="mt-1.5 text-center text-[10px] text-text-tertiary">
-              {tipsCount} {tipsCount === 1 ? "tip nesta foto" : "tips nesta foto"}
-            </p>
             <div className="mt-1.5 flex gap-1.5">
               <button
                 onClick={() => onOpenPhoto(group.photoUrl!)}
@@ -429,7 +430,7 @@ function MessageGroupCard({
               }}
               className="rounded-lg bg-accent px-4 py-2 text-[12px] font-bold text-[#08090A] disabled:bg-surface-chip disabled:font-semibold disabled:text-text-tertiary"
             >
-              Peguei{pendingCount > 0 ? ` ${pendingCount}` : ""} tips
+              {pendingCount === 1 ? "Pegar tip" : `Pegar ${pendingCount} tips`}
             </button>
           </div>
         </div>
