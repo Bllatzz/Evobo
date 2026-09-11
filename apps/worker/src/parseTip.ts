@@ -67,6 +67,11 @@ const KEYCAP_ENTRY_RE = /^([0-9])️?⃣\s*(.+)$/;
 const BULLET_RE = /^[•·]\s*(.+)$/;
 const MULTIPLA_RE = /MÚLTIPLA/i;
 const ESCADA_RE = /ESCADA/i;
+// The combo-leg marker inside a "N INDIVIDUAIS + MÚLTIPLA" message — anchored
+// to the 🎯 prefix specifically so it doesn't also match the message's own
+// header line ("⚽ 3 INDIVIDUAIS + MÚLTIPLA · 3 jogos"), which contains the
+// word MÚLTIPLA too but isn't the combo-leg line itself.
+const MULTIPLA_MARKER_RE = /^🎯\s*MÚLTIPLA/i;
 
 function toNumber(raw: string): number {
   return parseFloat(raw.replace(",", "."));
@@ -111,6 +116,12 @@ export const KNOWN_PATTERNS: Record<string, { description: string; example: stri
   padovan_escada: {
     description: "Padovan 'ESCADA': seleções independentes numeradas (1️⃣/2️⃣/...), cada uma com sua própria unidade/odd.",
     example: "🏈 ESCADA · Time A x Time B\n\n1️⃣ Perna 1\n 💰 0,5u @ 5,50\n2️⃣ Perna 2\n 💰 0,5u @ 3,90\n\n🔗 Bet365",
+  },
+  padovan_escada_multipla: {
+    description:
+      "Padovan 'N INDIVIDUAIS + MÚLTIPLA': mesmas pernas numeradas do ESCADA, mais uma seleção extra combinando todas ('🎯 Múltipla de N' + sua própria unidade/odd).",
+    example:
+      "⚽ 3 INDIVIDUAIS + MÚLTIPLA\n\n1️⃣ Perna 1\n 💰 1u @ 2,22\n2️⃣ Perna 2\n 💰 2u @ 1,71\n\n🎯 Múltipla de 2\n 💰 0,5u @ 8,56\n\n🔗 Bet365",
   },
 };
 
@@ -219,24 +230,43 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
   const gameLine = content.find((l) => extractGameLine(l) !== null) ?? null;
   const match = gameLine ? (extractGameLine(gameLine) ?? undefined) : undefined;
 
-  if (content.some((l) => ESCADA_RE.test(l))) {
+  // ESCADA (numbered independent legs, 1️⃣/2️⃣/...) — also covers the hybrid
+  // "N INDIVIDUAIS + MÚLTIPLA" variant, where a trailing "🎯 Múltipla de N"
+  // line adds one more selection combining every leg collected so far.
+  // Triggered on the keycap entries themselves rather than requiring the
+  // literal word "ESCADA", since this tipster doesn't always use it.
+  if (content.some((l) => KEYCAP_ENTRY_RE.test(l))) {
     const selections: ParsedSelection[] = [];
     let pendingMarket: string | null = null;
+    let comboPending = false;
     for (const line of content) {
+      if (MULTIPLA_MARKER_RE.test(line)) {
+        comboPending = true;
+        continue;
+      }
       const entry = line.match(KEYCAP_ENTRY_RE);
       if (entry) {
         pendingMarket = entry[2]!.trim();
         continue;
       }
       const stake = line.match(STAKE_AT_ODD_RE);
-      if (stake && pendingMarket !== null) {
+      if (stake && comboPending) {
+        selections.push({
+          text: selections.map((s) => s.text).join("\n") || null,
+          unit: toNumber(stake[1]!),
+          odd: toNumber(stake[2]!),
+        });
+        comboPending = false;
+      } else if (stake && pendingMarket !== null) {
         selections.push({ text: pendingMarket, unit: toNumber(stake[1]!), odd: toNumber(stake[2]!) });
         pendingMarket = null;
       }
     }
     if (selections.length === 0) return null;
     return {
-      pattern: "padovan_escada",
+      pattern: selections.length > 1 && comboPending === false && content.some((l) => MULTIPLA_MARKER_RE.test(l))
+        ? "padovan_escada_multipla"
+        : "padovan_escada",
       bookmaker: primary.bookmaker,
       betUrl: primary.betUrl,
       fields: {},
