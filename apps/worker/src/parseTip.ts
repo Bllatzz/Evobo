@@ -38,7 +38,12 @@ const UNIT_COMBO_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+na\s+(.+)$/i;
 const UNIT_INLINE_RE = /^(.*\S)\s+(\d+(?:[.,]\d+)?)\s*u$/i;
 const ODD_LINE_RE = /\bodd\b\s*:?\s*(\d+(?:[.,]\d+)?)/i;
 const LIMIT_LINE_RE = /\blimite\b(?:\s+de\s+aposta)?\s*:?\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*\$?/i;
-const PERCENTAGE_RE = /(\d+(?:[.,]\d+)?)\s*%/;
+// Anchored to the whole line (after stripping a leading emoji and an
+// optional "Porcentagem:" label) — a loose "contains a %" match used to
+// pick up incidental percentages from free-text commentary lines too (e.g.
+// "Só vale com aumento de 30%", a boost note, not the unit-sizing %),
+// clobbering the real one.
+const PERCENTAGE_LINE_RE = /^(?:porcentagem\s*:?\s*)?(\d+(?:[.,]\d+)?)\s*%$/i;
 
 // Ruído específico do formato Padovan — nunca é conteúdo de tip, é
 // removido logo de cara pra não atrapalhar nem o parser Padovan nem o
@@ -337,7 +342,7 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
       fields.limit = toNumber(limitMatch[1]!);
       continue;
     }
-    const pctMatch = line.match(PERCENTAGE_RE);
+    const pctMatch = stripLeadingEmoji(line).trim().match(PERCENTAGE_LINE_RE);
     if (pctMatch) {
       fields.percentage = toNumber(pctMatch[1]!);
       continue;
