@@ -45,6 +45,12 @@ const LIMIT_LINE_RE = /\blimite\b(?:\s+de\s+aposta)?\s*:?\s*(?:r\$\s*)?(\d+(?:[.
 // clobbering the real one.
 const PERCENTAGE_LINE_RE = /^(?:porcentagem\s*:?\s*)?(\d+(?:[.,]\d+)?)\s*%$/i;
 
+// A tipster sometimes revises an odd/% mid-message on the same line, e.g.
+// "ODD: 3.00 ( nova ODD 2.10)" / "Porcentagem: 4.5% ( nova porcentagem
+// 5.20%)" — the "nova" value is the one that actually counts.
+const NOVA_ODD_RE = /\bnova\s+odd\b\s*:?\s*(\d+(?:[.,]\d+)?)/i;
+const NOVA_PERCENTAGE_RE = /\bnova\s+porcentagem\b\s*:?\s*(\d+(?:[.,]\d+)?)\s*%/i;
+
 // Ruído específico do formato Padovan — nunca é conteúdo de tip, é
 // removido logo de cara pra não atrapalhar nem o parser Padovan nem o
 // genérico (mensagem "só o assinatura do canal" já causou falso positivo).
@@ -334,12 +340,18 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
   for (const line of remaining0) {
     const oddMatch = line.match(ODD_LINE_RE);
     if (oddMatch) {
-      fields.odd = toNumber(oddMatch[1]!);
+      const novaOdd = line.match(NOVA_ODD_RE);
+      fields.odd = toNumber((novaOdd ?? oddMatch)[1]!);
       continue;
     }
     const limitMatch = line.match(LIMIT_LINE_RE);
     if (limitMatch) {
       fields.limit = toNumber(limitMatch[1]!);
+      continue;
+    }
+    const novaPct = line.match(NOVA_PERCENTAGE_RE);
+    if (novaPct) {
+      fields.percentage = toNumber(novaPct[1]!);
       continue;
     }
     const pctMatch = stripLeadingEmoji(line).trim().match(PERCENTAGE_LINE_RE);
