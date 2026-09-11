@@ -290,6 +290,24 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     return serializeTip(tip, photoUrls);
   });
 
+  // Reset pontual pra reconstruir o histórico com o parser já corrigido —
+  // apaga tudo e reimporta desde `sinceUnix` reusando a sessão MTProto já
+  // conectada do worker (roda no mesmo processo, sem SSH nem conexão
+  // duplicada). Admin only, ação destrutiva.
+  app.post<{ Body: { sinceUnix: number } }>("/admin/rebuild", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const { sinceUnix } = request.body ?? {};
+    if (typeof sinceUnix !== "number" || !Number.isFinite(sinceUnix)) {
+      return reply.code(400).send({ error: "invalid_input", details: "sinceUnix (unix seconds) is required" });
+    }
+
+    await prisma.telegramTip.deleteMany({});
+
+    const { runBackfillSince } = await import("@evobo/worker");
+    const results = await runBackfillSince(sinceUnix);
+    return { results };
+  });
+
   // Cabeçalho do dashboard "VIP Telegram" — backlog de decisão (pendentes,
   // sem recorte de data) + atividade só de hoje (fuso São Paulo, fixo em
   // UTC-3 o ano todo desde 2019).

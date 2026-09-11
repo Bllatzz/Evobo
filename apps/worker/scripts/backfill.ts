@@ -13,8 +13,7 @@ import bigInt from "big-integer";
 import input from "input";
 import { prisma, requireEnv } from "../src/db.js";
 import { processMessage } from "../src/processMessage.js";
-
-const PAGE_SIZE = 100;
+import { fetchMessagesSince } from "../src/backfillRange.js";
 
 function limitFromArgs(): number {
   const arg = process.argv.find((a) => a.startsWith("--limit="));
@@ -28,24 +27,6 @@ function startOfTodaySaoPauloUnix(): number {
   // São Paulo é UTC-3 o ano todo (sem horário de verão desde 2019) — meia-noite
   // local = 03:00 UTC do mesmo dia.
   return Date.UTC(y!, m! - 1, d!, 3, 0, 0) / 1000;
-}
-
-/** Busca todas as mensagens de `chatId` com `date >= sinceUnix`, paginando
- * pra trás enquanto ainda houver mensagens dentro da janela. */
-async function fetchMessagesSince(client: TelegramClient, chatId: string, sinceUnix: number) {
-  const all = [];
-  let offsetId = 0;
-  while (true) {
-    const page = await client.getMessages(bigInt(chatId), { limit: PAGE_SIZE, offsetId });
-    if (page.length === 0) break;
-    for (const msg of page) {
-      if (msg.date >= sinceUnix) all.push(msg);
-    }
-    const oldest = page[page.length - 1]!;
-    if (oldest.date < sinceUnix || page.length < PAGE_SIZE) break; // passou da janela ou acabaram as mensagens
-    offsetId = oldest.id;
-  }
-  return all;
 }
 
 async function main() {
