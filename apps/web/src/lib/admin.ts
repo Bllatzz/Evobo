@@ -59,6 +59,32 @@ export const searchUsersForRole = (q: string): Promise<UserSearchResult[]> =>
 export const assignRole = (userId: string, roleId: string) =>
   apiFetch("/roles/assign", { method: "POST", body: JSON.stringify({ userId, roleId }) });
 
+export type AdminUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  role: { id: string; name: string };
+  isActive: boolean;
+  verifiedAt: string | null;
+  createdAt: string;
+  lastLoginAt: string | null;
+};
+
+export type AdminUsersPage = { data: AdminUser[]; total: number; page: number; limit: number; totalPages: number };
+
+export const fetchAdminUsers = (filter: { page?: number; limit?: number; q?: string } = {}): Promise<AdminUsersPage> => {
+  const params = new URLSearchParams();
+  if (filter.page) params.set("page", String(filter.page));
+  if (filter.limit) params.set("limit", String(filter.limit));
+  if (filter.q) params.set("q", filter.q);
+  const qs = params.toString();
+  return apiFetch(`/admin/users${qs ? `?${qs}` : ""}`);
+};
+
+export const setUserActive = (userId: string, isActive: boolean) =>
+  apiFetch(`/admin/users/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ isActive }) });
+
 /** "Histórico do Robô" — per-market "odd indicada" (see RobotMarketOdd in schema.prisma). */
 export type RobotMarketOddEntry = { groupKey: string; market: string; indicatedOdd: number | null };
 

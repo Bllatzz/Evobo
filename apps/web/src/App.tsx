@@ -28,6 +28,7 @@ import { TelegramReportPage } from "./app/telegram-tips/TelegramReportPage";
 import { MarketChartPage } from "./app/robot/MarketChartPage";
 import { MarketsPage } from "./app/robot/MarketsPage";
 import { AdminPage } from "./app/admin/AdminPage";
+import { AdminUsersPage } from "./app/admin/users/AdminUsersPage";
 import { AdminRolesPage } from "./app/admin/roles/AdminRolesPage";
 import { AdminPaymentsPage } from "./app/admin/payments/AdminPaymentsPage";
 import { AdminScreensPage } from "./app/admin/screens/AdminScreensPage";
@@ -298,6 +299,16 @@ function App() {
               <RouteGuard screen="admin">
                 <SidebarFrame>
                   <AdminPage />
+                </SidebarFrame>
+              </RouteGuard>
+            }
+          />
+          <Route
+            path="/admin/users"
+            element={
+              <RouteGuard screen="admin">
+                <SidebarFrame>
+                  <AdminUsersPage />
                 </SidebarFrame>
               </RouteGuard>
             }

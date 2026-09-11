@@ -12,10 +12,17 @@ import {
   IconCheck,
   IconShield,
   IconSparkle,
+  IconProfile,
   IconRobotMonitor,
 } from "../../components/Icon";
 
 const navCards = [
+  {
+    to: "/admin/users",
+    Icon: IconProfile,
+    label: "Usuários",
+    description: "Ver todos os usuários, trocar role e suspender contas",
+  },
   {
     to: "/admin/roles",
     Icon: IconShield,
@@ -177,7 +184,7 @@ export function AdminPage() {
         </div>
 
         <div className="mb-3 font-mono text-[11px] tracking-[0.1em] text-text-tertiary">GESTÃO</div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           {navCards.map(({ to, Icon, label, description }) => (
             <Link
               key={to}
