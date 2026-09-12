@@ -346,7 +346,7 @@ function BookmakerColorsCard() {
       <div className="mt-0.5 text-[12px] text-text-tertiary">
         Escolha uma cor por casa — aparece como uma bolinha ao lado do nome no relatório do VIP Telegram.
       </div>
-      <div className="mt-3 flex max-h-[420px] flex-col gap-2.5 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent">
+      <div className="mt-3 flex flex-col gap-2.5">
         {names.map((name) => {
           const current = settings?.bookmakerColors?.[name] ?? null;
           const isEditing = editing === name;
