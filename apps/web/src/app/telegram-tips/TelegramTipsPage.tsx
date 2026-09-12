@@ -26,10 +26,10 @@ import {
 import { useAuth } from "../../stores/auth";
 
 const RESULT_FILTERS = [
-  { key: "pending", label: "Pendentes" },
-  { key: "green", label: "Green" },
-  { key: "red", label: "Red" },
-  { key: "reembolso", label: "Reemb." },
+  { key: "pending", label: "Pendentes", activeClassName: "bg-vip-soft text-vip" },
+  { key: "green", label: "Green", activeClassName: "bg-accent-soft text-accent" },
+  { key: "red", label: "Red", activeClassName: "bg-live/10 text-live" },
+  { key: "reembolso", label: "Reemb.", activeClassName: "bg-vip-soft text-vip" },
 ] as const;
 
 const TAKEN_FILTERS = [
@@ -495,7 +495,11 @@ function GroupMultiSelect({
     setPending((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
-  const label = selected.length === 0 ? `Todos os grupos ${totalCount}` : `${selected.length} grupos selecionados`;
+  const selectedCount = selected.reduce((sum, id) => sum + countByGroup(id), 0);
+  const label =
+    selected.length === 0
+      ? `Todos os grupos ${totalCount}`
+      : `${selected.length} grupos selecionados ${selectedCount}`;
 
   return (
     <div ref={ref} className="relative flex-none">
@@ -844,7 +848,7 @@ export function TelegramTipsPage() {
               key={r.key}
               onClick={() => setResultFilter(r.key)}
               className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
-                result === r.key ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"
+                result === r.key ? `font-semibold ${r.activeClassName}` : "bg-surface-chip text-text-secondary"
               }`}
             >
               {r.label}
