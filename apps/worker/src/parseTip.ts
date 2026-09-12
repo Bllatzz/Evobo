@@ -180,7 +180,11 @@ export type ParsedTip = {
 const MATCH_LINE_RE = /^(.+?)\s+x\s+(.+)$/i;
 
 function stripLeadingEmoji(s: string): string {
-  return s.replace(/^[\p{Extended_Pictographic}️\s]+/u, "");
+  // Um keycap ("1️⃣", "2️⃣"...) é dígito + variation selector + combining
+  // enclosing keycap — nenhum desses é \p{Extended_Pictographic}, então
+  // precisa de uma alternativa própria pra não sobrar "2️⃣ " no início do
+  // texto (ex.: linha "2️⃣ Tottenham x Everton" usada como rótulo de jogo).
+  return s.replace(/^(?:[\p{Extended_Pictographic}️\s]|\d️?⃣)+/u, "");
 }
 
 /** "MMA · Fulano x Ciclano" / "🏈 ESCADA · Time A x Time B" / "Time A x Time B"
@@ -228,8 +232,11 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
   }
 
   if (urls.length === 0) {
-    const hidden = entities?.find((e) => e.url);
-    if (hidden?.url) urls.push(hidden.url);
+    // Uma casa por link oculto (Telegram MessageEntityTextUrl), na mesma
+    // ordem em que os nomes aparecem no texto — "🔗 Betfair · 🔗 Betnacional"
+    // com dois hyperlinks escondidos vira dois pares reais, não só o
+    // primeiro (senão a 2ª casa nunca tem link próprio pra trocar).
+    urls.push(...(entities ?? []).map((e) => e.url).filter((u): u is string => !!u));
   }
 
   // Casa/link únicos (o comum) viram 1 par; quando a tip lista mais de uma
@@ -249,6 +256,38 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
 
   const gameLine = content.find((l) => extractGameLine(l) !== null) ?? null;
   const match = gameLine ? (extractGameLine(gameLine) ?? undefined) : undefined;
+
+  // MÚLTIPLA de N jogos (mercado combinado em uma linha de bullet, uma
+  // única aposta pro conjunto) — checado ANTES do ESCADA porque esse
+  // formato às vezes lista os jogos com keycap numerado (1️⃣/2️⃣) só como
+  // rótulo ("1️⃣ Tottenham", "2️⃣ Tottenham x Everton"), não como pernas com
+  // stake próprio; sem essa ordem, o bloco ESCADA abaixo confundia esses
+  // rótulos com pernas de verdade e perdia o texto real da seleção (a
+  // linha de bullet).
+  const hasMultipleBookmakers = pairs.length > 1;
+  if (content.some((l) => MULTIPLA_RE.test(l)) && content.some((l) => BULLET_RE.test(l))) {
+    const legs = content
+      .map((l) => l.match(BULLET_RE)?.[1]?.trim())
+      .filter((l): l is string => !!l);
+    const stakeMatch = content.map((l) => l.match(STAKE_AT_ODD_RE)).find((m): m is RegExpMatchArray => m !== null);
+    if (legs.length > 0 && stakeMatch) {
+      return {
+        pattern: "padovan_combo",
+        bookmaker: hasMultipleBookmakers ? null : primary.bookmaker,
+        betUrl: hasMultipleBookmakers ? null : primary.betUrl,
+        fields: {},
+        ...(match ? { match } : {}),
+        selections: [
+          {
+            text: legs.join("\n"),
+            unit: toNumber(stakeMatch[1]!),
+            odd: toNumber(stakeMatch[2]!),
+            ...(hasMultipleBookmakers ? { bookmakerOptions: pairs } : {}),
+          },
+        ],
+      };
+    }
+  }
 
   // ESCADA (numbered independent legs, 1️⃣/2️⃣/...) — also covers the hybrid
   // "N INDIVIDUAIS + MÚLTIPLA" variant, where a trailing "🎯 Múltipla de N"
@@ -295,22 +334,6 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
     };
   }
 
-  if (content.some((l) => MULTIPLA_RE.test(l))) {
-    const legs = content
-      .map((l) => l.match(BULLET_RE)?.[1]?.trim())
-      .filter((l): l is string => !!l);
-    const stakeMatch = content.map((l) => l.match(STAKE_AT_ODD_RE)).find((m): m is RegExpMatchArray => m !== null);
-    if (legs.length === 0 || !stakeMatch) return null;
-    return {
-      pattern: "padovan_combo",
-      bookmaker: primary.bookmaker,
-      betUrl: primary.betUrl,
-      fields: {},
-      ...(match ? { match } : {}),
-      selections: [{ text: legs.join("\n"), unit: toNumber(stakeMatch[1]!), odd: toNumber(stakeMatch[2]!) }],
-    };
-  }
-
   const stakeMatch = content.map((l) => l.match(STAKE_AT_ODD_RE)).find((m): m is RegExpMatchArray => m !== null);
   if (!stakeMatch) return null;
 
@@ -318,8 +341,6 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
   const market = marketLine ? stripLeadingEmoji(marketLine).trim() : null;
   const unit = toNumber(stakeMatch[1]!);
   const odd = toNumber(stakeMatch[2]!);
-
-  const hasMultipleBookmakers = pairs.length > 1;
 
   return {
     pattern: "padovan_single",
