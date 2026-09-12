@@ -160,45 +160,29 @@ function RobotMarketOddsCard() {
   );
 }
 
-/** "YYYY-MM-DD" hoje em América/São Paulo — valor default do date picker. */
-function todaySaoPauloIso(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-}
-
-/** Meia-noite de "ontem" em América/São Paulo, como "YYYY-MM-DD". */
-function yesterdaySaoPauloIso(): string {
-  const [y, m, d] = todaySaoPauloIso().split("-").map(Number);
-  const iso = new Date(Date.UTC(y!, m! - 1, d! - 1));
-  return iso.toISOString().slice(0, 10);
-}
-
-/** Meia-noite de `dateIso` ("YYYY-MM-DD") em América/São Paulo, como unix seconds. */
-function startOfDaySaoPauloUnix(dateIso: string): number {
-  const [y, m, d] = dateIso.split("-").map(Number);
-  return Date.UTC(y!, m! - 1, d!, 3, 0, 0) / 1000;
-}
+/** Fixo em 10/09/2026 00:00 América/São Paulo, como unix seconds — data a
+ * partir da qual "reconstruir do zero" sempre reimporta. */
+const REBUILD_SINCE_UNIX = Date.UTC(2026, 8, 10, 3, 0, 0) / 1000;
+const REBUILD_SINCE_LABEL = "10/09/2026";
 
 /**
- * Apaga toda a tip do Telegram e reimporta desde a data escolhida (00:00
- * América/São Paulo), reusando a sessão MTProto já conectada do worker (roda
- * dentro da própria API, sem SSH). Ação destrutiva — dupla confirmação antes
- * de disparar.
+ * Apaga toda a tip do Telegram e reimporta desde REBUILD_SINCE_UNIX, reusando
+ * a sessão MTProto já conectada do worker (roda dentro da própria API, sem
+ * SSH). Ação destrutiva — dupla confirmação antes de disparar.
  */
 function TelegramRebuildCard() {
-  const [sinceDate, setSinceDate] = useState(yesterdaySaoPauloIso());
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ group: string; messages: number; created: number; skipped: number }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
-    const dateLabel = new Date(`${sinceDate}T00:00:00`).toLocaleDateString("pt-BR");
-    if (!confirm(`Isso apaga TODAS as tips do VIP Telegram e reimporta tudo desde ${dateLabel} 00:00. Confirma?`)) return;
+    if (!confirm(`Isso apaga TODAS as tips do VIP Telegram e reimporta tudo desde ${REBUILD_SINCE_LABEL} 00:00. Confirma?`)) return;
     if (!confirm("Tem certeza? Essa ação não pode ser desfeita.")) return;
     setRunning(true);
     setError(null);
     setResult(null);
     try {
-      const { results } = await rebuildTelegramTips(startOfDaySaoPauloUnix(sinceDate));
+      const { results } = await rebuildTelegramTips(REBUILD_SINCE_UNIX);
       setResult(results);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao reconstruir");
@@ -216,16 +200,9 @@ function TelegramRebuildCard() {
         <div className="min-w-0 flex-1">
           <div className="text-[14.5px] font-semibold">VIP Telegram · reconstruir do zero</div>
           <div className="mt-0.5 text-[12px] text-text-tertiary">
-            Apaga toda tip e reimporta desde a data escolhida, com o parser atual. Ação destrutiva.
+            Apaga toda tip e reimporta desde {REBUILD_SINCE_LABEL}, com o parser atual. Ação destrutiva.
           </div>
         </div>
-        <input
-          type="date"
-          value={sinceDate}
-          max={todaySaoPauloIso()}
-          onChange={(e) => setSinceDate(e.target.value)}
-          className="flex-none rounded-[11px] border border-border-strong bg-surface-chip px-3 py-2 text-[13px] text-text"
-        />
         <button
           onClick={handleClick}
           disabled={running}
