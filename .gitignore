@@ -13,3 +13,5 @@ handoff_prototype/
 apps/api/prisma/local-only/
 .vercel
 .env*
+!.env.example
+!.env.*.example

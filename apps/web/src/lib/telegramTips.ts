@@ -19,6 +19,9 @@ export type TelegramTipsFilter = {
   result?: string;
   takenStatus?: string;
   search?: string;
+  /** "YYYY-MM-DD", inclusive on both ends — filtra por receivedAt (fuso São Paulo). */
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 export type TelegramTipsPage = { data: TelegramTip[]; total: number; page: number; limit: number; totalPages: number };
@@ -32,6 +35,8 @@ export function fetchTelegramTips(filter: TelegramTipsFilter = {}): Promise<Tele
   if (filter.result) params.set("result", filter.result);
   if (filter.takenStatus) params.set("takenStatus", filter.takenStatus);
   if (filter.search) params.set("search", filter.search);
+  if (filter.dateFrom) params.set("dateFrom", filter.dateFrom);
+  if (filter.dateTo) params.set("dateTo", filter.dateTo);
   const qs = params.toString();
   return apiFetch(`/telegram-tips${qs ? `?${qs}` : ""}`);
 }

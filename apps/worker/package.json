@@ -11,7 +11,8 @@
     "start": "node -r dotenv/config dist/src/run.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "discover": "tsx -r dotenv/config scripts/discover-dialogs.ts",
-    "backfill": "tsx -r dotenv/config scripts/backfill.ts"
+    "backfill": "tsx -r dotenv/config scripts/backfill.ts",
+    "ocr-worker": "tsx watch -r dotenv/config src/ocrWorker.ts dotenv_config_path=.env.ocr-worker"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",

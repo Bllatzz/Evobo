@@ -628,6 +628,8 @@ export function TelegramTipsPage() {
   const [bookmakers, setBookmakers] = useState<string[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [photoModal, setPhotoModal] = useState<string | null>(null);
   const [unitValue, setUnitValue] = useState<number | null>(null);
   const [summary, setSummary] = useState<TelegramTodaySummary | null>(null);
@@ -678,11 +680,13 @@ export function TelegramTipsPage() {
       takenStatus: takenStatus || undefined,
       bookmaker: bookmaker || undefined,
       search: search || undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
       limit: 60,
     })
       .then((res) => setTips(res.data))
       .catch(() => setTips([]));
-  }, [groupIds, result, takenStatus, bookmaker, search]);
+  }, [groupIds, result, takenStatus, bookmaker, search, dateFrom, dateTo]);
 
   function updateTip(updated: TelegramTip) {
     setTips((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev);
@@ -874,6 +878,31 @@ export function TelegramTipsPage() {
             options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
             className="w-auto flex-none"
           />
+          <div className="flex-none rounded-xl border border-border-subtle bg-surface-chip px-3 py-2">
+            <div className="mb-1 text-[10px] font-semibold text-text-tertiary">Data</div>
+            <div className="flex gap-2">
+              <label>
+                <span className="mb-0.5 block text-[10px] text-text-secondary">De</span>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  max={dateTo || undefined}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="rounded-md border border-border-strong bg-surface-alt px-2 py-1 font-mono text-[12px] text-text outline-none"
+                />
+              </label>
+              <label>
+                <span className="mb-0.5 block text-[10px] text-text-secondary">Até</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  min={dateFrom || undefined}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="rounded-md border border-border-strong bg-surface-alt px-2 py-1 font-mono text-[12px] text-text outline-none"
+                />
+              </label>
+            </div>
+          </div>
         </div>
       </div>
 

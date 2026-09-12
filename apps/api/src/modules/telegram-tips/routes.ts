@@ -88,6 +88,14 @@ function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>): Telegr
   };
 }
 
+/** Início do dia (00:00 América/São Paulo, fixo em UTC-3 o ano todo desde
+ * 2019 — mesma convenção do /today-summary) pra uma data civil "YYYY-MM-DD",
+ * como instante UTC. */
+function startOfSpDay(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d!, 3, 0, 0));
+}
+
 /** green: stake × (odd − 1); red: −stake; reembolso: 0 — same convention robot-signals/routes.ts uses. */
 function tipProfit(unit: number, odd: number | null, result: string): number | null {
   if (result === "green") return odd ? unit * (odd - 1) : null;
@@ -221,13 +229,17 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       result?: string;
       takenStatus?: string;
       search?: string;
+      dateFrom?: string;
+      dateTo?: string;
     };
   }>("/", async (request) => {
     const page = Math.max(1, parseInt(request.query.page ?? "1", 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "20", 10) || 20));
-    const { groupId, bookmaker, result, takenStatus, search } = request.query;
+    const { groupId, bookmaker, result, takenStatus, search, dateFrom, dateTo } = request.query;
     // groupId accepts a comma-separated list so the UI can filter by 2+ groups at once.
     const groupIds = groupId ? groupId.split(",").filter(Boolean) : [];
+    // dateTo é inclusivo — o corte real é o início do dia seguinte.
+    const untilExclusive = dateTo ? new Date(startOfSpDay(dateTo).getTime() + 24 * 60 * 60 * 1000) : null;
 
     const where: Prisma.TelegramTipWhereInput = {
       ...(groupIds.length === 1 ? { groupId: groupIds[0] } : groupIds.length > 1 ? { groupId: { in: groupIds } } : {}),
@@ -235,6 +247,9 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       ...(result ? { result } : {}),
       ...(takenStatus ? { takenStatus } : {}),
       ...(search ? { OR: [{ match: { contains: search, mode: "insensitive" } }, { selection: { contains: search, mode: "insensitive" } }] } : {}),
+      ...(dateFrom || untilExclusive
+        ? { receivedAt: { ...(dateFrom ? { gte: startOfSpDay(dateFrom) } : {}), ...(untilExclusive ? { lt: untilExclusive } : {}) } }
+        : {}),
     };
 
     const [total, rows] = await Promise.all([

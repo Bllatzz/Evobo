@@ -482,21 +482,30 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
   }
 
   if (hasLink) {
-    for (const line of remaining) {
-      if (UNIT_ONLY_RE.test(line)) continue;
-      const inline = line.match(UNIT_INLINE_RE);
-      if (inline) {
+    // Cada linha "<rótulo> <n>u" é sua própria seleção — uma mensagem pode
+    // ter várias (ex.: "Grêmio + SOTs 1u" e "Grêmio + SOTs em cada tempo
+    // 0,5u" na mesma tip), então acumula todas em vez de parar na primeira.
+    const inlineMatches = remaining
+      .filter((line) => !UNIT_ONLY_RE.test(line))
+      .map((line) => line.match(UNIT_INLINE_RE))
+      .filter((m): m is RegExpMatchArray => m !== null);
+
+    if (inlineMatches.length > 0) {
+      let matchLine: string | undefined;
+      const selections: ParsedSelection[] = inlineMatches.map((inline) => {
         const label = inline[1]!.trim();
         const isMatch = MATCH_LINE_RE.test(label);
-        return {
-          pattern: "inline_market",
-          bookmaker,
-          betUrl,
-          fields,
-          ...(isMatch ? { match: label } : {}),
-          selections: [{ text: isMatch ? null : label, unit: toNumber(inline[2]!) }],
-        };
-      }
+        if (isMatch) matchLine = label;
+        return { text: isMatch ? null : label, unit: toNumber(inline[2]!) };
+      });
+      return {
+        pattern: "inline_market",
+        bookmaker,
+        betUrl,
+        fields,
+        ...(matchLine !== undefined ? { match: matchLine } : {}),
+        selections,
+      };
     }
   }
 
