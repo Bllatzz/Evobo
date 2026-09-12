@@ -13,6 +13,11 @@ COPY apps/api/package.json apps/api/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/shared-types/package.json packages/shared-types/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
+# apps/worker/src/betAnalytix uses playwright's JS API, but only to call a
+# fetch server running on the user's own PC (reached through a tunnel, same
+# pattern as the OCR Ollama setup) — this machine never launches a browser
+# itself, so skip the (Alpine-incompatible anyway) Chromium download.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci
 
 FROM deps AS build

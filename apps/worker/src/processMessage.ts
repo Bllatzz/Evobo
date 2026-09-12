@@ -62,6 +62,7 @@ export async function processMessage(message: Api.Message, group: TelegramGroup)
           bookmaker: sel.bookmaker !== undefined ? sel.bookmaker : parsed.bookmaker,
           betUrl: sel.betUrl !== undefined ? sel.betUrl : parsed.betUrl,
           bookmakerOptions: sel.bookmakerOptions ?? undefined,
+          limit: parsed.fields.limit ?? null,
           photoPath,
           parsePattern: parsed.pattern,
           rawMessage: message.message || null,

@@ -6,6 +6,7 @@ import {
   fetchBookmakerNames,
   patchTelegramTip,
   retryMissingOcr,
+  runBetAnalytixGrading,
   type TelegramTip,
   type TelegramGroup,
 } from "../../../lib/telegramTips";
@@ -85,6 +86,7 @@ function AdminTipRow({ tip, index, bookmakers, onUpdate }: { tip: TelegramTip; i
         <span className="flex-none font-mono text-[12px] font-bold">{tip.odd != null ? tip.odd.toFixed(2) : "—"}</span>
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>{chip.text}</span>
+        {tip.needsReview && <span className="flex-none rounded-md bg-vip-soft px-2 py-1 font-mono text-[9px] font-bold text-vip">!</span>}
         <button
           onClick={() => setCollapsed(false)}
           aria-label="Mostrar tip"
@@ -112,6 +114,11 @@ function AdminTipRow({ tip, index, bookmakers, onUpdate }: { tip: TelegramTip; i
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
           {saving ? "…" : chip.text}
         </span>
+        {tip.needsReview && (
+          <span className="flex-none rounded-md bg-vip-soft px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] text-vip">
+            PRECISA REVISAR
+          </span>
+        )}
         <button
           onClick={() => setCollapsed(true)}
           aria-label="Ocultar tip"
@@ -186,6 +193,12 @@ function AdminTipRow({ tip, index, bookmakers, onUpdate }: { tip: TelegramTip; i
           </button>
         ))}
       </div>
+
+      {tip.limit != null && (
+        <p className="mb-2 text-[11px] text-text-tertiary">
+          Limite de aposta na mensagem: R$ {tip.limit.toFixed(2)} — stake abaixo disso não é bandeira vermelha pro auto-grader.
+        </p>
+      )}
 
       <a
         href={betActive ? tip.betUrl! : undefined}
@@ -289,8 +302,11 @@ export function AdminTelegramTipsPage() {
   const [result, setResult] = useState("");
   const [search, setSearch] = useState("");
   const [missing, setMissing] = useState<string[]>([]);
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
+  const [grading, setGrading] = useState(false);
+  const [gradingMessage, setGradingMessage] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -312,6 +328,7 @@ export function AdminTelegramTipsPage() {
       result: result || undefined,
       search: search || undefined,
       missing: missing.length > 0 ? missing.join(",") : undefined,
+      needsReview: needsReviewOnly ? "true" : undefined,
     }).then((res) => {
       setTips(res.data);
       setTotal(res.total);
@@ -319,8 +336,8 @@ export function AdminTelegramTipsPage() {
     });
   }
 
-  useEffect(load, [page, groupId, bookmaker, result, search, missing]);
-  useEffect(() => setPage(1), [groupId, bookmaker, result, search, missing]);
+  useEffect(load, [page, groupId, bookmaker, result, search, missing, needsReviewOnly]);
+  useEffect(() => setPage(1), [groupId, bookmaker, result, search, missing, needsReviewOnly]);
 
   function toggleMissing(key: string) {
     setMissing((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -382,6 +399,14 @@ export function AdminTelegramTipsPage() {
             </button>
           ))}
           <button
+            onClick={() => setNeedsReviewOnly((v) => !v)}
+            className={`flex-none rounded-full px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.02em] ${
+              needsReviewOnly ? "bg-vip-soft font-bold text-vip" : "bg-surface-chip text-text-secondary"
+            }`}
+          >
+            Precisa revisar
+          </button>
+          <button
             onClick={async () => {
               setRetrying(true);
               setRetryMessage(null);
@@ -397,8 +422,28 @@ export function AdminTelegramTipsPage() {
           >
             {retrying ? "Reenfileirando…" : "Reprocessar OCR (faltando)"}
           </button>
+          <button
+            onClick={async () => {
+              setGrading(true);
+              setGradingMessage(null);
+              try {
+                const res = await runBetAnalytixGrading();
+                setGradingMessage(
+                  `${res.graded} tip(s) gradada(s), ${res.needsReview} marcada(s) "precisa revisar" (${res.groupsChecked} grupo(s) checado(s)).`,
+                );
+                load();
+              } finally {
+                setGrading(false);
+              }
+            }}
+            disabled={grading}
+            className="flex-none rounded-full bg-accent-soft px-3.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.02em] text-accent disabled:opacity-50"
+          >
+            {grading ? "Checando…" : "Checar bet-analytix agora"}
+          </button>
         </div>
         {retryMessage && <p className="mt-2 text-[12px] text-text-tertiary">{retryMessage}</p>}
+        {gradingMessage && <p className="mt-2 text-[12px] text-text-tertiary">{gradingMessage}</p>}
       </div>
 
       {tips === null && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}

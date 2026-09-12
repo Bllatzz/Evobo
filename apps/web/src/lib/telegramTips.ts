@@ -25,6 +25,8 @@ export type TelegramTipsFilter = {
   dateTo?: string;
   /** Comma list of "odd"|"unit"|"match"|"bookmaker" — tips faltando qualquer um desses (OR). */
   missing?: string;
+  /** "true" — só tips que o auto-grader do bet-analytix marcou como ambíguas. */
+  needsReview?: string;
 };
 
 export type TelegramTipsPage = { data: TelegramTip[]; total: number; page: number; limit: number; totalPages: number };
@@ -41,6 +43,7 @@ export function fetchTelegramTips(filter: TelegramTipsFilter = {}): Promise<Tele
   if (filter.dateFrom) params.set("dateFrom", filter.dateFrom);
   if (filter.dateTo) params.set("dateTo", filter.dateTo);
   if (filter.missing) params.set("missing", filter.missing);
+  if (filter.needsReview) params.set("needsReview", filter.needsReview);
   const qs = params.toString();
   return apiFetch(`/telegram-tips${qs ? `?${qs}` : ""}`);
 }
@@ -131,3 +134,7 @@ export const saveBookmakerBalances = (rows: TelegramBookmakerBalance[]): Promise
  * odd/mercado/jogo (a foto já foi baixada) — nunca apaga/recria a tip. */
 export const retryMissingOcr = (): Promise<{ groupsEnqueued: number; tipsEnqueued: number }> =>
   apiFetch("/telegram-tips/admin/retry-ocr", { method: "POST" });
+
+/** Admin only — dispara sob demanda a checagem no bet-analytix (normalmente roda sozinha às 3h). */
+export const runBetAnalytixGrading = (): Promise<{ groupsChecked: number; graded: number; needsReview: number }> =>
+  apiFetch("/telegram-tips/admin/grade-now", { method: "POST" });

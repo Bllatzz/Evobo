@@ -7,10 +7,31 @@ import { processMessage } from "./processMessage.js";
 import { startExtractDetailsWorker } from "./queues/extractDetailsWorker.js";
 import { purgeOldTips } from "./purgeOldTips.js";
 import { backfillSince } from "./backfillRange.js";
+import { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
 
 export { retryMissingOcr } from "./retryOcr.js";
+export { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
 
 const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// 03:00 América/São Paulo == 06:00 UTC — fuso fixo (UTC-3, sem horário de
+// verão desde 2019), mesma convenção que o resto do módulo já usa.
+const GRADING_HOUR_UTC = 6;
+
+/** setTimeout que se reagenda pro próximo 3h de SP em vez de um setInterval
+ * fixo de 24h — não dessincroniza do horário de parede se o processo
+ * reiniciar num horário qualquer. */
+function scheduleDailyGrading(): void {
+  const now = new Date();
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), GRADING_HOUR_UTC, 0, 0));
+  if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+
+  setTimeout(() => {
+    runDailyGrading()
+      .then((r) => console.log("[bet-analytix] grading diário:", r))
+      .catch((err) => console.error("[bet-analytix] falha no grading diário:", err))
+      .finally(scheduleDailyGrading);
+  }, next.getTime() - now.getTime());
+}
 
 // Set once startTelegramWorker's client connects — reused by
 // runBackfillSince so an on-demand backfill never opens a second MTProto
@@ -49,6 +70,7 @@ export async function startTelegramWorker() {
 
   purgeOldTips().catch((err) => console.error("[purge] falha:", err));
   setInterval(() => purgeOldTips().catch((err) => console.error("[purge] falha:", err)), PURGE_INTERVAL_MS);
+  scheduleDailyGrading();
 
   const groups = await prisma.telegramGroup.findMany({ where: { active: true } });
   const groupByChatId = new Map(groups.map((g) => [g.telegramChatId, g]));

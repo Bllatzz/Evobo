@@ -12,7 +12,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "discover": "tsx -r dotenv/config scripts/discover-dialogs.ts",
     "backfill": "tsx -r dotenv/config scripts/backfill.ts",
-    "ocr-worker": "tsx watch -r dotenv/config src/ocrWorker.ts dotenv_config_path=.env.ocr-worker"
+    "ocr-worker": "tsx watch -r dotenv/config src/ocrWorker.ts dotenv_config_path=.env.ocr-worker",
+    "bet-analytix-fetcher": "tsx watch src/betAnalytix/localFetchServer.ts",
+    "tunnel-proxy": "tsx watch src/localTunnelProxy.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",
@@ -21,6 +23,7 @@
     "dotenv": "^16.6.1",
     "input": "^1.0.1",
     "ioredis": "^5.11.1",
+    "playwright": "^1.48.0",
     "telegram": "^2.26.4"
   },
   "devDependencies": {

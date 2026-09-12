@@ -326,6 +326,13 @@ export const TelegramTipSchema = z.object({
   photoUrl: z.string().nullable(),
   /** Official grading (green/red/reembolso/pending) — admin-only, same for every user. */
   result: TelegramTipResult,
+  /** "Limite de aposta: R$ X" from the message, when the house capped the
+   * stake — lets the bet-analytix auto-grader explain a stake under `unit`
+   * instead of treating it as a mismatch. */
+  limit: z.number().nullable(),
+  /** True when the daily bet-analytix auto-grader found ambiguous
+   * candidates and left `result` alone — cleared once `result` is set. */
+  needsReview: z.boolean(),
   /** This signed-in user's own tracking of this tip — whether they took it,
    * and if so, what unit/odd/casa THEY used (may differ from the tip's own
    * official unit/odd/bookmaker above). Defaults to pending/nulls when the

@@ -458,6 +458,16 @@ model TelegramTip {
   /// pending | green | red | reembolso — official grading, admin-only
   /// (see AdminTelegramTipsPage), independent of any user's own take.
   result            String   @default("pending")
+  /// "Limite de aposta: R$ X" from the message text, when the house capped
+  /// how much could actually be staked — used by the bet-analytix
+  /// auto-grader to explain a stake that comes in under `unit` (a capped
+  /// bet, not a red flag), never to disqualify a match.
+  limit             Decimal? @db.Decimal(10, 2)
+  /// True when the daily bet-analytix auto-grader found ambiguous
+  /// candidates for this tip (disagreeing matches, or nothing confident)
+  /// and left `result` alone — cleared the moment `result` is set, auto or
+  /// manual. Surfaced as "precisa revisar" on AdminTelegramTipsPage.
+  needsReview       Boolean  @default(false) @map("needs_review")
   /// Which parser matcher recognized the message (see apps/worker/src/parseTip.ts's
   /// KNOWN_PATTERNS) — null means nothing matched and every extractable field
   /// still needs a manual look on the dashboard.

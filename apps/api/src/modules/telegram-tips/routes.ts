@@ -97,6 +97,8 @@ function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>, myTake:
     bookmakerOptions: (tip.bookmakerOptions as TelegramTip["bookmakerOptions"]) ?? null,
     photoUrl: tip.photoPath ? (photoUrls.get(tip.photoPath) ?? null) : null,
     result: tip.result as TelegramTip["result"],
+    limit: tip.limit !== null ? Number(tip.limit) : null,
+    needsReview: tip.needsReview,
     mine: {
       takenStatus: (myTake?.takenStatus as TelegramTip["mine"]["takenStatus"]) ?? "pending",
       unit: myTake?.unit != null ? Number(myTake.unit) : null,
@@ -334,11 +336,14 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
        * these (OR'd together) — the Admin "Tips oficiais" screen's audit
        * filters (odd/jogo/casa/unidade faltando). */
       missing?: string;
+      /** "true" — só tips que o auto-grader diário do bet-analytix marcou
+       * como ambíguas (needsReview), pra revisão manual no Admin. */
+      needsReview?: string;
     };
   }>("/", async (request) => {
     const page = Math.max(1, parseInt(request.query.page ?? "1", 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "20", 10) || 20));
-    const { result, takenStatus, missing } = request.query;
+    const { result, takenStatus, missing, needsReview } = request.query;
     const userId = request.authUser!.id;
 
     // takenStatus agora é por usuário — filtra pela relação, nunca por uma
@@ -365,6 +370,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       ...(result ? { result } : {}),
       ...takenFilter,
       ...missingFilter,
+      ...(needsReview === "true" ? { needsReview: true } : {}),
     };
 
     const [total, rows] = await Promise.all([
@@ -445,7 +451,9 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const tip = await prisma.telegramTip.update({
       where: { id: request.params.id },
       data: {
-        ...(input.result !== undefined ? { result: input.result } : {}),
+        // Gradar manualmente resolve qualquer "precisa revisar" que o
+        // auto-grader diário do bet-analytix tenha deixado pra essa tip.
+        ...(input.result !== undefined ? { result: input.result, needsReview: false } : {}),
         ...(input.unit !== undefined ? { unit: input.unit } : {}),
         ...(input.selection !== undefined ? { selection: input.selection } : {}),
         ...(input.match !== undefined ? { match: input.match } : {}),
@@ -526,6 +534,17 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
     const { retryMissingOcr } = await import("@evobo/worker");
     const result = await retryMissingOcr();
+    return result;
+  });
+
+  // Dispara sob demanda a checagem diária no bet-analytix (normalmente roda
+  // sozinha às 3h) — grada green/red/reembolso quando o match é confiável,
+  // marca needsReview quando é ambíguo, nunca mexe em tips já gradadas.
+  // Admin only.
+  app.post("/admin/grade-now", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const { runDailyGrading } = await import("@evobo/worker");
+    const result = await runDailyGrading();
     return result;
   });
 
