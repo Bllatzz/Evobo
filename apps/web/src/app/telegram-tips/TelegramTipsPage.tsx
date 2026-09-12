@@ -22,6 +22,7 @@ import {
   IconSearch,
   IconChevronDown,
   IconEyeOff,
+  IconCalendar,
 } from "../../components/Icon";
 import { useAuth } from "../../stores/auth";
 
@@ -618,6 +619,180 @@ function GroupMultiSelect({
   );
 }
 
+type PeriodPreset = "hoje" | "ontem" | "7d" | "30d";
+
+const PERIOD_PRESETS: { key: PeriodPreset; label: string }[] = [
+  { key: "hoje", label: "Hoje" },
+  { key: "ontem", label: "Ontem" },
+  { key: "7d", label: "Últimos 7 dias" },
+  { key: "30d", label: "Últimos 30 dias" },
+];
+
+/** "YYYY-MM-DD" de hoje em América/São Paulo — mesmo fuso fixo (UTC-3) que o
+ * resto do módulo usa (today-summary, filtro de data do backend). */
+function spTodayISO(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+}
+
+function addDaysISO(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y!, m! - 1, d!));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+function presetRange(preset: PeriodPreset): { dateFrom: string; dateTo: string } {
+  const today = spTodayISO();
+  if (preset === "hoje") return { dateFrom: today, dateTo: today };
+  if (preset === "ontem") {
+    const yesterday = addDaysISO(today, -1);
+    return { dateFrom: yesterday, dateTo: yesterday };
+  }
+  if (preset === "7d") return { dateFrom: addDaysISO(today, -6), dateTo: today };
+  return { dateFrom: addDaysISO(today, -29), dateTo: today };
+}
+
+/** "YYYY-MM-DD" -> "DD/MM" pro rótulo compacto do botão em período personalizado. */
+function shortDateLabel(iso: string): string {
+  const [, m, d] = iso.split("-");
+  return `${d}/${m}`;
+}
+
+/** Dropdown "Hoje / Ontem / Últimos N dias / personalizado", no mesmo estilo
+ * dos outros filtros da página — o painel some assim que um preset é
+ * escolhido, mas o personalizado só aplica ao clicar "Aplicar" (depende de
+ * preencher os dois campos). */
+function PeriodFilter({
+  label,
+  dateFrom,
+  dateTo,
+  onApply,
+}: {
+  label: string;
+  dateFrom: string;
+  dateTo: string;
+  onApply: (label: string, dateFrom: string, dateTo: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const appliedPreset = PERIOD_PRESETS.find((p) => {
+    const r = presetRange(p.key);
+    return r.dateFrom === dateFrom && r.dateTo === dateTo;
+  })?.key;
+  const [pendingPreset, setPendingPreset] = useState<PeriodPreset | undefined>(appliedPreset);
+  const [customFrom, setCustomFrom] = useState(appliedPreset ? "" : dateFrom);
+  const [customTo, setCustomTo] = useState(appliedPreset ? "" : dateTo);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  function openPanel() {
+    setPendingPreset(appliedPreset);
+    setCustomFrom(appliedPreset ? "" : dateFrom);
+    setCustomTo(appliedPreset ? "" : dateTo);
+    setOpen(true);
+  }
+
+  function pickPreset(key: PeriodPreset) {
+    setPendingPreset(key);
+    setCustomFrom("");
+    setCustomTo("");
+  }
+
+  function apply() {
+    if (pendingPreset) {
+      const r = presetRange(pendingPreset);
+      onApply(PERIOD_PRESETS.find((p) => p.key === pendingPreset)!.label, r.dateFrom, r.dateTo);
+    } else if (customFrom && customTo) {
+      onApply(`${shortDateLabel(customFrom)} - ${shortDateLabel(customTo)}`, customFrom, customTo);
+    } else {
+      return;
+    }
+    setOpen(false);
+  }
+
+  const canApply = pendingPreset !== undefined || (customFrom !== "" && customTo !== "");
+
+  return (
+    <div ref={ref} className="relative flex-none">
+      <button
+        type="button"
+        onClick={() => (open ? setOpen(false) : openPanel())}
+        className="flex items-center gap-1.5 rounded-full bg-surface-chip px-3.5 py-1.5 text-[12px] font-semibold text-text-secondary"
+      >
+        <IconCalendar size={13} className="flex-none" />
+        {label}
+        <IconChevronDown size={13} className={`flex-none transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-1.5 w-56 rounded-xl border border-border bg-surface p-1 shadow-lg">
+          <div className="px-3 pb-1 pt-2 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">PERÍODO</div>
+          {PERIOD_PRESETS.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => pickPreset(p.key)}
+              className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] ${
+                pendingPreset === p.key ? "bg-accent-soft text-accent" : "text-text-secondary hover:bg-surface-alt"
+              }`}
+            >
+              {p.label}
+              {pendingPreset === p.key && <IconCheck size={13} className="flex-none" />}
+            </button>
+          ))}
+          <div className="mt-1 border-t border-border-subtle px-3 pb-1.5 pt-2 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
+            PERSONALIZADO
+          </div>
+          <div className="flex gap-2 px-3 pb-2">
+            <label className="flex-1">
+              <span className="mb-1 block text-[11px] text-text-secondary">De</span>
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo || undefined}
+                onChange={(e) => {
+                  setCustomFrom(e.target.value);
+                  setPendingPreset(undefined);
+                }}
+                className="w-full rounded-lg border border-border-strong bg-surface-alt px-2 py-1.5 font-mono text-[12px] text-text outline-none"
+              />
+            </label>
+            <label className="flex-1">
+              <span className="mb-1 block text-[11px] text-text-secondary">Até</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom || undefined}
+                onChange={(e) => {
+                  setCustomTo(e.target.value);
+                  setPendingPreset(undefined);
+                }}
+                className="w-full rounded-lg border border-border-strong bg-surface-alt px-2 py-1.5 font-mono text-[12px] text-text outline-none"
+              />
+            </label>
+          </div>
+          <div className="p-1 pt-0.5">
+            <button
+              type="button"
+              disabled={!canApply}
+              onClick={apply}
+              className="w-full rounded-lg bg-accent py-2 text-[12px] font-bold text-[#08090A] disabled:opacity-50"
+            >
+              Aplicar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TelegramTipsPage() {
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [groups, setGroups] = useState<TelegramGroup[]>([]);
@@ -628,8 +803,7 @@ export function TelegramTipsPage() {
   const [bookmakers, setBookmakers] = useState<string[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [period, setPeriod] = useState(() => ({ label: "Hoje", ...presetRange("hoje") }));
   const [photoModal, setPhotoModal] = useState<string | null>(null);
   const [unitValue, setUnitValue] = useState<number | null>(null);
   const [summary, setSummary] = useState<TelegramTodaySummary | null>(null);
@@ -680,13 +854,13 @@ export function TelegramTipsPage() {
       takenStatus: takenStatus || undefined,
       bookmaker: bookmaker || undefined,
       search: search || undefined,
-      dateFrom: dateFrom || undefined,
-      dateTo: dateTo || undefined,
+      dateFrom: period.dateFrom,
+      dateTo: period.dateTo,
       limit: 60,
     })
       .then((res) => setTips(res.data))
       .catch(() => setTips([]));
-  }, [groupIds, result, takenStatus, bookmaker, search, dateFrom, dateTo]);
+  }, [groupIds, result, takenStatus, bookmaker, search, period]);
 
   function updateTip(updated: TelegramTip) {
     setTips((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev);
@@ -864,6 +1038,12 @@ export function TelegramTipsPage() {
               className="w-full min-w-0 bg-transparent text-[13px] text-text outline-none placeholder:text-text-tertiary"
             />
           </div>
+          <PeriodFilter
+            label={period.label}
+            dateFrom={period.dateFrom}
+            dateTo={period.dateTo}
+            onApply={(label, dateFrom, dateTo) => setPeriod({ label, dateFrom, dateTo })}
+          />
           <Dropdown
             value={takenStatus}
             onChange={setTakenStatus}
@@ -878,31 +1058,6 @@ export function TelegramTipsPage() {
             options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
             className="w-auto flex-none"
           />
-          <div className="flex-none rounded-xl border border-border-subtle bg-surface-chip px-3 py-2">
-            <div className="mb-1 text-[10px] font-semibold text-text-tertiary">Data</div>
-            <div className="flex gap-2">
-              <label>
-                <span className="mb-0.5 block text-[10px] text-text-secondary">De</span>
-                <input
-                  type="date"
-                  value={dateFrom}
-                  max={dateTo || undefined}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  className="rounded-md border border-border-strong bg-surface-alt px-2 py-1 font-mono text-[12px] text-text outline-none"
-                />
-              </label>
-              <label>
-                <span className="mb-0.5 block text-[10px] text-text-secondary">Até</span>
-                <input
-                  type="date"
-                  value={dateTo}
-                  min={dateFrom || undefined}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  className="rounded-md border border-border-strong bg-surface-alt px-2 py-1 font-mono text-[12px] text-text outline-none"
-                />
-              </label>
-            </div>
-          </div>
         </div>
       </div>
 
