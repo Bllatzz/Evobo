@@ -8,10 +8,19 @@ import {
   type TelegramTip,
   type TelegramGroup,
 } from "../../../lib/telegramTips";
+import { groupTipsByMessage, groupColor, relativeTime, type MessageGroup } from "../../telegram-tips/TelegramTipsPage";
 import { Dropdown } from "../../../components/Dropdown";
 import { BookmakerCombobox } from "../../../components/BookmakerCombobox";
+import { Modal } from "../../../components/Modal";
 import { bookmakerLabel } from "../../../lib/bookmakers";
-import { IconChevronLeft } from "../../../components/Icon";
+import {
+  IconChevronLeft,
+  IconChevronDown,
+  IconTelegram,
+  IconExternalLink,
+  IconEyeOff,
+  IconX,
+} from "../../../components/Icon";
 
 const PAGE_SIZE = 30;
 
@@ -22,6 +31,20 @@ const RESULT_BUTTONS = [
   { key: "reembolso", label: "Reemb.", activeClassName: "bg-vip-soft text-vip" },
 ] as const;
 
+const STATUS_CHIPS: Record<string, { text: string; className: string }> = {
+  pending: { text: "PENDENTE", className: "bg-vip-soft text-vip" },
+  green: { text: "GREEN", className: "bg-accent-soft text-accent" },
+  red: { text: "RED", className: "bg-live/10 text-live" },
+  reembolso: { text: "REEMB.", className: "bg-surface-alt text-text-secondary" },
+};
+
+const MISSING_FILTERS = [
+  { key: "odd", label: "Odd faltando" },
+  { key: "unit", label: "Unidade faltando" },
+  { key: "match", label: "Jogo faltando" },
+  { key: "bookmaker", label: "Casa faltando" },
+] as const;
+
 function parseNumber(raw: string): number | null {
   const trimmed = raw.trim().replace(",", ".");
   if (trimmed === "") return null;
@@ -29,16 +52,20 @@ function parseNumber(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Uma tip na visão "registro oficial" do admin — cada campo comita direto
- * (blur/seleção), sem estado de rascunho: correção pontual, não um fluxo de
- * revisão em lote como a tela pessoal do VIP Telegram. */
-function AdminTipRow({ tip, bookmakers, onUpdate }: { tip: TelegramTip; bookmakers: string[]; onUpdate: (tip: TelegramTip) => void }) {
+/** Uma tip no registro OFICIAL — cada campo comita direto (blur/seleção),
+ * sem rascunho: é correção pontual, não um fluxo de revisão em lote. Mesmo
+ * visual da tela pessoal (VIP Telegram), só sem peguei/não peguei. */
+function AdminTipRow({ tip, index, bookmakers, onUpdate }: { tip: TelegramTip; index: number; bookmakers: string[]; onUpdate: (tip: TelegramTip) => void }) {
+  const [collapsed, setCollapsed] = useState(false);
   const [match, setMatch] = useState(tip.match ?? "");
   const [selection, setSelection] = useState(tip.selection ?? "");
   const [unitText, setUnitText] = useState(tip.unit != null ? String(tip.unit) : "");
   const [oddText, setOddText] = useState(tip.odd != null ? String(tip.odd) : "");
   const [betUrl, setBetUrl] = useState(tip.betUrl ?? "");
   const [saving, setSaving] = useState(false);
+
+  const chip = STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!;
+  const betActive = !!tip.betUrl;
 
   async function commit(patch: Parameters<typeof patchTelegramTip>[1]) {
     setSaving(true);
@@ -49,34 +76,60 @@ function AdminTipRow({ tip, bookmakers, onUpdate }: { tip: TelegramTip; bookmake
     }
   }
 
-  return (
-    <div className="border-t border-border-subtle p-3.5 first:border-t-0">
-      <div className="mb-2 flex items-center gap-2 text-[11px] text-text-tertiary">
-        <span className="truncate">{tip.groupName}</span>
-        <span>·</span>
-        <span>{new Date(tip.receivedAt).toLocaleString("pt-BR")}</span>
-        {saving && <span className="text-accent">salvando…</span>}
+  if (collapsed) {
+    return (
+      <div className="flex items-center gap-2.5 border-t border-border-subtle py-2.5 first:border-t-0">
+        <span className="w-3.5 flex-none text-center font-mono text-[11px] text-text-tertiary">{index}</span>
+        <p className="min-w-0 flex-1 truncate text-[13px] font-semibold">{tip.selection ?? "—"}</p>
+        <span className="flex-none font-mono text-[12px] font-bold">{tip.odd != null ? tip.odd.toFixed(2) : "—"}</span>
+        <span className="flex-none font-mono text-[12px] text-text-tertiary">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
+        <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>{chip.text}</span>
+        <button
+          onClick={() => setCollapsed(false)}
+          aria-label="Mostrar tip"
+          className="flex-none rounded-lg border border-border-strong bg-surface-chip p-1.5 text-text-secondary"
+        >
+          <IconChevronDown size={14} />
+        </button>
       </div>
+    );
+  }
 
-      <div className="mb-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
-        <input
-          value={match}
-          onChange={(e) => setMatch(e.target.value)}
-          onBlur={() => match.trim() !== (tip.match ?? "") && commit({ match: match.trim() || null })}
-          placeholder="Jogo (Time A x Time B)"
-          className="w-full rounded-lg border border-border-strong bg-surface-alt px-2.5 py-1.5 text-[13px] text-text outline-none"
-        />
+  return (
+    <div className="border-t border-border-subtle py-3 first:border-t-0">
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <span className="w-3.5 flex-none text-center font-mono text-[11px] text-text-tertiary">{index}</span>
         <input
           value={selection}
           onChange={(e) => setSelection(e.target.value)}
           onBlur={() => selection.trim() !== (tip.selection ?? "") && commit({ selection: selection.trim() })}
           placeholder="Mercado/seleção"
-          className="w-full rounded-lg border border-border-strong bg-surface-alt px-2.5 py-1.5 text-[13px] font-semibold text-text outline-none"
+          className="min-w-0 flex-1 truncate rounded bg-transparent text-[13px] font-semibold text-text outline-none"
         />
+        <span className="flex-none font-mono text-[12px] font-bold">{tip.odd != null ? tip.odd.toFixed(2) : "—"}</span>
+        <span className="flex-none font-mono text-[12px] text-text-tertiary">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
+        <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
+          {saving ? "…" : chip.text}
+        </span>
+        <button
+          onClick={() => setCollapsed(true)}
+          aria-label="Ocultar tip"
+          className="flex-none self-start rounded-lg border border-border-strong bg-surface-chip p-1.5 text-text-secondary"
+        >
+          <IconChevronDown size={14} className="rotate-180" />
+        </button>
       </div>
 
-      <div className="mb-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
+      <input
+        value={match}
+        onChange={(e) => setMatch(e.target.value)}
+        onBlur={() => match.trim() !== (tip.match ?? "") && commit({ match: match.trim() || null })}
+        placeholder="Jogo (Time A x Time B)"
+        className="mb-2.5 w-full rounded-lg border border-border-strong bg-surface-alt px-2.5 py-1.5 text-[12.5px] text-text outline-none"
+      />
+
+      <div className="mb-2.5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <div className="flex flex-col gap-0.5 rounded-[10px] border border-accent-border bg-accent-soft p-2.5">
           <span className="text-[10px] text-text-secondary">Unidade</span>
           <input
             inputMode="decimal"
@@ -84,7 +137,7 @@ function AdminTipRow({ tip, bookmakers, onUpdate }: { tip: TelegramTip; bookmake
             onFocus={(e) => e.currentTarget.select()}
             onChange={(e) => setUnitText(e.target.value)}
             onBlur={() => commit({ unit: parseNumber(unitText) })}
-            className="w-full rounded bg-transparent font-mono text-[14px] font-bold text-text outline-none"
+            className="w-full rounded bg-transparent font-mono text-[14px] font-bold text-accent outline-none"
           />
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
@@ -95,7 +148,7 @@ function AdminTipRow({ tip, bookmakers, onUpdate }: { tip: TelegramTip; bookmake
             onFocus={(e) => e.currentTarget.select()}
             onChange={(e) => setOddText(e.target.value)}
             onBlur={() => commit({ odd: parseNumber(oddText) })}
-            className="w-full rounded bg-transparent font-mono text-[14px] font-bold text-text outline-none"
+            className="w-full rounded bg-transparent font-mono text-[14px] font-bold outline-none"
           />
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
@@ -119,7 +172,7 @@ function AdminTipRow({ tip, bookmakers, onUpdate }: { tip: TelegramTip; bookmake
         </div>
       </div>
 
-      <div className="flex gap-1.5">
+      <div className="mb-2.5 flex gap-1.5">
         {RESULT_BUTTONS.map((r) => (
           <button
             key={r.key}
@@ -131,6 +184,96 @@ function AdminTipRow({ tip, bookmakers, onUpdate }: { tip: TelegramTip; bookmake
             {r.label}
           </button>
         ))}
+      </div>
+
+      <a
+        href={betActive ? tip.betUrl! : undefined}
+        target={betActive ? "_blank" : undefined}
+        rel="noreferrer"
+        onClick={(e) => {
+          if (!betActive) e.preventDefault();
+        }}
+        aria-disabled={!betActive}
+        className={`flex h-9 items-center justify-center gap-1.5 rounded-lg text-[12px] font-bold ${
+          betActive ? "bg-accent text-[#08090A]" : "cursor-not-allowed bg-surface-alt text-text-tertiary"
+        }`}
+      >
+        {betActive ? `Abrir na ${bookmakerLabel(tip.bookmaker)}` : "Sem link"} <IconExternalLink size={11} />
+      </a>
+    </div>
+  );
+}
+
+function AdminMessageGroupCard({
+  group,
+  bookmakers,
+  photoVisible,
+  onTogglePhoto,
+  onOpenPhoto,
+  onUpdate,
+}: {
+  group: MessageGroup;
+  bookmakers: string[];
+  photoVisible: boolean;
+  onTogglePhoto: (key: string, visible: boolean) => void;
+  onOpenPhoto: (url: string) => void;
+  onUpdate: (tip: TelegramTip) => void;
+}) {
+  return (
+    <div className="rounded-[18px] border border-border bg-surface p-3.5 lg:p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <IconTelegram size={13} className="flex-none text-accent" />
+        <span className="truncate text-[12px] font-semibold text-accent">{group.groupName}</span>
+        <span className="flex-none text-[11px] text-text-tertiary">{relativeTime(group.receivedAt)}</span>
+        {group.match && (
+          <>
+            <span className={`h-2 w-2 flex-none rounded-[3px] ${groupColor(group.groupName)}`} />
+            <span className="min-w-0 truncate text-[13px] font-semibold">{group.match}</span>
+          </>
+        )}
+        <span className="ml-auto flex-none text-[11px] text-text-tertiary">
+          {group.photoUrl ? "1 foto · " : ""}
+          {group.tips.length} {group.tips.length === 1 ? "tip" : "tips"}
+        </span>
+      </div>
+
+      <div className="flex gap-3">
+        {group.photoUrl && photoVisible && (
+          <div className="w-[300px] flex-none">
+            <div className="relative">
+              <img
+                src={group.photoUrl}
+                alt="Bilhete"
+                onClick={() => onOpenPhoto(group.photoUrl!)}
+                className="h-[320px] w-full cursor-zoom-in rounded-xl bg-surface-chip object-contain"
+              />
+              <button
+                onClick={() => onTogglePhoto(group.key, false)}
+                aria-label="Ocultar imagem"
+                className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#08090A]/70 text-white"
+              >
+                <IconX size={12} />
+              </button>
+            </div>
+          </div>
+        )}
+        {group.photoUrl && !photoVisible && (
+          <button
+            onClick={() => onTogglePhoto(group.key, true)}
+            className="flex w-[64px] flex-none flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-strong py-4 text-[11px] font-semibold text-accent"
+          >
+            <IconEyeOff size={14} />
+            Ver
+          </button>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-col">
+            {group.tips.map((tip, i) => (
+              <AdminTipRow key={tip.id} tip={tip} index={i + 1} bookmakers={bookmakers} onUpdate={onUpdate} />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -144,10 +287,13 @@ export function AdminTelegramTipsPage() {
   const [bookmaker, setBookmaker] = useState("");
   const [result, setResult] = useState("");
   const [search, setSearch] = useState("");
+  const [missing, setMissing] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [photoOverrides, setPhotoOverrides] = useState<Record<string, boolean>>({});
+  const [photoModal, setPhotoModal] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTelegramGroups().then(setGroups).catch(() => {});
@@ -162,6 +308,7 @@ export function AdminTelegramTipsPage() {
       bookmaker: bookmaker || undefined,
       result: result || undefined,
       search: search || undefined,
+      missing: missing.length > 0 ? missing.join(",") : undefined,
     }).then((res) => {
       setTips(res.data);
       setTotal(res.total);
@@ -169,57 +316,88 @@ export function AdminTelegramTipsPage() {
     });
   }
 
-  useEffect(load, [page, groupId, bookmaker, result, search]);
-  useEffect(() => setPage(1), [groupId, bookmaker, result, search]);
+  useEffect(load, [page, groupId, bookmaker, result, search, missing]);
+  useEffect(() => setPage(1), [groupId, bookmaker, result, search, missing]);
+
+  function toggleMissing(key: string) {
+    setMissing((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  function updateTip(updated: TelegramTip) {
+    setTips((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev);
+  }
+
+  function togglePhoto(key: string, visible: boolean) {
+    setPhotoOverrides((prev) => ({ ...prev, [key]: visible }));
+  }
+
+  const groupedList = groupTipsByMessage(tips ?? []);
 
   const body = (
-    <div className="rounded-2xl border border-border bg-surface">
-      <div className="flex flex-wrap items-center gap-2 p-4">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar jogo/mercado…"
-          className="w-full max-w-[220px] rounded-lg border border-border-strong bg-surface-alt px-3 py-2 text-[13px] text-text outline-none"
-        />
-        <Dropdown
-          value={groupId}
-          onChange={setGroupId}
-          placeholder="Todos os grupos"
-          options={groups.map((g) => ({ value: g.id, label: g.name }))}
-          className="w-auto flex-none"
-        />
-        <Dropdown
-          value={bookmaker}
-          onChange={setBookmaker}
-          placeholder="Todas as casas"
-          options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
-          className="w-auto flex-none"
-        />
-        <Dropdown
-          value={result}
-          onChange={setResult}
-          placeholder="Todos os resultados"
-          options={RESULT_BUTTONS.map((r) => ({ value: r.key, label: r.label }))}
-          className="w-auto flex-none"
-        />
-        <span className="ml-auto flex-none font-mono text-[12px] text-text-tertiary">{total} tip(s)</span>
+    <div className="flex flex-col gap-3">
+      <div className="rounded-2xl border border-border bg-surface p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar jogo/mercado…"
+            className="w-full max-w-[220px] rounded-lg border border-border-strong bg-surface-alt px-3 py-2 text-[13px] text-text outline-none"
+          />
+          <Dropdown
+            value={groupId}
+            onChange={setGroupId}
+            placeholder="Todos os grupos"
+            options={groups.map((g) => ({ value: g.id, label: g.name }))}
+            className="w-auto flex-none"
+          />
+          <Dropdown
+            value={bookmaker}
+            onChange={setBookmaker}
+            placeholder="Todas as casas"
+            options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
+            className="w-auto flex-none"
+          />
+          <Dropdown
+            value={result}
+            onChange={setResult}
+            placeholder="Todos os resultados"
+            options={RESULT_BUTTONS.map((r) => ({ value: r.key, label: r.label }))}
+            className="w-auto flex-none"
+          />
+          <span className="ml-auto flex-none font-mono text-[12px] text-text-tertiary">{total} tip(s)</span>
+        </div>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {MISSING_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => toggleMissing(f.key)}
+              className={`flex-none rounded-full px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.02em] ${
+                missing.includes(f.key) ? "bg-live/10 font-bold text-live" : "bg-surface-chip text-text-secondary"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="border-t border-border">
-        {tips === null && <p className="py-8 text-center text-[12.5px] text-text-tertiary">Carregando…</p>}
-        {tips?.length === 0 && <p className="py-8 text-center text-[12.5px] text-text-tertiary">Nenhuma tip encontrada.</p>}
-        {tips?.map((tip) => (
-          <AdminTipRow
-            key={tip.id}
-            tip={tip}
-            bookmakers={bookmakers}
-            onUpdate={(updated) => setTips((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev)}
-          />
-        ))}
-      </div>
+      {tips === null && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}
+      {tips?.length === 0 && <p className="py-10 text-center text-sm text-text-tertiary">Nenhuma tip encontrada.</p>}
+
+      {groupedList.map((group) => (
+        <AdminMessageGroupCard
+          key={group.key}
+          group={group}
+          bookmakers={bookmakers}
+          photoVisible={photoOverrides[group.key] ?? true}
+          onTogglePhoto={togglePhoto}
+          onOpenPhoto={setPhotoModal}
+          onUpdate={updateTip}
+        />
+      ))}
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+        <div className="flex items-center justify-between rounded-2xl border border-border bg-surface px-4 py-3">
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
@@ -265,6 +443,10 @@ export function AdminTelegramTipsPage() {
         </div>
         <div className="p-4">{body}</div>
       </div>
+
+      <Modal open={photoModal !== null} onClose={() => setPhotoModal(null)} widthClassName="max-w-2xl">
+        {photoModal && <img src={photoModal} alt="Bilhete" className="w-full rounded-2xl" />}
+      </Modal>
     </div>
   );
 }

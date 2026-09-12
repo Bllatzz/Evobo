@@ -55,13 +55,13 @@ const NAO_PEGA_CHIP = { text: "NÃO PEGA", className: "bg-surface-alt text-text-
 // Small fixed rotation over Evobo's own brand hues (never an invented color)
 // so each Telegram group keeps a stable dot across renders.
 const GROUP_DOT_COLORS = ["bg-accent", "bg-live", "bg-vip", "bg-verified", "bg-orange"];
-function groupColor(name: string): string {
+export function groupColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
   return GROUP_DOT_COLORS[hash % GROUP_DOT_COLORS.length]!;
 }
 
-function relativeTime(iso: string): string {
+export function relativeTime(iso: string): string {
   const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
   if (min < 1) return "agora";
   if (min < 60) return `há ${min}min`;
@@ -97,7 +97,7 @@ type DraftEdit = {
 
 /** One Telegram message can carry several selections/legs — same
  * groupId+telegramMessageId — that should be reviewed as a unit. */
-type MessageGroup = {
+export type MessageGroup = {
   key: string;
   groupId: string;
   groupName: string;
@@ -107,7 +107,7 @@ type MessageGroup = {
   tips: TelegramTip[];
 };
 
-function groupTipsByMessage(tips: TelegramTip[]): MessageGroup[] {
+export function groupTipsByMessage(tips: TelegramTip[]): MessageGroup[] {
   const map = new Map<string, MessageGroup>();
   for (const tip of tips) {
     const key = `${tip.groupId}:${tip.telegramMessageId}`;

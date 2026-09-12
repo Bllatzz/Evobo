@@ -330,11 +330,15 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       search?: string;
       dateFrom?: string;
       dateTo?: string;
+      /** Comma list of "odd"|"unit"|"match"|"bookmaker" — tips missing ANY of
+       * these (OR'd together) — the Admin "Tips oficiais" screen's audit
+       * filters (odd/jogo/casa/unidade faltando). */
+      missing?: string;
     };
   }>("/", async (request) => {
     const page = Math.max(1, parseInt(request.query.page ?? "1", 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "20", 10) || 20));
-    const { result, takenStatus } = request.query;
+    const { result, takenStatus, missing } = request.query;
     const userId = request.authUser!.id;
 
     // takenStatus agora é por usuário — filtra pela relação, nunca por uma
@@ -346,10 +350,21 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
           ? { takes: { some: { userId, takenStatus } } }
           : {};
 
+    const missingFields = missing ? missing.split(",").filter(Boolean) : [];
+    const missingFilter: Prisma.TelegramTipWhereInput =
+      missingFields.length > 0
+        ? {
+            OR: missingFields
+              .map((f) => (f === "odd" || f === "unit" || f === "match" || f === "bookmaker" ? { [f]: null } : null))
+              .filter((f): f is { [key: string]: null } => f !== null),
+          }
+        : {};
+
     const where: Prisma.TelegramTipWhereInput = {
       ...buildScopeWhere(request.query),
       ...(result ? { result } : {}),
       ...takenFilter,
+      ...missingFilter,
     };
 
     const [total, rows] = await Promise.all([

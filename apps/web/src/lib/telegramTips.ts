@@ -23,6 +23,8 @@ export type TelegramTipsFilter = {
   /** "YYYY-MM-DD", inclusive on both ends — filtra por receivedAt (fuso São Paulo). */
   dateFrom?: string;
   dateTo?: string;
+  /** Comma list of "odd"|"unit"|"match"|"bookmaker" — tips faltando qualquer um desses (OR). */
+  missing?: string;
 };
 
 export type TelegramTipsPage = { data: TelegramTip[]; total: number; page: number; limit: number; totalPages: number };
@@ -38,6 +40,7 @@ export function fetchTelegramTips(filter: TelegramTipsFilter = {}): Promise<Tele
   if (filter.search) params.set("search", filter.search);
   if (filter.dateFrom) params.set("dateFrom", filter.dateFrom);
   if (filter.dateTo) params.set("dateTo", filter.dateTo);
+  if (filter.missing) params.set("missing", filter.missing);
   const qs = params.toString();
   return apiFetch(`/telegram-tips${qs ? `?${qs}` : ""}`);
 }
