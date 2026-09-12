@@ -32,6 +32,7 @@ import { AdminUsersPage } from "./app/admin/users/AdminUsersPage";
 import { AdminRolesPage } from "./app/admin/roles/AdminRolesPage";
 import { AdminPaymentsPage } from "./app/admin/payments/AdminPaymentsPage";
 import { AdminScreensPage } from "./app/admin/screens/AdminScreensPage";
+import { AdminTelegramTipsPage } from "./app/admin/telegram-tips/AdminTelegramTipsPage";
 import { LoginPage } from "./app/login/LoginPage";
 import { RegisterPage } from "./app/register/RegisterPage";
 import { ForgotPasswordPage } from "./app/forgot-password/ForgotPasswordPage";
@@ -339,6 +340,16 @@ function App() {
               <RouteGuard screen="admin_screens">
                 <SidebarFrame>
                   <AdminScreensPage />
+                </SidebarFrame>
+              </RouteGuard>
+            }
+          />
+          <Route
+            path="/admin/telegram-tips"
+            element={
+              <RouteGuard screen="admin_telegram_tips">
+                <SidebarFrame>
+                  <AdminTelegramTipsPage />
                 </SidebarFrame>
               </RouteGuard>
             }

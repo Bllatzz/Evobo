@@ -55,6 +55,12 @@ const navCards = [
     label: "Aprovação de Pagamentos",
     description: "Revisar comprovantes de Pix e aprovar assinaturas VIP",
   },
+  {
+    to: "/admin/telegram-tips",
+    Icon: IconTelegram,
+    label: "VIP Telegram · Tips oficiais",
+    description: "Corrigir unidade/odd/casa e marcar green/red/reembolso",
+  },
 ] as const;
 
 /**

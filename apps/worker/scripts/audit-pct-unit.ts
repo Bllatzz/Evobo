@@ -3,7 +3,7 @@ import { prisma } from "../src/db.js";
 
 const rows = await prisma.telegramTip.findMany({
   where: { parsePattern: { in: ["pct_limit_only", "odd_pct_limit"] }, rawMessage: { not: null } },
-  select: { id: true, rawMessage: true, unit: true, result: true, takenStatus: true },
+  select: { id: true, rawMessage: true, unit: true, result: true },
 });
 
 let mismatches = 0;
@@ -17,7 +17,7 @@ for (const row of rows) {
   const storedUnit = row.unit !== null ? Number(row.unit) : null;
   if (freshUnit !== storedUnit) {
     mismatches++;
-    console.log(`[MISMATCH] ${row.id} stored=${storedUnit} fresh=${freshUnit} result=${row.result} taken=${row.takenStatus}`);
+    console.log(`[MISMATCH] ${row.id} stored=${storedUnit} fresh=${freshUnit} result=${row.result}`);
     console.log(`  raw: ${row.rawMessage!.replace(/\n/g, " | ")}`);
   }
 }

@@ -26,10 +26,10 @@ async function main() {
   for (const rows of groups.values()) {
     if (rows.length <= 1) continue;
 
-    // Prefer a row that already has user state (taken/result) as the
-    // survivor; otherwise keep the earliest.
-    const survivor =
-      rows.find((r) => r.takenStatus !== "pending" || r.result !== "pending") ?? rows[0]!;
+    // Prefer a row that's already graded as the survivor; otherwise keep
+    // the earliest. (Per-user taken status now lives in TelegramTipTake,
+    // not a column here — not worth joining that in for this one-off script.)
+    const survivor = rows.find((r) => r.result !== "pending") ?? rows[0]!;
     const options = rows.map((r) => ({ bookmaker: r.bookmaker, betUrl: r.betUrl }));
 
     await prisma.telegramTip.update({

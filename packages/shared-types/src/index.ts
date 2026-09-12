@@ -21,6 +21,7 @@ export const screenKeys = [
   "admin_roles",
   "admin_payments",
   "admin_screens",
+  "admin_telegram_tips",
 ] as const;
 export const ScreenKey = z.enum(screenKeys);
 export type ScreenKey = z.infer<typeof ScreenKey>;
@@ -323,8 +324,19 @@ export const TelegramTipSchema = z.object({
    * splitting into duplicate tips. Null/empty when there's just one house. */
   bookmakerOptions: z.array(z.object({ bookmaker: z.string().nullable(), betUrl: z.string().nullable() })).nullable(),
   photoUrl: z.string().nullable(),
+  /** Official grading (green/red/reembolso/pending) — admin-only, same for every user. */
   result: TelegramTipResult,
-  takenStatus: TelegramTipTakenStatus,
+  /** This signed-in user's own tracking of this tip — whether they took it,
+   * and if so, what unit/odd/casa THEY used (may differ from the tip's own
+   * official unit/odd/bookmaker above). Defaults to pending/nulls when the
+   * user has never touched this tip (no TelegramTipTake row yet). */
+  mine: z.object({
+    takenStatus: TelegramTipTakenStatus,
+    unit: z.number().nullable(),
+    odd: z.number().nullable(),
+    bookmaker: z.string().nullable(),
+    betUrl: z.string().nullable(),
+  }),
   /** Which worker parser matcher recognized the message — null means nothing
    * matched and every extractable field still needs a manual look. */
   parsePattern: z.string().nullable(),
@@ -333,10 +345,9 @@ export const TelegramTipSchema = z.object({
 });
 export type TelegramTip = z.infer<typeof TelegramTipSchema>;
 
-/** Manual correction from the dashboard — always available as the OCR/parser fallback. */
+/** Official-record correction — admin only, from the Admin "VIP Telegram" screen. */
 export const UpdateTelegramTipInput = z.object({
   result: TelegramTipResult.optional(),
-  takenStatus: TelegramTipTakenStatus.optional(),
   odd: z.number().positive().nullable().optional(),
   unit: z.number().positive().nullable().optional(),
   selection: z.string().min(1).max(200).optional(),
@@ -345,6 +356,18 @@ export const UpdateTelegramTipInput = z.object({
   betUrl: z.string().url().nullable().optional(),
 });
 export type UpdateTelegramTipInput = z.infer<typeof UpdateTelegramTipInput>;
+
+/** This user's own take on a tip — whether they took it, and their own
+ * unit/odd/casa if so. Always writes to the current signed-in user, never a
+ * body-supplied userId (see PATCH /telegram-tips/:id/take). */
+export const UpdateTelegramTipTakeInput = z.object({
+  takenStatus: TelegramTipTakenStatus.optional(),
+  odd: z.number().positive().nullable().optional(),
+  unit: z.number().positive().nullable().optional(),
+  bookmaker: z.string().max(80).nullable().optional(),
+  betUrl: z.string().url().nullable().optional(),
+});
+export type UpdateTelegramTipTakeInput = z.infer<typeof UpdateTelegramTipTakeInput>;
 
 export const TelegramBancaRow = z.object({
   key: z.string(),

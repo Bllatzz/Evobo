@@ -25,4 +25,5 @@ export const screenRoutes: Record<ScreenKey, { path: string; label: string }> = 
   admin_roles: { path: "/admin/roles", label: "Gestão de Roles" },
   admin_payments: { path: "/admin/payments", label: "Aprovação de Pagamentos" },
   admin_screens: { path: "/admin/screens", label: "Telas & Permissões" },
+  admin_telegram_tips: { path: "/admin/telegram-tips", label: "VIP Telegram · Tips" },
 };

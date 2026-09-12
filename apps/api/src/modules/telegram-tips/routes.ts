@@ -4,6 +4,7 @@ import {
   CreateTelegramGroupInput,
   UpdateTelegramGroupInput,
   UpdateTelegramTipInput,
+  UpdateTelegramTipTakeInput,
   UpdateTelegramBancaSettingsInput,
   UpdateTelegramBookmakerBalancesInput,
   type TelegramTip,
@@ -63,8 +64,23 @@ async function resolvePhotoUrls(paths: (string | null)[]): Promise<Map<string, s
 }
 
 type TipWithGroup = Prisma.TelegramTipGetPayload<{ include: { group: { select: { name: true } } } }>;
+type TipTakeRow = Prisma.TelegramTipTakeGetPayload<{
+  select: { takenStatus: true; unit: true; odd: true; bookmaker: true; betUrl: true };
+}>;
 
-function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>): TelegramTip {
+/** Batch-fetches the current user's own TelegramTipTake for each tip id,
+ * keyed by tipId — a tip with no row yet just isn't in the map (serializeTip
+ * defaults it to pending/nulls). Same batching shape as resolvePhotoUrls. */
+async function fetchMyTakes(tipIds: string[], userId: string): Promise<Map<string, TipTakeRow>> {
+  if (tipIds.length === 0) return new Map();
+  const rows = await prisma.telegramTipTake.findMany({
+    where: { tipId: { in: tipIds }, userId },
+    select: { tipId: true, takenStatus: true, unit: true, odd: true, bookmaker: true, betUrl: true },
+  });
+  return new Map(rows.map((r) => [r.tipId, r]));
+}
+
+function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>, myTake: TipTakeRow | undefined): TelegramTip {
   return {
     id: tip.id,
     groupId: tip.groupId,
@@ -81,7 +97,13 @@ function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>): Telegr
     bookmakerOptions: (tip.bookmakerOptions as TelegramTip["bookmakerOptions"]) ?? null,
     photoUrl: tip.photoPath ? (photoUrls.get(tip.photoPath) ?? null) : null,
     result: tip.result as TelegramTip["result"],
-    takenStatus: tip.takenStatus as TelegramTip["takenStatus"],
+    mine: {
+      takenStatus: (myTake?.takenStatus as TelegramTip["mine"]["takenStatus"]) ?? "pending",
+      unit: myTake?.unit != null ? Number(myTake.unit) : null,
+      odd: myTake?.odd != null ? Number(myTake.odd) : null,
+      bookmaker: myTake?.bookmaker ?? null,
+      betUrl: myTake?.betUrl ?? null,
+    },
     parsePattern: tip.parsePattern,
     receivedAt: tip.receivedAt.toISOString(),
     rawMessage: tip.rawMessage,
@@ -131,7 +153,6 @@ type BancaSourceRow = {
   bookmaker: string | null;
   groupName: string;
   result: string;
-  takenStatus: string;
   receivedAt: Date;
 };
 
@@ -314,11 +335,21 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const page = Math.max(1, parseInt(request.query.page ?? "1", 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "20", 10) || 20));
     const { result, takenStatus } = request.query;
+    const userId = request.authUser!.id;
+
+    // takenStatus agora é por usuário — filtra pela relação, nunca por uma
+    // coluna na própria tip (essa coluna não existe mais, ver TelegramTipTake).
+    const takenFilter: Prisma.TelegramTipWhereInput =
+      takenStatus === "pending"
+        ? { takes: { none: { userId, takenStatus: { in: ["taken", "skipped"] } } } }
+        : takenStatus === "taken" || takenStatus === "skipped"
+          ? { takes: { some: { userId, takenStatus } } }
+          : {};
 
     const where: Prisma.TelegramTipWhereInput = {
       ...buildScopeWhere(request.query),
       ...(result ? { result } : {}),
-      ...(takenStatus ? { takenStatus } : {}),
+      ...takenFilter,
     };
 
     const [total, rows] = await Promise.all([
@@ -332,10 +363,13 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       }),
     ]);
 
-    const photoUrls = await resolvePhotoUrls(rows.map((r) => r.photoPath));
+    const [photoUrls, myTakes] = await Promise.all([
+      resolvePhotoUrls(rows.map((r) => r.photoPath)),
+      fetchMyTakes(rows.map((r) => r.id), userId),
+    ]);
 
     return {
-      data: rows.map((r) => serializeTip(r, photoUrls)),
+      data: rows.map((r) => serializeTip(r, photoUrls, myTakes.get(r.id))),
       total,
       page,
       limit,
@@ -352,21 +386,23 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     Querystring: { groupId?: string; bookmaker?: string; search?: string; dateFrom?: string; dateTo?: string };
   }>("/summary", async (request) => {
     const scope = buildScopeWhere(request.query);
+    const userId = request.authUser!.id;
 
     const [pendingCount, taken] = await Promise.all([
-      prisma.telegramTip.count({ where: { ...scope, takenStatus: "pending" } }),
+      prisma.telegramTip.count({ where: { ...scope, takes: { none: { userId, takenStatus: { in: ["taken", "skipped"] } } } } }),
       prisma.telegramTip.findMany({
-        where: { ...scope, takenStatus: "taken" },
-        select: { unit: true, odd: true, result: true },
+        where: { ...scope, takes: { some: { userId, takenStatus: "taken" } } },
+        select: { result: true, takes: { where: { userId }, select: { unit: true, odd: true } } },
       }),
     ]);
 
     let takenUnits = 0;
     let resultUnits = 0;
     for (const t of taken) {
-      const unit = t.unit !== null ? Number(t.unit) : 0;
+      const mine = t.takes[0]!;
+      const unit = mine.unit !== null ? Number(mine.unit) : 0;
       takenUnits += unit;
-      const odd = t.odd !== null ? Number(t.odd) : null;
+      const odd = mine.odd !== null ? Number(mine.odd) : null;
       resultUnits += tipProfit(unit, odd, t.result) ?? 0;
     }
 
@@ -378,25 +414,23 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     };
   });
 
+  // Corrige o registro OFICIAL da tip (odd/unidade/casa/link/mercado/jogo/
+  // resultado) — o que o tipster falou de verdade e como resolveu, igual
+  // pra todo mundo. Editável só pelo admin (tela /admin/telegram-tips);
+  // acompanhamento pessoal (peguei/não peguei + minha unidade/odd/casa) é
+  // outro endpoint, ver PATCH /:id/take.
   app.patch<{ Params: { id: string } }>("/:id", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
     const parsed = UpdateTelegramTipInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
     const input = parsed.data;
 
-    // Grading a tip's result affects everyone else's read of the group/
-    // tipster performance (GET /banca's "geral" scope) — reserved for admin,
-    // unlike takenStatus/manual corrections which are per-user judgment calls.
-    if (input.result !== undefined && request.authUser!.roleName !== "admin") {
-      return reply.code(403).send({ error: "forbidden", field: "result" });
-    }
-
     const tip = await prisma.telegramTip.update({
       where: { id: request.params.id },
       data: {
         ...(input.result !== undefined ? { result: input.result } : {}),
-        ...(input.takenStatus !== undefined ? { takenStatus: input.takenStatus } : {}),
         ...(input.unit !== undefined ? { unit: input.unit } : {}),
         ...(input.selection !== undefined ? { selection: input.selection } : {}),
         ...(input.match !== undefined ? { match: input.match } : {}),
@@ -407,8 +441,37 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       include: { group: { select: { name: true } } },
     });
 
-    const photoUrls = await resolvePhotoUrls([tip.photoPath]);
-    return serializeTip(tip, photoUrls);
+    const [photoUrls, myTakes] = await Promise.all([
+      resolvePhotoUrls([tip.photoPath]),
+      fetchMyTakes([tip.id], request.authUser!.id),
+    ]);
+    return serializeTip(tip, photoUrls, myTakes.get(tip.id));
+  });
+
+  // Acompanhamento pessoal: se EU peguei essa tip, e se peguei, com qual
+  // unidade/odd/casa. Sempre grava no próprio usuário (nunca um userId do
+  // corpo) — qualquer um com telegram_banca pode usar, sem gate de admin.
+  app.patch<{ Params: { id: string } }>("/:id/take", async (request, reply) => {
+    const parsed = UpdateTelegramTipTakeInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    const userId = request.authUser!.id;
+    const tipId = request.params.id;
+    const input = parsed.data;
+
+    await prisma.telegramTipTake.upsert({
+      where: { tipId_userId: { tipId, userId } },
+      create: { tipId, userId, ...input },
+      update: input,
+    });
+
+    const tip = await prisma.telegramTip.findUniqueOrThrow({
+      where: { id: tipId },
+      include: { group: { select: { name: true } } },
+    });
+    const [photoUrls, myTakes] = await Promise.all([resolvePhotoUrls([tip.photoPath]), fetchMyTakes([tipId], userId)]);
+    return serializeTip(tip, photoUrls, myTakes.get(tipId));
   });
 
   // Apaga a tip de vez (chat/correção que nunca devia ter virado tip, ou
@@ -441,11 +504,14 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   });
 
   // ── Gestão de banca ───────────────────────────────────────────────────
-  // "geral" = todas as tips resolvidas, independente de terem sido apostadas
-  // de fato (mede o grupo/tipster); "peguei" = só as marcadas como
-  // takenStatus "taken" (mede o resultado real do usuário).
+  // "geral" = todas as tips resolvidas com o registro OFICIAL (mede o
+  // grupo/tipster, igual pra todo mundo); "peguei" = só as que este usuário
+  // marcou como tomadas, com a unidade/odd/casa PESSOAIS dele — pode diferir
+  // do oficial (stake menor, casa diferente etc.). result sempre é oficial
+  // nos dois (é um fato objetivo, não uma escolha pessoal).
   app.get<{ Querystring: { bookmaker?: string; days?: string } }>("/banca", async (request) => {
     const bookmaker = request.query.bookmaker?.trim();
+    const userId = request.authUser!.id;
     // "7" | "30" | "90" | absent/"all" — scopes the whole summary (chart,
     // totals, breakdowns) to tips received in that window.
     const days = request.query.days ? Number(request.query.days) : null;
@@ -454,7 +520,6 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       prisma.telegramTip.findMany({
         where: {
           result: { not: "pending" },
-          ...(bookmaker ? { bookmaker } : {}),
           ...(since ? { receivedAt: { gte: since } } : {}),
         },
         select: {
@@ -462,25 +527,38 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
           odd: true,
           bookmaker: true,
           result: true,
-          takenStatus: true,
           receivedAt: true,
           group: { select: { name: true } },
+          takes: { where: { userId }, select: { takenStatus: true, unit: true, odd: true, bookmaker: true } },
         },
       }),
-      prisma.telegramBancaSettings.findUnique({ where: { userId: request.authUser!.id } }),
+      prisma.telegramBancaSettings.findUnique({ where: { userId } }),
     ]);
     const unitValue = settings?.unitValue !== null && settings?.unitValue !== undefined ? Number(settings.unitValue) : null;
 
-    const source: BancaSourceRow[] = rows.map((r) => ({
-      unit: r.unit,
-      odd: r.odd,
-      bookmaker: r.bookmaker,
-      result: r.result,
-      takenStatus: r.takenStatus,
-      groupName: r.group.name,
-      receivedAt: r.receivedAt,
-    }));
-    const taken = source.filter((r) => r.takenStatus === "taken");
+    const source: BancaSourceRow[] = rows
+      .filter((r) => !bookmaker || r.bookmaker === bookmaker)
+      .map((r) => ({
+        unit: r.unit,
+        odd: r.odd,
+        bookmaker: r.bookmaker,
+        result: r.result,
+        groupName: r.group.name,
+        receivedAt: r.receivedAt,
+      }));
+    const taken: BancaSourceRow[] = rows
+      .filter((r) => r.takes[0]?.takenStatus === "taken" && (!bookmaker || r.takes[0].bookmaker === bookmaker))
+      .map((r) => {
+        const mine = r.takes[0]!;
+        return {
+          unit: mine.unit,
+          odd: mine.odd,
+          bookmaker: mine.bookmaker,
+          result: r.result,
+          groupName: r.group.name,
+          receivedAt: r.receivedAt,
+        };
+      });
 
     // Uma linha só somando tudo (independente de grupo/casa) — alimenta o
     // "Banca Atual" do perfil: Banca Inicial (saldo depositado) + lucro em

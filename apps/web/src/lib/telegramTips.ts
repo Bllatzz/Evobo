@@ -6,6 +6,7 @@ import type {
   TelegramBancaSettings,
   TelegramBookmakerBalance,
   UpdateTelegramTipInput,
+  UpdateTelegramTipTakeInput,
   UpdateTelegramBancaSettingsInput,
 } from "@evobo/shared-types";
 
@@ -41,8 +42,13 @@ export function fetchTelegramTips(filter: TelegramTipsFilter = {}): Promise<Tele
   return apiFetch(`/telegram-tips${qs ? `?${qs}` : ""}`);
 }
 
+/** Admin only — corrige o registro oficial (odd/unidade/casa/link/mercado/jogo/resultado). */
 export const patchTelegramTip = (id: string, input: UpdateTelegramTipInput): Promise<TelegramTip> =>
   apiFetch(`/telegram-tips/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+
+/** Acompanhamento pessoal — se EU peguei, com qual unidade/odd/casa. Sempre no próprio usuário. */
+export const patchTelegramTipTake = (id: string, input: UpdateTelegramTipTakeInput): Promise<TelegramTip> =>
+  apiFetch(`/telegram-tips/${id}/take`, { method: "PATCH", body: JSON.stringify(input) });
 
 /** Admin only — apaga a tip de vez (nunca a foto, que outras tips do mesmo bilhete podem compartilhar). */
 export const deleteTelegramTip = (id: string): Promise<{ deleted: boolean }> =>

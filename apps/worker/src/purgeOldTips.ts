@@ -7,8 +7,9 @@ const BATCH_SIZE = 200;
  * Controle de custo de armazenamento: tips RESOLVIDAS (green/red/reembolso)
  * com mais de 60 dias perdem a foto (Storage) e os campos de detalhe
  * (mercado, jogo, link, texto bruto, padrão do parser) — mantendo só o que
- * GET /banca soma pra métrica (grupo, casa, unidade, odd, resultado,
- * takenStatus, data). Tips ainda `pending` nunca são tocadas, não importa a
+ * GET /banca soma pra métrica (grupo, casa, unidade, odd, resultado, data).
+ * O acompanhamento pessoal (TelegramTipTake — peguei/unidade/odd/casa de
+ * cada usuário) é outra tabela, não é tocado aqui. Tips ainda `pending` nunca são tocadas, não importa a
  * idade: limpar antes de resolver perderia a foto que o admin precisa pra
  * decidir o resultado. Idempotente — só pega linhas que ainda têm algo pra
  * limpar, então rodar todo dia é barato mesmo sem nada novo pra fazer.

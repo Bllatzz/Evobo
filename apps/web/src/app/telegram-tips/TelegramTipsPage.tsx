@@ -6,7 +6,7 @@ import {
   fetchTelegramSettings,
   fetchBookmakerNames,
   fetchTelegramTipsSummary,
-  patchTelegramTip,
+  patchTelegramTipTake,
   deleteTelegramTip,
   type TelegramTip,
   type TelegramGroup,
@@ -14,6 +14,7 @@ import {
 } from "../../lib/telegramTips";
 import { Modal } from "../../components/Modal";
 import { Dropdown } from "../../components/Dropdown";
+import { BookmakerCombobox } from "../../components/BookmakerCombobox";
 import { bookmakerLabel } from "../../lib/bookmakers";
 import {
   IconTelegram,
@@ -37,14 +38,8 @@ const RESULT_FILTERS = [
 
 const TAKEN_FILTERS = [
   { key: "taken", label: "Peguei" },
-  { key: "pending", label: "Não peguei" },
-] as const;
-
-const RESULT_BUTTONS = [
-  { key: "pending", label: "Pendente", activeClassName: "bg-surface-alt text-text" },
-  { key: "green", label: "Green", activeClassName: "bg-accent-soft text-accent" },
-  { key: "red", label: "Red", activeClassName: "bg-live/10 text-live" },
-  { key: "reembolso", label: "Reemb.", activeClassName: "bg-vip-soft text-vip" },
+  { key: "skipped", label: "Não peguei" },
+  { key: "pending", label: "Não decidido" },
 ] as const;
 
 /** Compact status chip on each row: "NÃO PEGA" while untaken (result is
@@ -136,123 +131,6 @@ function groupTipsByMessage(tips: TelegramTip[]): MessageGroup[] {
   return [...map.values()];
 }
 
-/** Campo "Casa" de toda tip — digita e filtra. Duas seções: "Nessa tip" (as
- * casas que a própria mensagem já trazia, cada uma com o link real dela —
- * escolher uma troca bookmaker + betUrl junto) e, depois de uma linha
- * divisória, as demais casas já vistas em outras tips (só troca o rótulo,
- * não existe link pra elas aqui) — ou um nome novo, digitado na hora. */
-function BookmakerCombobox({
-  value,
-  options,
-  included,
-  onChange,
-}: {
-  value: string | null;
-  options: string[];
-  included: { bookmaker: string | null; betUrl: string | null }[];
-  onChange: (raw: string, betUrl?: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [open]);
-
-  const q = query.trim().toLowerCase();
-  const includedNames = new Set(included.map((o) => o.bookmaker).filter((b): b is string => !!b));
-  const otherOptions = options.filter((o) => !includedNames.has(o));
-
-  const filteredIncluded = q ? included.filter((o) => o.bookmaker && bookmakerLabel(o.bookmaker).toLowerCase().includes(q)) : included;
-  const filteredOther = q ? otherOptions.filter((o) => bookmakerLabel(o).toLowerCase().includes(q)) : otherOptions;
-  const exactMatch = options.some((o) => o.toLowerCase() === q) || included.some((o) => o.bookmaker?.toLowerCase() === q);
-
-  function commitIncluded(o: { bookmaker: string | null; betUrl: string | null }) {
-    if (!o.bookmaker) return;
-    onChange(o.bookmaker, o.betUrl);
-    setQuery("");
-    setOpen(false);
-  }
-
-  function commitFree(raw: string) {
-    const normalized = raw.trim().toLowerCase();
-    if (!normalized) {
-      setOpen(false);
-      return;
-    }
-    onChange(normalized);
-    setQuery("");
-    setOpen(false);
-  }
-
-  return (
-    <div ref={ref} className="relative">
-      <input
-        value={open ? query : bookmakerLabel(value)}
-        onFocus={() => {
-          setQuery("");
-          setOpen(true);
-        }}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && q) commitFree(query);
-          if (e.key === "Escape") setOpen(false);
-        }}
-        placeholder="Digite a casa"
-        className="w-full min-w-0 rounded bg-transparent text-[13px] font-bold text-text outline-none placeholder:text-[12px] placeholder:font-normal placeholder:text-text-tertiary"
-      />
-      {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 max-h-56 w-48 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent">
-          {filteredIncluded.length > 0 && (
-            <>
-              <div className="px-3 pb-1 pt-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">NESSA TIP</div>
-              {filteredIncluded.map((o) => (
-                <button
-                  key={o.bookmaker}
-                  type="button"
-                  onClick={() => commitIncluded(o)}
-                  className="block w-full truncate rounded-lg px-3 py-1.5 text-left text-[13px] font-semibold text-accent hover:bg-surface-alt"
-                >
-                  {bookmakerLabel(o.bookmaker)}
-                </button>
-              ))}
-              {filteredOther.length > 0 && <div className="my-1 border-t border-border-subtle" />}
-            </>
-          )}
-          {filteredOther.map((o) => (
-            <button
-              key={o}
-              type="button"
-              onClick={() => commitFree(o)}
-              className="block w-full truncate rounded-lg px-3 py-1.5 text-left text-[13px] text-text-secondary hover:bg-surface-alt"
-            >
-              {bookmakerLabel(o)}
-            </button>
-          ))}
-          {q && !exactMatch && (
-            <button
-              type="button"
-              onClick={() => commitFree(query)}
-              className="block w-full truncate rounded-lg px-3 py-1.5 text-left text-[13px] font-semibold text-accent"
-            >
-              Usar "{query.trim()}"
-            </button>
-          )}
-          {filteredIncluded.length === 0 && filteredOther.length === 0 && !q && (
-            <p className="px-3 py-1.5 text-[12px] text-text-tertiary">Nenhuma casa cadastrada ainda.</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function TipRow({
   tip,
   index,
@@ -287,8 +165,8 @@ function TipRow({
   // without needing a separate "peguei"/take step to get there.
   const [collapsed, setCollapsed] = useState(false);
 
-  const effUnit = draft?.unit ?? tip.unit;
-  const effOdd = draft?.odd ?? tip.odd;
+  const effUnit = draft?.unit ?? tip.mine.unit;
+  const effOdd = draft?.odd ?? tip.mine.odd;
   // Local, raw text for these two inputs — kept separate from effUnit/effOdd
   // (the parsed numbers) so a trailing "." or "," while typing (e.g. "1,")
   // survives the re-render instead of snapping back to "1" the instant
@@ -299,22 +177,18 @@ function TipRow({
   // somewhere to go before the user explicitly picks a casa — otherwise
   // every multi-bookmaker tip started with the link dead until that pick.
   const firstOption = tip.bookmakerOptions?.[0];
-  const effBookmaker = draft?.bookmaker ?? tip.bookmaker ?? firstOption?.bookmaker ?? null;
-  const effBetUrl = draft?.betUrl ?? tip.betUrl ?? firstOption?.betUrl ?? null;
+  const effBookmaker = draft?.bookmaker ?? tip.mine.bookmaker ?? firstOption?.bookmaker ?? null;
+  const effBetUrl = draft?.betUrl ?? tip.mine.betUrl ?? firstOption?.betUrl ?? null;
   const oddDrifted = tip.originalOdd !== null && tip.odd !== null && tip.originalOdd !== tip.odd;
   const betActive = !!effBetUrl;
-  const chip = tip.takenStatus === "taken" ? (STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!) : NAO_PEGA_CHIP;
-
-  async function setResult(result: (typeof RESULT_BUTTONS)[number]["key"]) {
-    onUpdate(await patchTelegramTip(tip.id, { result }));
-  }
+  const chip = tip.mine.takenStatus === "taken" ? (STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!) : NAO_PEGA_CHIP;
 
   // Untaken: a ghost "Pegar" button anyone can act on immediately, in both
   // the collapsed and expanded row. Taken: a filled "✓ Peguei" undo button
   // while expanded — but once collapsed (reviewed/done), the status chip
   // alone is enough, so the button drops to reduce noise on settled rows.
   const takenPill =
-    tip.takenStatus === "taken" ? (
+    tip.mine.takenStatus === "taken" ? (
       collapsed ? null : (
         <button
           onClick={() => onUntake(tip)}
@@ -439,25 +313,6 @@ function TipRow({
         </div>
       </div>
 
-      {isAdmin && (
-        <>
-          <span className="mb-1 block text-[10px] text-text-secondary">Resultado</span>
-          <div className="mb-3 flex gap-1.5">
-            {RESULT_BUTTONS.map((r) => (
-              <button
-                key={r.key}
-                onClick={() => setResult(r.key)}
-                className={`flex-1 rounded-lg py-1.5 text-[11px] font-semibold ${
-                  tip.result === r.key ? r.activeClassName : "bg-surface-chip text-text-tertiary"
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
       <a
         href={betActive ? effBetUrl! : undefined}
         target={betActive ? "_blank" : undefined}
@@ -477,15 +332,15 @@ function TipRow({
         <button
           onClick={() => onTake(tip)}
           className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 text-[12px] font-bold ${
-            tip.takenStatus === "taken" ? "bg-accent text-[#08090A]" : "bg-surface-chip text-text-tertiary"
+            tip.mine.takenStatus === "taken" ? "bg-accent text-[#08090A]" : "bg-surface-chip text-text-tertiary"
           }`}
         >
-          {tip.takenStatus === "taken" && <IconCheck size={11} />} Peguei
+          {tip.mine.takenStatus === "taken" && <IconCheck size={11} />} Peguei
         </button>
         <button
           onClick={() => onUntake(tip)}
           className={`flex-1 rounded-lg py-2.5 text-[12px] font-bold ${
-            tip.takenStatus !== "taken" ? "bg-live text-[#08090A]" : "bg-surface-chip text-text-tertiary"
+            tip.mine.takenStatus === "skipped" ? "bg-live text-[#08090A]" : "bg-surface-chip text-text-tertiary"
           }`}
         >
           Não peguei
@@ -527,7 +382,7 @@ function MessageGroupCard({
   const [saving, setSaving] = useState(false);
 
   const tipsCount = group.tips.length;
-  const pegasCount = group.tips.filter((t) => t.takenStatus === "taken").length;
+  const pegasCount = group.tips.filter((t) => t.mine.takenStatus === "taken").length;
   const draftCount = group.tips.filter((t) => drafts[t.id]).length;
 
   return (
@@ -1005,7 +860,7 @@ export function TelegramTipsPage() {
 
   function updateDraft(tip: TelegramTip, patch: Partial<DraftEdit>) {
     setDrafts((prev) => {
-      const base = prev[tip.id] ?? { unit: tip.unit, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl };
+      const base = prev[tip.id] ?? { unit: tip.mine.unit, odd: tip.mine.odd, bookmaker: tip.mine.bookmaker, betUrl: tip.mine.betUrl };
       return { ...prev, [tip.id]: { ...base, ...patch } };
     });
   }
@@ -1020,7 +875,7 @@ export function TelegramTipsPage() {
   }
 
   async function untake(tip: TelegramTip) {
-    const updated = await patchTelegramTip(tip.id, { takenStatus: "pending" });
+    const updated = await patchTelegramTipTake(tip.id, { takenStatus: "skipped" });
     updateTip(updated);
     discardDraft(tip.id);
     refreshSummary();
@@ -1054,8 +909,8 @@ export function TelegramTipsPage() {
   // Per-row instant take: marks this one tip taken, folding in whatever
   // local unit/odd/casa edits are sitting in its draft (if any).
   async function takeTip(tip: TelegramTip) {
-    const d = drafts[tip.id] ?? { unit: tip.unit, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl };
-    const updated = await patchTelegramTip(tip.id, {
+    const d = drafts[tip.id] ?? { unit: tip.mine.unit, odd: tip.mine.odd, bookmaker: tip.mine.bookmaker, betUrl: tip.mine.betUrl };
+    const updated = await patchTelegramTipTake(tip.id, {
       unit: d.unit,
       odd: d.odd,
       bookmaker: d.bookmaker,
@@ -1077,7 +932,7 @@ export function TelegramTipsPage() {
     const results = await Promise.all(
       toSave.map((tip) => {
         const d = drafts[tip.id]!;
-        return patchTelegramTip(tip.id, { unit: d.unit, odd: d.odd, bookmaker: d.bookmaker, betUrl: d.betUrl });
+        return patchTelegramTipTake(tip.id, { unit: d.unit, odd: d.odd, bookmaker: d.bookmaker, betUrl: d.betUrl });
       }),
     );
     results.forEach(updateTip);

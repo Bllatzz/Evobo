@@ -83,6 +83,7 @@ model User {
   tipTakes         TipTake[]
   telegramBancaSettings    TelegramBancaSettings?
   telegramBookmakerBalances TelegramBookmakerBalance[]
+  telegramTipTakes         TelegramTipTake[]
 
   @@map("users")
 }
@@ -454,12 +455,9 @@ model TelegramTip {
   /// dashboard shows a select; picking one PATCHes bookmaker/betUrl above.
   bookmakerOptions  Json?    @map("bookmaker_options")
   photoPath         String?  @map("photo_path")
-  /// pending | green | red | reembolso
+  /// pending | green | red | reembolso — official grading, admin-only
+  /// (see AdminTelegramTipsPage), independent of any user's own take.
   result            String   @default("pending")
-  /// Whether the user actually placed this bet — "pending" | "taken" | "skipped".
-  /// Set manually on the dashboard for now; reading the user's own 👍 reaction
-  /// on the Telegram message to set this automatically is future work.
-  takenStatus       String   @default("pending") @map("taken_status")
   /// Which parser matcher recognized the message (see apps/worker/src/parseTip.ts's
   /// KNOWN_PATTERNS) — null means nothing matched and every extractable field
   /// still needs a manual look on the dashboard.
@@ -467,11 +465,38 @@ model TelegramTip {
   receivedAt        DateTime @default(now()) @map("received_at")
   rawMessage        String?  @map("raw_message")
 
-  group TelegramGroup @relation(fields: [groupId], references: [id])
+  group TelegramGroup    @relation(fields: [groupId], references: [id])
+  takes TelegramTipTake[]
 
   @@index([telegramMessageId])
   @@index([groupId])
   @@map("telegram_tips")
+}
+
+/// Per-user personal tracking for one TelegramTip: whether they took it,
+/// and — if so — what unit/odd/casa they personally used (may differ from
+/// the tip's own official unit/odd/bookmaker, e.g. a smaller stake or a
+/// different house). One row per (tip, user), created lazily on first
+/// PATCH /telegram-tips/:id/take. Split out of TelegramTip itself so two
+/// people tracking the same tip never overwrite each other.
+model TelegramTipTake {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipId  String @map("tip_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  /// "pending" (never explicitly set — the true default) | "taken" | "skipped".
+  takenStatus String   @default("pending") @map("taken_status")
+  unit        Decimal? @db.Decimal(5, 2)
+  odd         Decimal? @db.Decimal(6, 2)
+  bookmaker   String?
+  betUrl      String?  @map("bet_url")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tip  TelegramTip @relation(fields: [tipId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [userId], references: [id])
+
+  @@unique([tipId, userId])
+  @@index([userId])
+  @@map("telegram_tip_takes")
 }
 
 /// Per-user bankroll settings for the Banca Telegram report — value of 1

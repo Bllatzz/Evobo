@@ -40,8 +40,8 @@ function betProfit(tip: ProfileTip): number {
 }
 
 function telegramTipProfit(tip: TelegramTip): number {
-  const unit = tip.unit ?? 0;
-  if (tip.result === "green") return tip.odd ? unit * (tip.odd - 1) : 0;
+  const unit = tip.mine.unit ?? 0;
+  if (tip.result === "green") return tip.mine.odd ? unit * (tip.mine.odd - 1) : 0;
   if (tip.result === "red") return -unit;
   return 0; // reembolso — nem ganho nem perda
 }
@@ -319,9 +319,9 @@ function telegramRow(t: TelegramTip): UnifiedTipRow {
     title: t.match ?? t.groupName,
     subtitle: t.selection ?? "—",
     timeLabel: timeAgo(t.receivedAt),
-    bookmaker: t.bookmaker ?? "—",
-    stakeLabel: t.unit != null ? formatUnits(t.unit) : "—",
-    oddLabel: t.odd != null ? formatOdds(t.odd) : "—",
+    bookmaker: t.mine.bookmaker ?? "—",
+    stakeLabel: t.mine.unit != null ? formatUnits(t.mine.unit) : "—",
+    oddLabel: t.mine.odd != null ? formatOdds(t.mine.odd) : "—",
     profitValue: profit,
     status: t.result,
     date: new Date(t.receivedAt).getTime(),
