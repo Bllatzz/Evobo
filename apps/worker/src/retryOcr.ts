@@ -19,6 +19,10 @@ export async function retryMissingOcr(): Promise<{ groupsEnqueued: number; tipsE
     byPhoto.set(tip.photoPath!, list);
   }
 
+  // Mesma tolerância a instabilidade transitória (ex.: o túnel do Ollama
+  // cair um instante) que processMessage.ts já usa pro OCR de mensagem nova.
+  const retryOpts = { attempts: 3, backoff: { type: "exponential" as const, delay: 5_000 } };
+
   for (const [photoPath, tips] of byPhoto) {
     const tipsToFill = tips.map((t) => ({
       id: t.id,
@@ -26,7 +30,7 @@ export async function retryMissingOcr(): Promise<{ groupsEnqueued: number; tipsE
       needGame: t.match === null,
       needOdd: t.odd === null,
     }));
-    await extractDetailsQueue.add("extract", { photoPath, kind: tips.length > 1 ? "rows" : "combo", tips: tipsToFill });
+    await extractDetailsQueue.add("extract", { photoPath, kind: tips.length > 1 ? "rows" : "combo", tips: tipsToFill }, retryOpts);
   }
 
   return { groupsEnqueued: byPhoto.size, tipsEnqueued: candidates.length };
