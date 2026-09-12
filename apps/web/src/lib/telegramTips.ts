@@ -126,3 +126,8 @@ export const rebuildTelegramTips = (
 
 export const saveBookmakerBalances = (rows: TelegramBookmakerBalance[]): Promise<TelegramBookmakerBalance[]> =>
   apiFetch("/telegram-tips/bookmaker-balances", { method: "PUT", body: JSON.stringify(rows) });
+
+/** Admin only — reenfileira OCR só pras tips que já existem mas ainda faltam
+ * odd/mercado/jogo (a foto já foi baixada) — nunca apaga/recria a tip. */
+export const retryMissingOcr = (): Promise<{ groupsEnqueued: number; tipsEnqueued: number }> =>
+  apiFetch("/telegram-tips/admin/retry-ocr", { method: "POST" });

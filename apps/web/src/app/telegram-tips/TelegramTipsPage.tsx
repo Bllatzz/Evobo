@@ -163,20 +163,23 @@ function TipRow({
   // without needing a separate "peguei"/take step to get there.
   const [collapsed, setCollapsed] = useState(false);
 
-  const effUnit = draft?.unit ?? tip.mine.unit;
-  const effOdd = draft?.odd ?? tip.mine.odd;
+  // Sem take pessoal ainda, começa igual ao oficial (a odd/unidade que o
+  // tipster passou) — só diverge quando o usuário realmente edita, que é
+  // raro; sem isso os campos nasceriam em branco toda tip nova.
+  const effUnit = draft?.unit ?? tip.mine.unit ?? tip.unit;
+  const effOdd = draft?.odd ?? tip.mine.odd ?? tip.odd;
   // Local, raw text for these two inputs — kept separate from effUnit/effOdd
   // (the parsed numbers) so a trailing "." or "," while typing (e.g. "1,")
   // survives the re-render instead of snapping back to "1" the instant
   // parseDraftNumber rounds it down to a plain number.
   const [unitText, setUnitText] = useState(() => (effUnit != null ? String(effUnit) : ""));
   const [oddText, setOddText] = useState(() => (effOdd != null ? String(effOdd) : ""));
-  // Falls back to the first parsed option so "Abrir aposta" already has
-  // somewhere to go before the user explicitly picks a casa — otherwise
-  // every multi-bookmaker tip started with the link dead until that pick.
+  // Falls back to the official casa, then the first parsed option, so
+  // "Abrir aposta" already has somewhere to go before the user explicitly
+  // picks a casa — otherwise every tip started with the link dead.
   const firstOption = tip.bookmakerOptions?.[0];
-  const effBookmaker = draft?.bookmaker ?? tip.mine.bookmaker ?? firstOption?.bookmaker ?? null;
-  const effBetUrl = draft?.betUrl ?? tip.mine.betUrl ?? firstOption?.betUrl ?? null;
+  const effBookmaker = draft?.bookmaker ?? tip.mine.bookmaker ?? tip.bookmaker ?? firstOption?.bookmaker ?? null;
+  const effBetUrl = draft?.betUrl ?? tip.mine.betUrl ?? tip.betUrl ?? firstOption?.betUrl ?? null;
   const oddDrifted = tip.originalOdd !== null && tip.odd !== null && tip.originalOdd !== tip.odd;
   const betActive = !!effBetUrl;
   const chip = tip.mine.takenStatus === "taken" ? (STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!) : NAO_PEGA_CHIP;
@@ -855,7 +858,12 @@ export function TelegramTipsPage() {
 
   function updateDraft(tip: TelegramTip, patch: Partial<DraftEdit>) {
     setDrafts((prev) => {
-      const base = prev[tip.id] ?? { unit: tip.mine.unit, odd: tip.mine.odd, bookmaker: tip.mine.bookmaker, betUrl: tip.mine.betUrl };
+      const base = prev[tip.id] ?? {
+        unit: tip.mine.unit ?? tip.unit,
+        odd: tip.mine.odd ?? tip.odd,
+        bookmaker: tip.mine.bookmaker ?? tip.bookmaker,
+        betUrl: tip.mine.betUrl ?? tip.betUrl,
+      };
       return { ...prev, [tip.id]: { ...base, ...patch } };
     });
   }
@@ -904,7 +912,12 @@ export function TelegramTipsPage() {
   // Per-row instant take: marks this one tip taken, folding in whatever
   // local unit/odd/casa edits are sitting in its draft (if any).
   async function takeTip(tip: TelegramTip) {
-    const d = drafts[tip.id] ?? { unit: tip.mine.unit, odd: tip.mine.odd, bookmaker: tip.mine.bookmaker, betUrl: tip.mine.betUrl };
+    const d = drafts[tip.id] ?? {
+      unit: tip.mine.unit ?? tip.unit,
+      odd: tip.mine.odd ?? tip.odd,
+      bookmaker: tip.mine.bookmaker ?? tip.bookmaker,
+      betUrl: tip.mine.betUrl ?? tip.betUrl,
+    };
     const updated = await patchTelegramTipTake(tip.id, {
       unit: d.unit,
       odd: d.odd,

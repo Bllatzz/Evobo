@@ -8,6 +8,8 @@ import { startExtractDetailsWorker } from "./queues/extractDetailsWorker.js";
 import { purgeOldTips } from "./purgeOldTips.js";
 import { backfillSince } from "./backfillRange.js";
 
+export { retryMissingOcr } from "./retryOcr.js";
+
 const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // Set once startTelegramWorker's client connects — reused by

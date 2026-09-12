@@ -5,6 +5,7 @@ import {
   fetchTelegramGroups,
   fetchBookmakerNames,
   patchTelegramTip,
+  retryMissingOcr,
   type TelegramTip,
   type TelegramGroup,
 } from "../../../lib/telegramTips";
@@ -288,6 +289,8 @@ export function AdminTelegramTipsPage() {
   const [result, setResult] = useState("");
   const [search, setSearch] = useState("");
   const [missing, setMissing] = useState<string[]>([]);
+  const [retrying, setRetrying] = useState(false);
+  const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -366,7 +369,7 @@ export function AdminTelegramTipsPage() {
           />
           <span className="ml-auto flex-none font-mono text-[12px] text-text-tertiary">{total} tip(s)</span>
         </div>
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           {MISSING_FILTERS.map((f) => (
             <button
               key={f.key}
@@ -378,7 +381,24 @@ export function AdminTelegramTipsPage() {
               {f.label}
             </button>
           ))}
+          <button
+            onClick={async () => {
+              setRetrying(true);
+              setRetryMessage(null);
+              try {
+                const res = await retryMissingOcr();
+                setRetryMessage(`${res.tipsEnqueued} tip(s) em ${res.groupsEnqueued} foto(s) reenfileiradas — pode levar alguns minutos.`);
+              } finally {
+                setRetrying(false);
+              }
+            }}
+            disabled={retrying}
+            className="ml-auto flex-none rounded-full bg-accent-soft px-3.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.02em] text-accent disabled:opacity-50"
+          >
+            {retrying ? "Reenfileirando…" : "Reprocessar OCR (faltando)"}
+          </button>
         </div>
+        {retryMessage && <p className="mt-2 text-[12px] text-text-tertiary">{retryMessage}</p>}
       </div>
 
       {tips === null && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}

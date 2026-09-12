@@ -518,6 +518,17 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     return { results };
   });
 
+  // Reenfileira OCR só pra tips que já existem mas ainda faltam odd/mercado/
+  // jogo (a foto já foi baixada) — nunca apaga/recria a tip, só preenche o
+  // que falta. Sem parâmetro de período: sempre pega TODAS as tips
+  // incompletas com foto, não só uma janela. Admin only, não-destrutivo.
+  app.post("/admin/retry-ocr", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const { retryMissingOcr } = await import("@evobo/worker");
+    const result = await retryMissingOcr();
+    return result;
+  });
+
   // ── Gestão de banca ───────────────────────────────────────────────────
   // "geral" = todas as tips resolvidas com o registro OFICIAL (mede o
   // grupo/tipster, igual pra todo mundo); "peguei" = só as que este usuário
