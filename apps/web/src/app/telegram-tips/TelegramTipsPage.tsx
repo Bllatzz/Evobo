@@ -731,7 +731,7 @@ function PeriodFilter({
         <IconChevronDown size={13} className={`flex-none transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute right-0 z-20 mt-1.5 w-56 rounded-xl border border-border bg-surface p-1 shadow-lg">
+        <div className="absolute right-0 z-20 mt-1.5 w-80 rounded-xl border border-border bg-surface p-1 shadow-lg">
           <div className="px-3 pb-1 pt-2 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">PERÍODO</div>
           {PERIOD_PRESETS.map((p) => (
             <button
