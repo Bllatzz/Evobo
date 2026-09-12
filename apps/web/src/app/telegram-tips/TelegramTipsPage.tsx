@@ -165,6 +165,12 @@ function TipRow({
 
   const effUnit = draft?.unit ?? tip.unit;
   const effOdd = draft?.odd ?? tip.odd;
+  // Local, raw text for these two inputs — kept separate from effUnit/effOdd
+  // (the parsed numbers) so a trailing "." or "," while typing (e.g. "1,")
+  // survives the re-render instead of snapping back to "1" the instant
+  // parseDraftNumber rounds it down to a plain number.
+  const [unitText, setUnitText] = useState(() => (effUnit != null ? String(effUnit) : ""));
+  const [oddText, setOddText] = useState(() => (effOdd != null ? String(effOdd) : ""));
   // Falls back to the first parsed option so "Abrir aposta" already has
   // somewhere to go before the user explicitly picks a casa — otherwise
   // every multi-bookmaker tip started with the link dead until that pick.
@@ -251,9 +257,12 @@ function TipRow({
           <span className="text-[10px] text-text-secondary">Unidade</span>
           <input
             inputMode="decimal"
-            value={effUnit ?? ""}
+            value={unitText}
             onFocus={(e) => e.currentTarget.select()}
-            onChange={(e) => onUpdateDraft(tip, { unit: parseDraftNumber(e.target.value) })}
+            onChange={(e) => {
+              setUnitText(e.target.value);
+              onUpdateDraft(tip, { unit: parseDraftNumber(e.target.value) });
+            }}
             className="w-full rounded bg-transparent font-mono text-[14px] font-bold text-accent outline-none"
           />
           {effUnit != null && unitValue != null && (
@@ -264,9 +273,12 @@ function TipRow({
           <span className="text-[10px] text-text-secondary">Minha odd</span>
           <input
             inputMode="decimal"
-            value={effOdd ?? ""}
+            value={oddText}
             onFocus={(e) => e.currentTarget.select()}
-            onChange={(e) => onUpdateDraft(tip, { odd: parseDraftNumber(e.target.value) })}
+            onChange={(e) => {
+              setOddText(e.target.value);
+              onUpdateDraft(tip, { odd: parseDraftNumber(e.target.value) });
+            }}
             className="w-full rounded bg-transparent font-mono text-[14px] font-bold outline-none"
           />
           {oddDrifted && (
