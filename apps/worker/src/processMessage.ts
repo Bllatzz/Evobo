@@ -48,6 +48,11 @@ export async function processMessage(message: Api.Message, group: TelegramGroup)
         data: {
           groupId: group.id,
           telegramMessageId: BigInt(message.id),
+          // Data real da mensagem no Telegram, não o momento em que este
+          // processo a importou — sem isso, um rebuild/backfill faz toda tip
+          // reimportada "chegar" na hora do rebuild em vez da hora real,
+          // quebrando filtros por data (relatório, "hoje", janela do rebuild).
+          receivedAt: new Date(message.date * 1000),
           match: parsed.match ?? null,
           selection: sel.text ?? "",
           unit: sel.unit,

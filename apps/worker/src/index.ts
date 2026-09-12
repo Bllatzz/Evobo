@@ -18,9 +18,9 @@ let liveClient: TelegramClient | null = null;
 /** On-demand backfill triggered from the API (see the admin route) instead
  * of the standalone script — reuses the already-connected live session.
  * Throws if the worker hasn't finished connecting yet. */
-export async function runBackfillSince(sinceUnix: number) {
+export async function runBackfillSince(sinceUnix: number, untilUnix?: number) {
   if (!liveClient) throw new Error("telegram worker not connected yet");
-  return backfillSince(liveClient, sinceUnix);
+  return backfillSince(liveClient, sinceUnix, untilUnix);
 }
 
 /** Telegram MTProto listener + OCR queue consumer. Exported (rather than

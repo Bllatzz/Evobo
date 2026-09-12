@@ -293,20 +293,22 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   });
 
   // Reset pontual pra reconstruir o histórico com o parser já corrigido —
-  // apaga tudo e reimporta desde `sinceUnix` reusando a sessão MTProto já
-  // conectada do worker (roda no mesmo processo, sem SSH nem conexão
-  // duplicada). Admin only, ação destrutiva.
-  app.post<{ Body: { sinceUnix: number } }>("/admin/rebuild", async (request, reply) => {
+  // apaga e reimporta só as tips de mensagens em [sinceUnix, untilUnix]
+  // (untilUnix omitido = até agora), reusando a sessão MTProto já conectada
+  // do worker (roda no mesmo processo, sem SSH nem conexão duplicada).
+  // Tudo fora da janela fica intocado. Admin only, ação destrutiva.
+  app.post<{ Body: { sinceUnix: number; untilUnix?: number } }>("/admin/rebuild", async (request, reply) => {
     if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
-    const { sinceUnix } = request.body ?? {};
+    const { sinceUnix, untilUnix } = request.body ?? {};
     if (typeof sinceUnix !== "number" || !Number.isFinite(sinceUnix)) {
       return reply.code(400).send({ error: "invalid_input", details: "sinceUnix (unix seconds) is required" });
     }
-
-    await prisma.telegramTip.deleteMany({});
+    if (untilUnix !== undefined && (typeof untilUnix !== "number" || !Number.isFinite(untilUnix))) {
+      return reply.code(400).send({ error: "invalid_input", details: "untilUnix, when given, must be unix seconds" });
+    }
 
     const { runBackfillSince } = await import("@evobo/worker");
-    const results = await runBackfillSince(sinceUnix);
+    const results = await runBackfillSince(sinceUnix, untilUnix);
     return { results };
   });
 

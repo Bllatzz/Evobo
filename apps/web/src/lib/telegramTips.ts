@@ -77,8 +77,12 @@ export const fetchBookmakerNames = (): Promise<string[]> => apiFetch("/telegram-
  * Telegram session. Destructive; the caller should confirm first. */
 export const rebuildTelegramTips = (
   sinceUnix: number,
+  untilUnix?: number,
 ): Promise<{ results: { group: string; messages: number; created: number; skipped: number }[] }> =>
-  apiFetch("/telegram-tips/admin/rebuild", { method: "POST", body: JSON.stringify({ sinceUnix }) });
+  apiFetch("/telegram-tips/admin/rebuild", {
+    method: "POST",
+    body: JSON.stringify(untilUnix !== undefined ? { sinceUnix, untilUnix } : { sinceUnix }),
+  });
 
 export const saveBookmakerBalances = (rows: TelegramBookmakerBalance[]): Promise<TelegramBookmakerBalance[]> =>
   apiFetch("/telegram-tips/bookmaker-balances", { method: "PUT", body: JSON.stringify(rows) });

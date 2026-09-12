@@ -160,29 +160,51 @@ function RobotMarketOddsCard() {
   );
 }
 
-/** Fixo em 10/09/2026 00:00 América/São Paulo, como unix seconds — data a
- * partir da qual "reconstruir do zero" sempre reimporta. */
-const REBUILD_SINCE_UNIX = Date.UTC(2026, 8, 10, 3, 0, 0) / 1000;
-const REBUILD_SINCE_LABEL = "10/09/2026";
+/** "YYYY-MM-DDTHH:mm" agora, pro valor default do input "Até". */
+function nowDatetimeLocal(): string {
+  const d = new Date();
+  d.setSeconds(0, 0);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+/** "YYYY-MM-DDTHH:mm" de 2026-09-10 00:00, pro valor default do input "De". */
+const DEFAULT_SINCE_DATETIME_LOCAL = "2026-09-10T00:00";
 
 /**
- * Apaga toda a tip do Telegram e reimporta desde REBUILD_SINCE_UNIX, reusando
- * a sessão MTProto já conectada do worker (roda dentro da própria API, sem
- * SSH). Ação destrutiva — dupla confirmação antes de disparar.
+ * Apaga e reimporta só as tips de mensagens dentro de [De, Até] (o resto do
+ * histórico fica intocado), reusando a sessão MTProto já conectada do worker
+ * (roda dentro da própria API, sem SSH). Ação destrutiva — dupla confirmação
+ * antes de disparar.
  */
 function TelegramRebuildCard() {
+  const [sinceDatetime, setSinceDatetime] = useState(DEFAULT_SINCE_DATETIME_LOCAL);
+  const [untilDatetime, setUntilDatetime] = useState(nowDatetimeLocal());
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ group: string; messages: number; created: number; skipped: number }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
-    if (!confirm(`Isso apaga TODAS as tips do VIP Telegram e reimporta tudo desde ${REBUILD_SINCE_LABEL} 00:00. Confirma?`)) return;
+    const sinceUnix = Math.floor(new Date(sinceDatetime).getTime() / 1000);
+    const untilUnix = untilDatetime ? Math.floor(new Date(untilDatetime).getTime() / 1000) : undefined;
+    if (!Number.isFinite(sinceUnix) || (untilUnix !== undefined && !Number.isFinite(untilUnix))) {
+      setError("Data inválida");
+      return;
+    }
+    const sinceLabel = new Date(sinceDatetime).toLocaleString("pt-BR");
+    const untilLabel = untilDatetime ? new Date(untilDatetime).toLocaleString("pt-BR") : "agora";
+    if (
+      !confirm(
+        `Isso apaga e reimporta as tips do VIP Telegram entre ${sinceLabel} e ${untilLabel}. Tips fora dessa janela ficam intactas. Confirma?`,
+      )
+    )
+      return;
     if (!confirm("Tem certeza? Essa ação não pode ser desfeita.")) return;
     setRunning(true);
     setError(null);
     setResult(null);
     try {
-      const { results } = await rebuildTelegramTips(REBUILD_SINCE_UNIX);
+      const { results } = await rebuildTelegramTips(sinceUnix, untilUnix);
       setResult(results);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao reconstruir");
@@ -193,23 +215,43 @@ function TelegramRebuildCard() {
 
   return (
     <div className="rounded-2xl border border-live/30 bg-surface">
-      <div className="flex items-center gap-3.5 p-4">
+      <div className="flex flex-wrap items-center gap-3.5 p-4">
         <div className="flex h-10 w-10 flex-none items-center justify-center rounded-[10px] bg-live/10 text-live">
           <IconTelegram size={18} />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[14.5px] font-semibold">VIP Telegram · reconstruir do zero</div>
+        <div className="min-w-[220px] flex-1">
+          <div className="text-[14.5px] font-semibold">VIP Telegram · reconstruir por período</div>
           <div className="mt-0.5 text-[12px] text-text-tertiary">
-            Apaga toda tip e reimporta desde {REBUILD_SINCE_LABEL}, com o parser atual. Ação destrutiva.
+            Apaga e reimporta só as tips de mensagens entre "De" e "Até", com o parser atual. O resto do histórico fica intacto. Ação destrutiva.
           </div>
         </div>
-        <button
-          onClick={handleClick}
-          disabled={running}
-          className="flex-none rounded-[11px] border border-live/40 px-4 py-2 text-[13px] font-semibold text-live disabled:opacity-50"
-        >
-          {running ? "Reconstruindo…" : "Reconstruir"}
-        </button>
+        <div className="flex flex-none flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[12px] text-text-tertiary">
+            De
+            <input
+              type="datetime-local"
+              value={sinceDatetime}
+              onChange={(e) => setSinceDatetime(e.target.value)}
+              className="rounded-[11px] border border-border-strong bg-surface-chip px-2.5 py-2 text-[13px] text-text"
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-[12px] text-text-tertiary">
+            Até
+            <input
+              type="datetime-local"
+              value={untilDatetime}
+              onChange={(e) => setUntilDatetime(e.target.value)}
+              className="rounded-[11px] border border-border-strong bg-surface-chip px-2.5 py-2 text-[13px] text-text"
+            />
+          </label>
+          <button
+            onClick={handleClick}
+            disabled={running}
+            className="flex-none rounded-[11px] border border-live/40 px-4 py-2 text-[13px] font-semibold text-live disabled:opacity-50"
+          >
+            {running ? "Reconstruindo…" : "Reconstruir"}
+          </button>
+        </div>
       </div>
       {error && <p className="border-t border-border px-4 py-3 text-[12.5px] text-live">{error}</p>}
       {result && (
