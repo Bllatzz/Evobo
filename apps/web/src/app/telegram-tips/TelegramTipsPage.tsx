@@ -137,7 +137,6 @@ function TipRow({
   draft,
   unitValue,
   bookmakers,
-  onUpdate,
   onUpdateDraft,
   onTake,
   onUntake,
@@ -149,7 +148,6 @@ function TipRow({
   draft: DraftEdit | undefined;
   unitValue: number | null;
   bookmakers: string[];
-  onUpdate: (tip: TelegramTip) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onTake: (tip: TelegramTip) => void;
   onUntake: (tip: TelegramTip) => void;
@@ -357,7 +355,6 @@ function MessageGroupCard({
   bookmakers,
   photoVisible,
   onTogglePhoto,
-  onUpdate,
   onOpenPhoto,
   onUpdateDraft,
   onTake,
@@ -371,7 +368,6 @@ function MessageGroupCard({
   bookmakers: string[];
   photoVisible: boolean;
   onTogglePhoto: (key: string, visible: boolean) => void;
-  onUpdate: (tip: TelegramTip) => void;
   onOpenPhoto: (url: string) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onTake: (tip: TelegramTip) => void;
@@ -457,7 +453,6 @@ function MessageGroupCard({
                 draft={drafts[tip.id]}
                 unitValue={unitValue}
                 bookmakers={bookmakers}
-                onUpdate={onUpdate}
                 onUpdateDraft={onUpdateDraft}
                 onTake={onTake}
                 onUntake={onUntake}
@@ -1123,7 +1118,6 @@ export function TelegramTipsPage() {
             bookmakers={bookmakers}
             photoVisible={isPhotoVisible(group.key)}
             onTogglePhoto={togglePhoto}
-            onUpdate={updateTip}
             onOpenPhoto={setPhotoModal}
             onUpdateDraft={updateDraft}
             onTake={takeTip}
