@@ -136,17 +136,21 @@ function groupTipsByMessage(tips: TelegramTip[]): MessageGroup[] {
   return [...map.values()];
 }
 
-/** Campo "Casa" pra tips sem bookmakerOptions (link único ou nenhum) — digita
- * e filtra entre as casas já usadas em outras tips, ou aceita um nome novo
- * na hora (não existe cadastro fechado de casas, é só o que já apareceu). */
+/** Campo "Casa" de toda tip — digita e filtra. Duas seções: "Nessa tip" (as
+ * casas que a própria mensagem já trazia, cada uma com o link real dela —
+ * escolher uma troca bookmaker + betUrl junto) e, depois de uma linha
+ * divisória, as demais casas já vistas em outras tips (só troca o rótulo,
+ * não existe link pra elas aqui) — ou um nome novo, digitado na hora. */
 function BookmakerCombobox({
   value,
   options,
+  included,
   onChange,
 }: {
   value: string | null;
   options: string[];
-  onChange: (raw: string) => void;
+  included: { bookmaker: string | null; betUrl: string | null }[];
+  onChange: (raw: string, betUrl?: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -162,10 +166,21 @@ function BookmakerCombobox({
   }, [open]);
 
   const q = query.trim().toLowerCase();
-  const filtered = q ? options.filter((o) => bookmakerLabel(o).toLowerCase().includes(q)) : options;
-  const exactMatch = options.some((o) => o.toLowerCase() === q);
+  const includedNames = new Set(included.map((o) => o.bookmaker).filter((b): b is string => !!b));
+  const otherOptions = options.filter((o) => !includedNames.has(o));
 
-  function commit(raw: string) {
+  const filteredIncluded = q ? included.filter((o) => o.bookmaker && bookmakerLabel(o.bookmaker).toLowerCase().includes(q)) : included;
+  const filteredOther = q ? otherOptions.filter((o) => bookmakerLabel(o).toLowerCase().includes(q)) : otherOptions;
+  const exactMatch = options.some((o) => o.toLowerCase() === q) || included.some((o) => o.bookmaker?.toLowerCase() === q);
+
+  function commitIncluded(o: { bookmaker: string | null; betUrl: string | null }) {
+    if (!o.bookmaker) return;
+    onChange(o.bookmaker, o.betUrl);
+    setQuery("");
+    setOpen(false);
+  }
+
+  function commitFree(raw: string) {
     const normalized = raw.trim().toLowerCase();
     if (!normalized) {
       setOpen(false);
@@ -186,19 +201,35 @@ function BookmakerCombobox({
         }}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && q) commit(query);
+          if (e.key === "Enter" && q) commitFree(query);
           if (e.key === "Escape") setOpen(false);
         }}
         placeholder="Digite a casa"
         className="w-full min-w-0 rounded bg-transparent text-[13px] font-bold text-text outline-none placeholder:text-[12px] placeholder:font-normal placeholder:text-text-tertiary"
       />
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 max-h-48 w-48 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent">
-          {filtered.map((o) => (
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-56 w-48 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent">
+          {filteredIncluded.length > 0 && (
+            <>
+              <div className="px-3 pb-1 pt-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">NESSA TIP</div>
+              {filteredIncluded.map((o) => (
+                <button
+                  key={o.bookmaker}
+                  type="button"
+                  onClick={() => commitIncluded(o)}
+                  className="block w-full truncate rounded-lg px-3 py-1.5 text-left text-[13px] font-semibold text-accent hover:bg-surface-alt"
+                >
+                  {bookmakerLabel(o.bookmaker)}
+                </button>
+              ))}
+              {filteredOther.length > 0 && <div className="my-1 border-t border-border-subtle" />}
+            </>
+          )}
+          {filteredOther.map((o) => (
             <button
               key={o}
               type="button"
-              onClick={() => commit(o)}
+              onClick={() => commitFree(o)}
               className="block w-full truncate rounded-lg px-3 py-1.5 text-left text-[13px] text-text-secondary hover:bg-surface-alt"
             >
               {bookmakerLabel(o)}
@@ -207,13 +238,13 @@ function BookmakerCombobox({
           {q && !exactMatch && (
             <button
               type="button"
-              onClick={() => commit(query)}
+              onClick={() => commitFree(query)}
               className="block w-full truncate rounded-lg px-3 py-1.5 text-left text-[13px] font-semibold text-accent"
             >
               Usar "{query.trim()}"
             </button>
           )}
-          {filtered.length === 0 && !q && (
+          {filteredIncluded.length === 0 && filteredOther.length === 0 && !q && (
             <p className="px-3 py-1.5 text-[12px] text-text-tertiary">Nenhuma casa cadastrada ainda.</p>
           )}
         </div>
@@ -391,28 +422,12 @@ function TipRow({
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Casa</span>
-          {tip.bookmakerOptions && tip.bookmakerOptions.length > 1 ? (
-            <Dropdown
-              value={effBookmaker ?? ""}
-              placeholder="Escolha a casa"
-              options={tip.bookmakerOptions.map((o, i) => ({
-                value: o.bookmaker ?? "",
-                label: o.bookmaker ? bookmakerLabel(o.bookmaker) : `casa ${i + 1}`,
-              }))}
-              onChange={(bookmaker) => {
-                const chosen = tip.bookmakerOptions!.find((o) => o.bookmaker === bookmaker);
-                if (!chosen) return;
-                onUpdateDraft(tip, { bookmaker: chosen.bookmaker, betUrl: chosen.betUrl });
-              }}
-              buttonClassName="rounded-md bg-transparent p-0 text-[13px] font-bold"
-            />
-          ) : (
-            <BookmakerCombobox
-              value={effBookmaker}
-              options={bookmakers}
-              onChange={(raw) => onUpdateDraft(tip, { bookmaker: raw })}
-            />
-          )}
+          <BookmakerCombobox
+            value={effBookmaker}
+            options={bookmakers}
+            included={tip.bookmakerOptions ?? []}
+            onChange={(raw, betUrl) => onUpdateDraft(tip, betUrl !== undefined ? { bookmaker: raw, betUrl } : { bookmaker: raw })}
+          />
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Retorno</span>
