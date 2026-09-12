@@ -140,6 +140,7 @@ function TipRow({
   unitValue,
   onUpdate,
   onUpdateDraft,
+  onTake,
   onUntake,
   onHideAll,
 }: {
@@ -149,6 +150,7 @@ function TipRow({
   unitValue: number | null;
   onUpdate: (tip: TelegramTip) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
+  onTake: (tip: TelegramTip) => void;
   onUntake: (tip: TelegramTip) => void;
   /** Collapsing a tip also tucks away the shared bilhete photo — there's
    * nothing left to reference it against once the tip itself is hidden. */
@@ -169,7 +171,6 @@ function TipRow({
   const firstOption = tip.bookmakerOptions?.[0];
   const effBookmaker = draft?.bookmaker ?? tip.bookmaker ?? firstOption?.bookmaker ?? null;
   const effBetUrl = draft?.betUrl ?? tip.betUrl ?? firstOption?.betUrl ?? null;
-  const retorno = effUnit != null && effOdd != null && unitValue != null ? effUnit * unitValue * effOdd : null;
   const oddDrifted = tip.originalOdd !== null && tip.odd !== null && tip.originalOdd !== tip.odd;
   const betActive = !!effBetUrl;
   const chip = tip.takenStatus === "taken" ? (STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!) : NAO_PEGA_CHIP;
@@ -178,18 +179,28 @@ function TipRow({
     onUpdate(await patchTelegramTip(tip.id, { result }));
   }
 
-  // Taking a tip now only happens via the group's "Peguei" button below —
-  // no more per-row "Pegar" pill — so this only ever renders for an
-  // already-taken tip, as a click-to-undo affordance.
+  // Untaken: a ghost "Pegar" button anyone can act on immediately, in both
+  // the collapsed and expanded row. Taken: a filled "✓ Peguei" undo button
+  // while expanded — but once collapsed (reviewed/done), the status chip
+  // alone is enough, so the button drops to reduce noise on settled rows.
   const takenPill =
     tip.takenStatus === "taken" ? (
+      collapsed ? null : (
+        <button
+          onClick={() => onUntake(tip)}
+          className="flex flex-none items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-bold text-[#08090A]"
+        >
+          <IconCheck size={10} /> Peguei
+        </button>
+      )
+    ) : (
       <button
-        onClick={() => onUntake(tip)}
-        className="flex flex-none items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-bold text-[#08090A]"
+        onClick={() => onTake(tip)}
+        className="flex flex-none items-center gap-1 rounded-lg border border-border-strong bg-surface-chip px-2.5 py-1 text-[11px] font-bold text-text-secondary"
       >
-        <IconCheck size={10} /> Peguei
+        Pegar
       </button>
-    ) : null;
+    );
 
   if (collapsed) {
     return (
@@ -286,27 +297,26 @@ function TipRow({
             <span className="truncate text-[13px] font-bold">{bookmakerLabel(effBookmaker)}</span>
           )}
         </div>
-        <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
-          <span className="text-[10px] text-text-secondary">Retorno</span>
-          <span className="font-mono text-[14px] font-bold">{retorno != null ? formatBRL(retorno) : "—"}</span>
+        <div className="flex flex-col gap-1 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
+          <span className="text-[10px] text-text-secondary">Link</span>
+          <a
+            href={betActive ? effBetUrl! : undefined}
+            target={betActive ? "_blank" : undefined}
+            rel="noreferrer"
+            onClick={(e) => {
+              if (!betActive) e.preventDefault();
+            }}
+            aria-disabled={!betActive}
+            className={`flex h-7 items-center justify-center gap-1 rounded-lg text-[11px] font-bold ${
+              betActive ? "bg-accent text-[#08090A]" : "cursor-not-allowed bg-surface-alt text-text-tertiary"
+            }`}
+          >
+            {betActive ? `Abrir na ${bookmakerLabel(effBookmaker)}` : "Sem link"} <IconExternalLink size={10} />
+          </a>
         </div>
       </div>
 
-      <a
-        href={betActive ? effBetUrl! : undefined}
-        target={betActive ? "_blank" : undefined}
-        rel="noreferrer"
-        onClick={(e) => {
-          if (!betActive) e.preventDefault();
-        }}
-        aria-disabled={!betActive}
-        className={`mb-2.5 flex h-[38px] items-center justify-center gap-1.5 rounded-xl text-[13px] font-bold ${
-          betActive ? "bg-accent text-[#08090A]" : "cursor-not-allowed bg-surface-chip text-text-tertiary"
-        }`}
-      >
-        Abrir aposta{effBookmaker ? ` na ${bookmakerLabel(effBookmaker)}` : ""} <IconExternalLink size={12} />
-      </a>
-
+      <span className="mb-1 block text-[10px] text-text-secondary">Resultado</span>
       {isAdmin ? (
         <div className="flex gap-1.5">
           {RESULT_BUTTONS.map((r) => (
@@ -339,8 +349,9 @@ function MessageGroupCard({
   onUpdate,
   onOpenPhoto,
   onUpdateDraft,
+  onTake,
   onUntake,
-  onSaveGroup,
+  onSaveDrafts,
 }: {
   group: MessageGroup;
   drafts: Record<string, DraftEdit>;
@@ -350,28 +361,32 @@ function MessageGroupCard({
   onUpdate: (tip: TelegramTip) => void;
   onOpenPhoto: (url: string) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
+  onTake: (tip: TelegramTip) => void;
   onUntake: (tip: TelegramTip) => void;
-  onSaveGroup: (group: MessageGroup) => Promise<void>;
+  onSaveDrafts: (group: MessageGroup) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
 
   const tipsCount = group.tips.length;
   const pegasCount = group.tips.filter((t) => t.takenStatus === "taken").length;
-  const pendingCount = tipsCount - pegasCount;
+  const draftCount = group.tips.filter((t) => drafts[t.id]).length;
 
   return (
     <div className="rounded-[18px] border border-border bg-surface p-3.5 lg:p-4">
       <div className="mb-2 flex items-center gap-2">
-        <span className={`h-2 w-2 flex-none rounded-full ${groupColor(group.groupName)}`} />
         <IconTelegram size={13} className="flex-none text-accent" />
         <span className="truncate text-[12px] font-semibold text-accent">{group.groupName}</span>
         <span className="flex-none text-[11px] text-text-tertiary">{relativeTime(group.receivedAt)}</span>
         {group.match && (
           <>
-            <span className="h-1 w-1 flex-none rounded-full bg-border-strong" />
-            <span className="min-w-0 truncate text-[11px] text-text-secondary">{group.match}</span>
+            <span className={`h-2 w-2 flex-none rounded-[3px] ${groupColor(group.groupName)}`} />
+            <span className="min-w-0 truncate text-[13px] font-semibold">{group.match}</span>
           </>
         )}
+        <span className="ml-auto flex-none text-[11px] text-text-tertiary">
+          {group.photoUrl ? "1 foto · " : ""}
+          {tipsCount} {tipsCount === 1 ? "tip" : "tips"} · {pegasCount} {pegasCount === 1 ? "pega" : "pegas"}
+        </span>
       </div>
 
       <div className="flex gap-3">
@@ -429,28 +444,31 @@ function MessageGroupCard({
                 unitValue={unitValue}
                 onUpdate={onUpdate}
                 onUpdateDraft={onUpdateDraft}
+                onTake={onTake}
                 onUntake={onUntake}
                 onHideAll={() => onTogglePhoto(group.key, false)}
               />
             ))}
           </div>
 
-          <div className="mt-3 flex justify-end border-t border-border-subtle pt-3">
-            <button
-              disabled={pendingCount === 0 || saving}
-              onClick={async () => {
-                setSaving(true);
-                try {
-                  await onSaveGroup(group);
-                } finally {
-                  setSaving(false);
-                }
-              }}
-              className="rounded-lg bg-accent px-4 py-2 text-[12px] font-bold text-[#08090A] disabled:bg-surface-chip disabled:font-semibold disabled:text-text-tertiary"
-            >
-              {pendingCount === 1 ? "Pegar tip" : `Pegar ${pendingCount} tips`}
-            </button>
-          </div>
+          {draftCount > 0 && (
+            <div className="mt-3 flex justify-end border-t border-border-subtle pt-3">
+              <button
+                disabled={saving}
+                onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await onSaveDrafts(group);
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                className="rounded-lg bg-accent px-4 py-2 text-[12px] font-bold text-[#08090A] disabled:bg-surface-chip disabled:font-semibold disabled:text-text-tertiary"
+              >
+                {draftCount === 1 ? "Salvar tip" : `Salvar ${draftCount} tips`}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -673,22 +691,33 @@ export function TelegramTipsPage() {
     setPhotoOverrides({});
   }
 
-  // Every tip in the group is always shown editable — Salvar commits
-  // whichever ones aren't taken yet, using any local edits made to them
-  // (falling back to the tip's own parsed values when untouched).
-  async function saveGroup(group: MessageGroup) {
-    const toSave = group.tips.filter((t) => t.takenStatus !== "taken");
+  // Per-row instant take: marks this one tip taken, folding in whatever
+  // local unit/odd/casa edits are sitting in its draft (if any).
+  async function takeTip(tip: TelegramTip) {
+    const d = drafts[tip.id] ?? { unit: tip.unit, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl };
+    const updated = await patchTelegramTip(tip.id, {
+      unit: d.unit,
+      odd: d.odd,
+      bookmaker: d.bookmaker,
+      betUrl: d.betUrl,
+      takenStatus: "taken",
+    });
+    updateTip(updated);
+    discardDraft(tip.id);
+    refreshSummary();
+    refreshPendingCounts();
+  }
+
+  // Bulk "Salvar N tips" only ever persists unsaved unit/odd/casa edits —
+  // taking a tip is its own immediate action (takeTip) now, so this never
+  // touches takenStatus.
+  async function saveDrafts(group: MessageGroup) {
+    const toSave = group.tips.filter((t) => drafts[t.id]);
     if (toSave.length === 0) return;
     const results = await Promise.all(
       toSave.map((tip) => {
-        const d = drafts[tip.id] ?? { unit: tip.unit, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl };
-        return patchTelegramTip(tip.id, {
-          unit: d.unit,
-          odd: d.odd,
-          bookmaker: d.bookmaker,
-          betUrl: d.betUrl,
-          takenStatus: "taken",
-        });
+        const d = drafts[tip.id]!;
+        return patchTelegramTip(tip.id, { unit: d.unit, odd: d.odd, bookmaker: d.bookmaker, betUrl: d.betUrl });
       }),
     );
     results.forEach(updateTip);
@@ -697,8 +726,6 @@ export function TelegramTipsPage() {
       for (const t of toSave) delete next[t.id];
       return next;
     });
-    refreshSummary();
-    refreshPendingCounts();
   }
 
   const groupedList = useMemo(() => groupTipsByMessage(tips ?? []), [tips]);
@@ -847,8 +874,8 @@ export function TelegramTipsPage() {
             <button
               key={r.key}
               onClick={() => setResultFilter(r.key)}
-              className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
-                result === r.key ? `font-semibold ${r.activeClassName}` : "bg-surface-chip text-text-secondary"
+              className={`flex-none rounded-full px-3.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.02em] ${
+                result === r.key ? `font-bold ${r.activeClassName}` : "text-text-secondary"
               }`}
             >
               {r.label}
@@ -856,8 +883,8 @@ export function TelegramTipsPage() {
           ))}
           <button
             onClick={() => setResultFilter("")}
-            className={`flex-none rounded-full px-3.5 py-1.5 text-[12px] ${
-              result === "" ? "bg-accent-soft font-semibold text-accent" : "bg-surface-chip text-text-secondary"
+            className={`flex-none rounded-full px-3.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.02em] ${
+              result === "" ? "bg-accent-soft font-bold text-accent" : "text-text-secondary"
             }`}
           >
             Todas
@@ -881,8 +908,9 @@ export function TelegramTipsPage() {
             onUpdate={updateTip}
             onOpenPhoto={setPhotoModal}
             onUpdateDraft={updateDraft}
+            onTake={takeTip}
             onUntake={untake}
-            onSaveGroup={saveGroup}
+            onSaveDrafts={saveDrafts}
           />
         ))}
       </div>

@@ -58,6 +58,13 @@ const SIGNATURE_LINE_RE = /^📡/;
 const META_CALL_RE = /^(CALL|ESCADA)\s*#/i;
 const CLOSE_TIME_RE = /^🔒/;
 const TRACKED_STATUS_RE = /^📊/;
+// "Gale 4" — martingale/recovery-bet counter on a line by itself. Never the
+// market: without stripping it, a "Gale N" line with no other free-text line
+// above it (a follow-up message that doesn't repeat the market, since it's
+// implicitly the same selection as the tip being recovered) gets picked up
+// by the generic "leftover free line" fallback below and mistaken for one
+// (e.g. "Mbappe assist" bilhete → tip saved with selection "Gale 4").
+const GALE_LINE_RE = /^gale\s*#?\s*\d+$/i;
 
 // Formato Padovan: "💰 <n>u @ <odd>" (unidade e odd na mesma linha), "🔗 <Casa>"
 // ou "🔗 <link>", pernas com "•" (MÚLTIPLA) ou numeradas "1️⃣"/"2️⃣" (ESCADA).
@@ -353,7 +360,12 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
   const lines = allLines.filter(
-    (l) => !SIGNATURE_LINE_RE.test(l) && !META_CALL_RE.test(l) && !CLOSE_TIME_RE.test(l) && !TRACKED_STATUS_RE.test(l),
+    (l) =>
+      !SIGNATURE_LINE_RE.test(l) &&
+      !META_CALL_RE.test(l) &&
+      !CLOSE_TIME_RE.test(l) &&
+      !TRACKED_STATUS_RE.test(l) &&
+      !GALE_LINE_RE.test(l),
   );
   if (lines.length === 0) return null;
 
