@@ -44,6 +44,10 @@ export function fetchTelegramTips(filter: TelegramTipsFilter = {}): Promise<Tele
 export const patchTelegramTip = (id: string, input: UpdateTelegramTipInput): Promise<TelegramTip> =>
   apiFetch(`/telegram-tips/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 
+/** Admin only — apaga a tip de vez (nunca a foto, que outras tips do mesmo bilhete podem compartilhar). */
+export const deleteTelegramTip = (id: string): Promise<{ deleted: boolean }> =>
+  apiFetch(`/telegram-tips/${id}`, { method: "DELETE" });
+
 export const fetchTelegramGroups = (): Promise<TelegramGroup[]> => apiFetch("/telegram-tips/groups");
 
 export const createTelegramGroup = (input: { name: string; telegramChatId: string }): Promise<TelegramGroup> =>

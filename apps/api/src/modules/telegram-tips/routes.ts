@@ -364,6 +364,15 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     return serializeTip(tip, photoUrls);
   });
 
+  // Apaga a tip de vez (chat/correção que nunca devia ter virado tip, ou
+  // duplicata) — nunca a foto no Storage, que outras tips do mesmo bilhete
+  // podem compartilhar. Admin only.
+  app.delete<{ Params: { id: string } }>("/:id", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    await prisma.telegramTip.delete({ where: { id: request.params.id } });
+    return { deleted: true };
+  });
+
   // Reset pontual pra reconstruir o histórico com o parser já corrigido —
   // apaga e reimporta só as tips de mensagens em [sinceUnix, untilUnix]
   // (untilUnix omitido = até agora), reusando a sessão MTProto já conectada

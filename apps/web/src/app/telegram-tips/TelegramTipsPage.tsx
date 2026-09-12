@@ -7,6 +7,7 @@ import {
   fetchBookmakerNames,
   fetchTelegramTodaySummary,
   patchTelegramTip,
+  deleteTelegramTip,
   type TelegramTip,
   type TelegramGroup,
   type TelegramTodaySummary,
@@ -23,6 +24,7 @@ import {
   IconChevronDown,
   IconEyeOff,
   IconCalendar,
+  IconTrash,
 } from "../../components/Icon";
 import { useAuth } from "../../stores/auth";
 
@@ -230,6 +232,7 @@ function TipRow({
   onUpdateDraft,
   onTake,
   onUntake,
+  onDelete,
   onHideAll,
 }: {
   tip: TelegramTip;
@@ -241,6 +244,7 @@ function TipRow({
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onTake: (tip: TelegramTip) => void;
   onUntake: (tip: TelegramTip) => void;
+  onDelete: (tip: TelegramTip) => void;
   /** Collapsing a tip also tucks away the shared bilhete photo — there's
    * nothing left to reference it against once the tip itself is hidden. */
   onHideAll: () => void;
@@ -329,6 +333,15 @@ function TipRow({
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
           {chip.text}
         </span>
+        {isAdmin && (
+          <button
+            onClick={() => onDelete(tip)}
+            aria-label="Excluir tip"
+            className="flex-none self-start rounded-lg border border-border-strong bg-surface-chip p-1.5 text-live"
+          >
+            <IconTrash size={14} />
+          </button>
+        )}
         <button
           onClick={() => {
             setCollapsed(true);
@@ -479,6 +492,7 @@ function MessageGroupCard({
   onUpdateDraft,
   onTake,
   onUntake,
+  onDelete,
   onSaveDrafts,
 }: {
   group: MessageGroup;
@@ -492,6 +506,7 @@ function MessageGroupCard({
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onTake: (tip: TelegramTip) => void;
   onUntake: (tip: TelegramTip) => void;
+  onDelete: (tip: TelegramTip) => void;
   onSaveDrafts: (group: MessageGroup) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
@@ -576,6 +591,7 @@ function MessageGroupCard({
                 onUpdateDraft={onUpdateDraft}
                 onTake={onTake}
                 onUntake={onUntake}
+                onDelete={onDelete}
                 onHideAll={() => onTogglePhoto(group.key, false)}
               />
             ))}
@@ -985,6 +1001,17 @@ export function TelegramTipsPage() {
     refreshPendingCounts();
   }
 
+  // Admin only (gated in TipRow) — apaga a tip de vez, nunca a foto (outras
+  // tips do mesmo bilhete podem compartilhar), sempre com confirmação.
+  async function deleteTip(tip: TelegramTip) {
+    if (!confirm(`Excluir a tip "${tip.selection ?? tip.match ?? "sem descrição"}"? Essa ação não pode ser desfeita.`)) return;
+    await deleteTelegramTip(tip.id);
+    setTips((prev) => prev?.filter((t) => t.id !== tip.id) ?? prev);
+    discardDraft(tip.id);
+    refreshSummary();
+    refreshPendingCounts();
+  }
+
   function isPhotoVisible(key: string): boolean {
     return photoOverrides[key] ?? showPhotosGlobal;
   }
@@ -1224,6 +1251,7 @@ export function TelegramTipsPage() {
             onUpdateDraft={updateDraft}
             onTake={takeTip}
             onUntake={untake}
+            onDelete={deleteTip}
             onSaveDrafts={saveDrafts}
           />
         ))}
