@@ -35,6 +35,13 @@ export type TextEntity = { url?: string };
 const URL_IN_TEXT_RE = /https?:\/\/\S+/i;
 const UNIT_ONLY_RE = /^(\d+(?:[.,]\d+)?)\s*u$/i;
 const UNIT_COMBO_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+na\s+(.+)$/i;
+// "<n>u na <Rótulo> @<odd>" — like UNIT_COMBO_RE, but the combo's own odd is
+// spelled out in the text too (no photo needed to fill it in later).
+const UNIT_COMBO_WITH_ODD_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+na\s+(.+?)\s*@\s*(\d+(?:[.,]\d+)?)$/i;
+// "<Seleção> @<odd> <n>u" — one leg fully spelled out on its own line
+// (market, odd and stake all in the text, e.g. a NFL/"Tripla" style message
+// with N standalone legs plus a combo line built from UNIT_COMBO_WITH_ODD_RE).
+const SELECTION_AT_ODD_UNIT_RE = /^(.+?)\s*@\s*(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s*u$/i;
 const UNIT_INLINE_RE = /^(.*\S)\s+(\d+(?:[.,]\d+)?)\s*u$/i;
 const ODD_LINE_RE = /\bodd\b\s*:?\s*(\d+(?:[.,]\d+)?)/i;
 const LIMIT_LINE_RE = /\blimite\b(?:\s+de\s+aposta)?\s*:?\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*\$?/i;
@@ -107,6 +114,12 @@ export const KNOWN_PATTERNS: Record<string, { description: string; example: stri
   combo: {
     description: "Uma linha '<n>u na <Rótulo>' — aposta múltipla; 1 tip só com os mercados concatenados vindos da foto.",
     example: "0,25u na Tripla\nhttps://www.bet365.bet.br/s/r/...",
+  },
+  legs_plus_combo: {
+    description:
+      "N linhas '<Seleção> @<odd> <n>u' (uma por perna simples) mais uma linha '<n>u na <Rótulo> @<odd>' — vira N tips simples mais 1 tip múltipla, tudo com mercado/odd/unidade já no texto (sem foto).",
+    example:
+      "Tripla NFL #1\n\nBreece Hall +2.5 Recepções @1.9 1,5u\n\nJalen McMillan Touchdown @4.25 1,25u\n\nSamaje Perine -1.5 Recepções @1.58 1,50u\n\n0,5u na Tripla @12.4",
   },
   inline_market: {
     description: "Mercado descrito por extenso no texto (mesma linha da unidade ou linha separada); odd e jogo vêm da foto.",
@@ -402,6 +415,37 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
       continue;
     }
     remaining.push(line);
+  }
+
+  // N pernas simples ("<Seleção> @<odd> <n>u") mais uma múltipla combinando
+  // todas elas ("<n>u na <Rótulo> @<odd>") — mercado, odd e unidade já vêm
+  // no texto pra cada uma, então não depende de link nem de foto pra valer.
+  const legMatches = remaining
+    .map((l) => l.match(SELECTION_AT_ODD_UNIT_RE))
+    .filter((m): m is RegExpMatchArray => m !== null);
+  const comboWithOddMatch = remaining
+    .map((l) => l.match(UNIT_COMBO_WITH_ODD_RE))
+    .find((m): m is RegExpMatchArray => m !== null);
+  if (legMatches.length > 1 && comboWithOddMatch) {
+    const legSelections: ParsedSelection[] = legMatches.map((m) => ({
+      text: m[1]!.trim(),
+      odd: toNumber(m[2]!),
+      unit: toNumber(m[3]!),
+    }));
+    return {
+      pattern: "legs_plus_combo",
+      bookmaker,
+      betUrl,
+      fields,
+      selections: [
+        ...legSelections,
+        {
+          text: legSelections.map((s) => s.text).join("\n"),
+          unit: toNumber(comboWithOddMatch[1]!),
+          odd: toNumber(comboWithOddMatch[3]!),
+        },
+      ],
+    };
   }
 
   // Padrões baseados só em "<n>u" (sem rótulo explícito tipo ODD:/Limite:)

@@ -246,7 +246,7 @@ function TipRow({
         </button>
       </div>
 
-      <div className="mb-2.5 grid grid-cols-3 gap-2">
+      <div className="mb-2.5 grid grid-cols-2 gap-2 lg:grid-cols-4">
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-accent-border bg-accent-soft p-2.5">
           <span className="text-[10px] text-text-secondary">Unidade</span>
           <input
@@ -295,6 +295,14 @@ function TipRow({
           ) : (
             <span className="truncate text-[13px] font-bold">{bookmakerLabel(effBookmaker)}</span>
           )}
+        </div>
+        <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
+          <span className="text-[10px] text-text-secondary">Retorno</span>
+          <span className="truncate font-mono text-[14px] font-bold">
+            {effUnit != null && unitValue != null && effOdd != null
+              ? formatBRL(effUnit * unitValue * effOdd)
+              : "—"}
+          </span>
         </div>
       </div>
 
