@@ -96,6 +96,27 @@ function startOfSpDay(dateStr: string): Date {
   return new Date(Date.UTC(y!, m! - 1, d!, 3, 0, 0));
 }
 
+/** Filtros de "escopo" compartilhados por GET / e GET /summary — grupo,
+ * casa, busca e período. Nunca inclui result/takenStatus: cada endpoint
+ * decide isso por conta (a lista respeita a aba/dropdown ativos; o resumo
+ * força o critério de cada número, senão "pendentes"/"peguei" ficariam
+ * sempre 0 assim que o usuário troca de aba). */
+function buildScopeWhere(query: { groupId?: string; bookmaker?: string; search?: string; dateFrom?: string; dateTo?: string }): Prisma.TelegramTipWhereInput {
+  const { groupId, bookmaker, search, dateFrom, dateTo } = query;
+  const groupIds = groupId ? groupId.split(",").filter(Boolean) : [];
+  // dateTo é inclusivo — o corte real é o início do dia seguinte.
+  const untilExclusive = dateTo ? new Date(startOfSpDay(dateTo).getTime() + 24 * 60 * 60 * 1000) : null;
+
+  return {
+    ...(groupIds.length === 1 ? { groupId: groupIds[0] } : groupIds.length > 1 ? { groupId: { in: groupIds } } : {}),
+    ...(bookmaker ? { bookmaker } : {}),
+    ...(search ? { OR: [{ match: { contains: search, mode: "insensitive" } }, { selection: { contains: search, mode: "insensitive" } }] } : {}),
+    ...(dateFrom || untilExclusive
+      ? { receivedAt: { ...(dateFrom ? { gte: startOfSpDay(dateFrom) } : {}), ...(untilExclusive ? { lt: untilExclusive } : {}) } }
+      : {}),
+  };
+}
+
 /** green: stake × (odd − 1); red: −stake; reembolso: 0 — same convention robot-signals/routes.ts uses. */
 function tipProfit(unit: number, odd: number | null, result: string): number | null {
   if (result === "green") return odd ? unit * (odd - 1) : null;
@@ -292,21 +313,12 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   }>("/", async (request) => {
     const page = Math.max(1, parseInt(request.query.page ?? "1", 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "20", 10) || 20));
-    const { groupId, bookmaker, result, takenStatus, search, dateFrom, dateTo } = request.query;
-    // groupId accepts a comma-separated list so the UI can filter by 2+ groups at once.
-    const groupIds = groupId ? groupId.split(",").filter(Boolean) : [];
-    // dateTo é inclusivo — o corte real é o início do dia seguinte.
-    const untilExclusive = dateTo ? new Date(startOfSpDay(dateTo).getTime() + 24 * 60 * 60 * 1000) : null;
+    const { result, takenStatus } = request.query;
 
     const where: Prisma.TelegramTipWhereInput = {
-      ...(groupIds.length === 1 ? { groupId: groupIds[0] } : groupIds.length > 1 ? { groupId: { in: groupIds } } : {}),
-      ...(bookmaker ? { bookmaker } : {}),
+      ...buildScopeWhere(request.query),
       ...(result ? { result } : {}),
       ...(takenStatus ? { takenStatus } : {}),
-      ...(search ? { OR: [{ match: { contains: search, mode: "insensitive" } }, { selection: { contains: search, mode: "insensitive" } }] } : {}),
-      ...(dateFrom || untilExclusive
-        ? { receivedAt: { ...(dateFrom ? { gte: startOfSpDay(dateFrom) } : {}), ...(untilExclusive ? { lt: untilExclusive } : {}) } }
-        : {}),
     };
 
     const [total, rows] = await Promise.all([
@@ -328,6 +340,41 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       page,
       limit,
       totalPages: Math.ceil(total / limit),
+    };
+  });
+
+  // Números dos cards do topo (Tips pendentes / Peguei / Resultado) —
+  // recebe o mesmo grupo/casa/busca/período da lista acima (nunca
+  // result/takenStatus: cada número já força o critério dele, senão
+  // "pendentes" ou "peguei" sempre voltariam 0 assim que o usuário troca de
+  // aba de resultado ou do dropdown Peguei/Não peguei).
+  app.get<{
+    Querystring: { groupId?: string; bookmaker?: string; search?: string; dateFrom?: string; dateTo?: string };
+  }>("/summary", async (request) => {
+    const scope = buildScopeWhere(request.query);
+
+    const [pendingCount, taken] = await Promise.all([
+      prisma.telegramTip.count({ where: { ...scope, takenStatus: "pending" } }),
+      prisma.telegramTip.findMany({
+        where: { ...scope, takenStatus: "taken" },
+        select: { unit: true, odd: true, result: true },
+      }),
+    ]);
+
+    let takenUnits = 0;
+    let resultUnits = 0;
+    for (const t of taken) {
+      const unit = t.unit !== null ? Number(t.unit) : 0;
+      takenUnits += unit;
+      const odd = t.odd !== null ? Number(t.odd) : null;
+      resultUnits += tipProfit(unit, odd, t.result) ?? 0;
+    }
+
+    return {
+      pendingCount,
+      takenCount: taken.length,
+      takenUnits: Math.round(takenUnits * 100) / 100,
+      resultUnits: Math.round(resultUnits * 100) / 100,
     };
   });
 
@@ -391,39 +438,6 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const { runBackfillSince } = await import("@evobo/worker");
     const results = await runBackfillSince(sinceUnix, untilUnix);
     return { results };
-  });
-
-  // Cabeçalho do dashboard "VIP Telegram" — backlog de decisão (pendentes,
-  // sem recorte de data) + atividade só de hoje (fuso São Paulo, fixo em
-  // UTC-3 o ano todo desde 2019).
-  app.get("/today-summary", async () => {
-    const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-    const [y, m, d] = todayIso.split("-").map(Number);
-    const startOfToday = new Date(Date.UTC(y!, m! - 1, d!, 3, 0, 0));
-
-    const [pendingCount, takenToday] = await Promise.all([
-      prisma.telegramTip.count({ where: { takenStatus: "pending" } }),
-      prisma.telegramTip.findMany({
-        where: { takenStatus: "taken", receivedAt: { gte: startOfToday } },
-        select: { unit: true, odd: true, result: true },
-      }),
-    ]);
-
-    let takenTodayUnits = 0;
-    let resultTodayUnits = 0;
-    for (const t of takenToday) {
-      const unit = t.unit !== null ? Number(t.unit) : 0;
-      takenTodayUnits += unit;
-      const odd = t.odd !== null ? Number(t.odd) : null;
-      resultTodayUnits += tipProfit(unit, odd, t.result) ?? 0;
-    }
-
-    return {
-      pendingCount,
-      takenTodayCount: takenToday.length,
-      takenTodayUnits: Math.round(takenTodayUnits * 100) / 100,
-      resultTodayUnits: Math.round(resultTodayUnits * 100) / 100,
-    };
   });
 
   // ── Gestão de banca ───────────────────────────────────────────────────

@@ -62,14 +62,28 @@ export const fetchTelegramBanca = (bookmaker?: string, days?: number): Promise<T
   return apiFetch(`/telegram-tips/banca${qs ? `?${qs}` : ""}`);
 };
 
-export type TelegramTodaySummary = {
+export type TelegramTipsSummary = {
   pendingCount: number;
-  takenTodayCount: number;
-  takenTodayUnits: number;
-  resultTodayUnits: number;
+  takenCount: number;
+  takenUnits: number;
+  resultUnits: number;
 };
 
-export const fetchTelegramTodaySummary = (): Promise<TelegramTodaySummary> => apiFetch("/telegram-tips/today-summary");
+/** Números dos cards do topo (Tips pendentes / Peguei / Resultado), no
+ * mesmo grupo/casa/busca/período da lista — nunca leva result/takenStatus,
+ * cada número já força o próprio critério (ver rota no backend). */
+export function fetchTelegramTipsSummary(
+  filter: Pick<TelegramTipsFilter, "groupId" | "bookmaker" | "search" | "dateFrom" | "dateTo"> = {},
+): Promise<TelegramTipsSummary> {
+  const params = new URLSearchParams();
+  if (filter.groupId) params.set("groupId", filter.groupId);
+  if (filter.bookmaker) params.set("bookmaker", filter.bookmaker);
+  if (filter.search) params.set("search", filter.search);
+  if (filter.dateFrom) params.set("dateFrom", filter.dateFrom);
+  if (filter.dateTo) params.set("dateTo", filter.dateTo);
+  const qs = params.toString();
+  return apiFetch(`/telegram-tips/summary${qs ? `?${qs}` : ""}`);
+}
 
 export const fetchTelegramSettings = (): Promise<TelegramBancaSettings> => apiFetch("/telegram-tips/settings");
 

@@ -5,12 +5,12 @@ import {
   fetchTelegramGroups,
   fetchTelegramSettings,
   fetchBookmakerNames,
-  fetchTelegramTodaySummary,
+  fetchTelegramTipsSummary,
   patchTelegramTip,
   deleteTelegramTip,
   type TelegramTip,
   type TelegramGroup,
-  type TelegramTodaySummary,
+  type TelegramTipsSummary,
 } from "../../lib/telegramTips";
 import { Modal } from "../../components/Modal";
 import { Dropdown } from "../../components/Dropdown";
@@ -740,7 +740,7 @@ const PERIOD_PRESETS: { key: PeriodPreset; label: string }[] = [
 ];
 
 /** "YYYY-MM-DD" de hoje em América/São Paulo — mesmo fuso fixo (UTC-3) que o
- * resto do módulo usa (today-summary, filtro de data do backend). */
+ * filtro de data do backend usa. */
 function spTodayISO(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
@@ -917,7 +917,7 @@ export function TelegramTipsPage() {
   const [period, setPeriod] = useState(() => ({ label: "Hoje", ...presetRange("hoje") }));
   const [photoModal, setPhotoModal] = useState<string | null>(null);
   const [unitValue, setUnitValue] = useState<number | null>(null);
-  const [summary, setSummary] = useState<TelegramTodaySummary | null>(null);
+  const [summary, setSummary] = useState<TelegramTipsSummary | null>(null);
   const [pendingTips, setPendingTips] = useState<TelegramTip[]>([]);
   const [drafts, setDrafts] = useState<Record<string, DraftEdit>>({});
   const [, forceTick] = useState(0);
@@ -944,7 +944,15 @@ export function TelegramTipsPage() {
   }, [searchInput]);
 
   function refreshSummary() {
-    fetchTelegramTodaySummary().then(setSummary).catch(() => {});
+    fetchTelegramTipsSummary({
+      groupId: groupIds.length > 0 ? groupIds.join(",") : undefined,
+      bookmaker: bookmaker || undefined,
+      search: search || undefined,
+      dateFrom: period.dateFrom,
+      dateTo: period.dateTo,
+    })
+      .then(setSummary)
+      .catch(() => {});
   }
 
   function refreshPendingCounts() {
@@ -954,9 +962,12 @@ export function TelegramTipsPage() {
   }
 
   useEffect(() => {
-    refreshSummary();
     refreshPendingCounts();
   }, []);
+
+  // Os 3 cards do topo seguem grupo/casa/busca/período — não result/takenStatus
+  // (o backend já ignora esses dois de propósito, ver buildScopeWhere).
+  useEffect(refreshSummary, [groupIds, bookmaker, search, period]);
 
   useEffect(() => {
     fetchTelegramTips({
@@ -1128,24 +1139,20 @@ export function TelegramTipsPage() {
             </span>
           </div>
           <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip px-3.5 py-2.5">
-            <span className="font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
-              PEGUEI HOJE
-            </span>
+            <span className="font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">PEGUEI</span>
             <span className="font-mono text-[18px] font-bold lg:text-[20px]">
-              {summary?.takenTodayCount ?? "—"}
-              {summary && <span className="text-[12px] text-text-tertiary lg:text-[13px]"> · {formatUnits(summary.takenTodayUnits)}</span>}
+              {summary?.takenCount ?? "—"}
+              {summary && <span className="text-[12px] text-text-tertiary lg:text-[13px]"> · {formatUnits(summary.takenUnits)}</span>}
             </span>
           </div>
           <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip px-3.5 py-2.5">
-            <span className="font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">
-              RESULTADO HOJE
-            </span>
+            <span className="font-mono text-[9px] tracking-[0.05em] text-text-tertiary lg:text-[10px]">RESULTADO</span>
             <span
               className={`font-mono text-[18px] font-bold lg:text-[20px] ${
-                summary && summary.resultTodayUnits < 0 ? "text-live" : "text-accent"
+                summary && summary.resultUnits < 0 ? "text-live" : "text-accent"
               }`}
             >
-              {summary ? formatUnits(summary.resultTodayUnits, true) : "—"}
+              {summary ? formatUnits(summary.resultUnits, true) : "—"}
             </span>
           </div>
         </div>
@@ -1191,7 +1198,7 @@ export function TelegramTipsPage() {
             selected={groupIds}
             onApply={setGroupIds}
             countByGroup={(id) => pendingCountsByGroup.get(id) ?? 0}
-            totalCount={summary?.pendingCount ?? pendingTips.length}
+            totalCount={pendingTips.length}
           />
           {groupIds.map((id) => {
             const g = groups.find((x) => x.id === id);
