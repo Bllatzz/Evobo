@@ -77,6 +77,14 @@ export const fetchBookmakerBalances = (): Promise<TelegramBookmakerBalance[]> =>
 
 export const fetchBookmakerNames = (): Promise<string[]> => apiFetch("/telegram-tips/bookmakers");
 
+/** Admin only — renomeia a casa em toda tip que a referencia. */
+export const renameBookmaker = (name: string, newName: string): Promise<{ renamed: number }> =>
+  apiFetch(`/telegram-tips/bookmakers/${encodeURIComponent(name)}`, { method: "PATCH", body: JSON.stringify({ name: newName }) });
+
+/** Admin only — remove a casa de toda tip que a referencia (bookmaker vira null), nunca apaga a tip. */
+export const deleteBookmaker = (name: string): Promise<{ cleared: number }> =>
+  apiFetch(`/telegram-tips/bookmakers/${encodeURIComponent(name)}`, { method: "DELETE" });
+
 /** Admin only — wipes every TelegramTip and reimports messages since
  * `sinceUnix` (unix seconds) using the worker's already-connected live
  * Telegram session. Destructive; the caller should confirm first. */

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   CreateTelegramGroupInput,
   UpdateTelegramGroupInput,
@@ -194,6 +194,63 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       distinct: ["bookmaker"],
     });
     return rows.map((r) => r.bookmaker!).sort((a, b) => a.localeCompare(b));
+  });
+
+  /** Rewrites `bookmakerOptions` (a JSON array, so updateMany can't reach
+   * inside it) on every tip that references `from` — used by both the
+   * rename and delete routes below. `to: null` drops the option entirely
+   * instead of renaming it. */
+  async function rewriteBookmakerOptions(from: string, to: string | null) {
+    const withOptions = await prisma.telegramTip.findMany({
+      where: { bookmakerOptions: { not: Prisma.DbNull } },
+      select: { id: true, bookmakerOptions: true },
+    });
+    for (const tip of withOptions) {
+      const options = tip.bookmakerOptions as { bookmaker: string | null; betUrl: string | null }[] | null;
+      if (!options?.some((o) => o.bookmaker === from)) continue;
+      const next = to !== null ? options.map((o) => (o.bookmaker === from ? { ...o, bookmaker: to } : o)) : options.filter((o) => o.bookmaker !== from);
+      await prisma.telegramTip.update({ where: { id: tip.id }, data: { bookmakerOptions: next.length > 0 ? next : Prisma.DbNull } });
+    }
+  }
+
+  // Renomeia uma casa em toda tip que a referencia (bookmaker + dentro de
+  // bookmakerOptions) e, quando existir, no saldo/cor por casa deste admin
+  // (settings são por usuário — não mexe no de outros usuários). Admin only.
+  app.patch<{ Params: { name: string }; Body: { name?: string } }>("/bookmakers/:name", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const oldName = request.params.name;
+    const newName = request.body?.name?.trim();
+    if (!newName) return reply.code(400).send({ error: "invalid_input", details: "name is required" });
+    if (newName === oldName) return { renamed: 0 };
+
+    const { count } = await prisma.telegramTip.updateMany({ where: { bookmaker: oldName }, data: { bookmaker: newName } });
+    await rewriteBookmakerOptions(oldName, newName);
+
+    const settings = await prisma.telegramBancaSettings.findUnique({ where: { userId: request.authUser!.id } });
+    const colors = settings?.bookmakerColors as Record<string, string> | null;
+    if (colors && oldName in colors) {
+      const { [oldName]: color, ...rest } = colors;
+      await prisma.telegramBancaSettings.update({ where: { userId: request.authUser!.id }, data: { bookmakerColors: { ...rest, [newName]: color } } });
+    }
+    await prisma.telegramBookmakerBalance
+      .update({ where: { userId_bookmaker: { userId: request.authUser!.id, bookmaker: oldName } }, data: { bookmaker: newName } })
+      // No-op se este admin não tiver saldo pra essa casa, ou já tiver um pra newName (conflito de unique) — renomear a tip não deve falhar por isso.
+      .catch(() => {});
+
+    return { renamed: count };
+  });
+
+  // Remove uma casa de toda tip que a referencia (bookmaker vira null,
+  // entrada correspondente some de bookmakerOptions) — nunca apaga a tip em
+  // si, só o rótulo da casa. Admin only.
+  app.delete<{ Params: { name: string } }>("/bookmakers/:name", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const name = request.params.name;
+
+    const { count } = await prisma.telegramTip.updateMany({ where: { bookmaker: name }, data: { bookmaker: null } });
+    await rewriteBookmakerOptions(name, null);
+
+    return { cleared: count };
   });
 
   // ── Grupos rastreados ──────────────────────────────────────────────────

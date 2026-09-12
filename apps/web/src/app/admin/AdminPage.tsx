@@ -12,6 +12,8 @@ import {
   fetchBookmakerNames,
   fetchTelegramSettings,
   saveTelegramSettings,
+  renameBookmaker,
+  deleteBookmaker,
   type TelegramBancaSettings,
 } from "../../lib/telegramTips";
 import { bookmakerLabel } from "../../lib/bookmakers";
@@ -23,6 +25,9 @@ import {
   IconProfile,
   IconRobotMonitor,
   IconTelegram,
+  IconPencil,
+  IconTrash,
+  IconX,
 } from "../../components/Icon";
 
 const navCards = [
@@ -277,11 +282,16 @@ function BookmakerColorsCard() {
   const [names, setNames] = useState<string[]>([]);
   const [settings, setSettings] = useState<TelegramBancaSettings | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
 
-  useEffect(() => {
+  function refresh() {
     fetchBookmakerNames().then(setNames).catch(() => {});
     fetchTelegramSettings().then(setSettings).catch(() => {});
-  }, []);
+  }
+
+  useEffect(refresh, []);
 
   async function setColor(bookmaker: string, color: string) {
     if (!settings) return;
@@ -297,15 +307,44 @@ function BookmakerColorsCard() {
     }
   }
 
+  async function confirmRename(oldName: string) {
+    const newName = editValue.trim();
+    if (!newName || newName === oldName) {
+      setEditing(null);
+      return;
+    }
+    setBusy(oldName);
+    try {
+      await renameBookmaker(oldName, newName);
+      setEditing(null);
+      refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleDelete(name: string) {
+    if (!confirm(`Remover "${bookmakerLabel(name)}" de todas as tips? As tips continuam existindo, só ficam sem casa marcada.`)) return;
+    setBusy(name);
+    try {
+      await deleteBookmaker(name);
+      refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="text-[14.5px] font-semibold">Cores das casas de aposta</div>
       <div className="mt-0.5 text-[12px] text-text-tertiary">
         Escolha uma cor por casa — aparece como uma bolinha ao lado do nome no relatório do VIP Telegram.
       </div>
-      <div className="mt-3 flex max-h-[420px] flex-col gap-2.5 overflow-y-auto pr-1">
+      <div className="mt-3 flex max-h-[420px] flex-col gap-2.5 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent">
         {names.map((name) => {
           const current = settings?.bookmakerColors?.[name] ?? null;
+          const isEditing = editing === name;
+          const isBusy = busy === name;
           return (
             <div key={name} className="flex items-center gap-3 border-b border-border-subtle pb-2.5 last:border-0">
               <input
@@ -316,7 +355,68 @@ function BookmakerColorsCard() {
                 aria-label={`Cor de ${bookmakerLabel(name)}`}
                 className="h-8 w-8 flex-none cursor-pointer rounded-lg border border-border-strong bg-transparent p-0 disabled:opacity-50"
               />
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{bookmakerLabel(name)}</span>
+              {isEditing ? (
+                <input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") confirmRename(name);
+                    if (e.key === "Escape") setEditing(null);
+                  }}
+                  className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface-alt px-2 py-1 text-[13px] font-medium text-text outline-none"
+                />
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{bookmakerLabel(name)}</span>
+              )}
+              <div className="flex flex-none items-center gap-1.5">
+                {isEditing ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => confirmRename(name)}
+                      disabled={isBusy}
+                      aria-label="Salvar nome"
+                      className="flex-none rounded-lg border border-border-strong bg-surface-chip p-1.5 text-accent disabled:opacity-50"
+                    >
+                      <IconCheck size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditing(null)}
+                      disabled={isBusy}
+                      aria-label="Cancelar"
+                      className="flex-none rounded-lg border border-border-strong bg-surface-chip p-1.5 text-text-secondary disabled:opacity-50"
+                    >
+                      <IconX size={13} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditing(name);
+                        setEditValue(name);
+                      }}
+                      disabled={isBusy}
+                      aria-label={`Renomear ${bookmakerLabel(name)}`}
+                      className="flex-none rounded-lg border border-border-strong bg-surface-chip p-1.5 text-text-secondary disabled:opacity-50"
+                    >
+                      <IconPencil size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(name)}
+                      disabled={isBusy}
+                      aria-label={`Excluir ${bookmakerLabel(name)}`}
+                      className="flex-none rounded-lg border border-border-strong bg-surface-chip p-1.5 text-live disabled:opacity-50"
+                    >
+                      <IconTrash size={13} />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           );
         })}
