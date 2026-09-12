@@ -134,11 +134,98 @@ function groupTipsByMessage(tips: TelegramTip[]): MessageGroup[] {
   return [...map.values()];
 }
 
+/** Campo "Casa" pra tips sem bookmakerOptions (link único ou nenhum) — digita
+ * e filtra entre as casas já usadas em outras tips, ou aceita um nome novo
+ * na hora (não existe cadastro fechado de casas, é só o que já apareceu). */
+function BookmakerCombobox({
+  value,
+  options,
+  onChange,
+}: {
+  value: string | null;
+  options: string[];
+  onChange: (raw: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => bookmakerLabel(o).toLowerCase().includes(q)) : options;
+  const exactMatch = options.some((o) => o.toLowerCase() === q);
+
+  function commit(raw: string) {
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized) {
+      setOpen(false);
+      return;
+    }
+    onChange(normalized);
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        value={open ? query : bookmakerLabel(value)}
+        onFocus={() => {
+          setQuery("");
+          setOpen(true);
+        }}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && q) commit(query);
+          if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder="Digite a casa"
+        className="w-full min-w-0 rounded bg-transparent text-[13px] font-bold text-text outline-none placeholder:text-[12px] placeholder:font-normal placeholder:text-text-tertiary"
+      />
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-48 w-48 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg [scrollbar-width:thin] [scrollbar-color:var(--color-border-strong)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-strong [&::-webkit-scrollbar-track]:bg-transparent">
+          {filtered.map((o) => (
+            <button
+              key={o}
+              type="button"
+              onClick={() => commit(o)}
+              className="block w-full truncate rounded-lg px-3 py-1.5 text-left text-[13px] text-text-secondary hover:bg-surface-alt"
+            >
+              {bookmakerLabel(o)}
+            </button>
+          ))}
+          {q && !exactMatch && (
+            <button
+              type="button"
+              onClick={() => commit(query)}
+              className="block w-full truncate rounded-lg px-3 py-1.5 text-left text-[13px] font-semibold text-accent"
+            >
+              Usar "{query.trim()}"
+            </button>
+          )}
+          {filtered.length === 0 && !q && (
+            <p className="px-3 py-1.5 text-[12px] text-text-tertiary">Nenhuma casa cadastrada ainda.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TipRow({
   tip,
   index,
   draft,
   unitValue,
+  bookmakers,
   onUpdate,
   onUpdateDraft,
   onTake,
@@ -149,6 +236,7 @@ function TipRow({
   index: number;
   draft: DraftEdit | undefined;
   unitValue: number | null;
+  bookmakers: string[];
   onUpdate: (tip: TelegramTip) => void;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onTake: (tip: TelegramTip) => void;
@@ -306,7 +394,11 @@ function TipRow({
               buttonClassName="rounded-md bg-transparent p-0 text-[13px] font-bold"
             />
           ) : (
-            <span className="truncate text-[13px] font-bold">{bookmakerLabel(effBookmaker)}</span>
+            <BookmakerCombobox
+              value={effBookmaker}
+              options={bookmakers}
+              onChange={(raw) => onUpdateDraft(tip, { bookmaker: raw })}
+            />
           )}
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
@@ -379,6 +471,7 @@ function MessageGroupCard({
   group,
   drafts,
   unitValue,
+  bookmakers,
   photoVisible,
   onTogglePhoto,
   onUpdate,
@@ -391,6 +484,7 @@ function MessageGroupCard({
   group: MessageGroup;
   drafts: Record<string, DraftEdit>;
   unitValue: number | null;
+  bookmakers: string[];
   photoVisible: boolean;
   onTogglePhoto: (key: string, visible: boolean) => void;
   onUpdate: (tip: TelegramTip) => void;
@@ -477,6 +571,7 @@ function MessageGroupCard({
                 index={i + 1}
                 draft={drafts[tip.id]}
                 unitValue={unitValue}
+                bookmakers={bookmakers}
                 onUpdate={onUpdate}
                 onUpdateDraft={onUpdateDraft}
                 onTake={onTake}
@@ -1121,6 +1216,7 @@ export function TelegramTipsPage() {
             group={group}
             drafts={drafts}
             unitValue={unitValue}
+            bookmakers={bookmakers}
             photoVisible={isPhotoVisible(group.key)}
             onTogglePhoto={togglePhoto}
             onUpdate={updateTip}
