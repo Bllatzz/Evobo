@@ -9,6 +9,7 @@ import {
 } from "../../lib/admin";
 import {
   rebuildTelegramTips,
+  fillTelegramTipsGaps,
   fetchBookmakerNames,
   fetchTelegramSettings,
   saveTelegramSettings,
@@ -281,6 +282,95 @@ function TelegramRebuildCard() {
   );
 }
 
+/**
+ * Igual ao card de reconstruir acima, mas NUNCA apaga tips já existentes na
+ * janela — só preenche mensagens que ficaram de fora (ex.: chegou bem na
+ * hora de um deploy/restart do worker). Não-destrutivo, sem confirmação.
+ */
+function TelegramFillGapsCard() {
+  const [sinceDatetime, setSinceDatetime] = useState(DEFAULT_SINCE_DATETIME_LOCAL);
+  const [untilDatetime, setUntilDatetime] = useState(nowDatetimeLocal());
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ group: string; messages: number; created: number; skipped: number }[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleClick() {
+    const sinceUnix = Math.floor(new Date(sinceDatetime).getTime() / 1000);
+    const untilUnix = untilDatetime ? Math.floor(new Date(untilDatetime).getTime() / 1000) : undefined;
+    if (!Number.isFinite(sinceUnix) || (untilUnix !== undefined && !Number.isFinite(untilUnix))) {
+      setError("Data inválida");
+      return;
+    }
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    try {
+      const { results } = await fillTelegramTipsGaps(sinceUnix, untilUnix);
+      setResult(results);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao preencher");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-border bg-surface">
+      <div className="flex flex-wrap items-center gap-3.5 p-4">
+        <div className="flex h-10 w-10 flex-none items-center justify-center rounded-[10px] bg-accent-soft text-accent">
+          <IconTelegram size={18} />
+        </div>
+        <div className="min-w-[220px] flex-1">
+          <div className="text-[14.5px] font-semibold">VIP Telegram · preencher lacunas</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            Reimporta só mensagens que faltam entre "De" e "Até" — nunca apaga uma tip que já existe. Não-destrutivo.
+          </div>
+        </div>
+        <div className="flex flex-none flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[12px] text-text-tertiary">
+            De
+            <input
+              type="datetime-local"
+              value={sinceDatetime}
+              onChange={(e) => setSinceDatetime(e.target.value)}
+              className="rounded-[11px] border border-border-strong bg-surface-chip px-2.5 py-2 text-[13px] text-text"
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-[12px] text-text-tertiary">
+            Até
+            <input
+              type="datetime-local"
+              value={untilDatetime}
+              onChange={(e) => setUntilDatetime(e.target.value)}
+              className="rounded-[11px] border border-border-strong bg-surface-chip px-2.5 py-2 text-[13px] text-text"
+            />
+          </label>
+          <button
+            onClick={handleClick}
+            disabled={running}
+            className="flex-none rounded-[11px] border border-accent-border px-4 py-2 text-[13px] font-semibold text-accent disabled:opacity-50"
+          >
+            {running ? "Preenchendo…" : "Preencher lacunas"}
+          </button>
+        </div>
+      </div>
+      {error && <p className="border-t border-border px-4 py-3 text-[12.5px] text-live">{error}</p>}
+      {result && (
+        <div className="border-t border-border px-4 py-3">
+          {result.map((r) => (
+            <div key={r.group} className="flex items-center justify-between text-[12.5px] text-text-secondary">
+              <span>{r.group}</span>
+              <span className="font-mono text-text-tertiary">
+                {r.messages} msgs · {r.created} criadas · {r.skipped} ignoradas
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Lets the admin pick a color per bookmaker, shown as a small dot next to
  * each casa in the VIP Telegram report's "Por casa de aposta" table —
  * stored in TelegramBancaSettings.bookmakerColors, one PUT per change. */
@@ -491,6 +581,7 @@ export function AdminPage() {
         <div className="mb-3 mt-6 font-mono text-[11px] tracking-[0.1em] text-text-tertiary">MANUTENÇÃO</div>
         <div className="flex flex-col gap-4">
           <TelegramRebuildCard />
+            <TelegramFillGapsCard />
           <BookmakerColorsCard />
         </div>
       </div>
@@ -552,6 +643,7 @@ export function AdminPage() {
       </div>
       <div className="flex flex-col gap-4 px-4">
         <TelegramRebuildCard />
+            <TelegramFillGapsCard />
         <BookmakerColorsCard />
       </div>
       </div>

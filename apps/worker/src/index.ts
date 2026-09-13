@@ -8,7 +8,7 @@ import { prisma, requireEnv } from "./db.js";
 import { processMessage } from "./processMessage.js";
 import { startExtractDetailsWorker } from "./queues/extractDetailsWorker.js";
 import { purgeOldTips } from "./purgeOldTips.js";
-import { backfillSince } from "./backfillRange.js";
+import { backfillSince, fillGapsSince } from "./backfillRange.js";
 import { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
 import { applyEditedMessageResult } from "./resultFromEmoji.js";
 import { backfillResultFromEmoji } from "./backfillResultFromEmoji.js";
@@ -50,6 +50,15 @@ let liveClient: TelegramClient | null = null;
 export async function runBackfillSince(sinceUnix: number, untilUnix?: number) {
   if (!liveClient) throw new Error("telegram worker not connected yet");
   return backfillSince(liveClient, sinceUnix, untilUnix);
+}
+
+/** Igual a runBackfillSince, mas nunca apaga tips existentes na janela —
+ * pra preencher uma mensagem que ficou de fora (ex.: chegou bem na hora de
+ * um deploy) sem arriscar perder peguei/não peguei ou resultado de outra
+ * tip que já exista nessa mesma janela. Ver fillGapsSince. */
+export async function runFillGapsSince(sinceUnix: number, untilUnix?: number) {
+  if (!liveClient) throw new Error("telegram worker not connected yet");
+  return fillGapsSince(liveClient, sinceUnix, untilUnix);
 }
 
 /** On-demand, mesmo padrão do runBackfillSince acima — aplica ✅✅✅/❌❌❌

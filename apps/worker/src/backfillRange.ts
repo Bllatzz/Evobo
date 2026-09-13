@@ -68,3 +68,30 @@ export async function backfillSince(client: TelegramClient, sinceUnix: number, u
 
   return results;
 }
+
+/** Igual a backfillSince, mas NUNCA apaga nada antes — usado quando o
+ * objetivo é só preencher uma mensagem que ficou de fora (ex.: chegou bem na
+ * janela de um deploy/restart do worker), sem arriscar perder peguei/não
+ * peguei ou resultado de outras tips que já existem nessa mesma janela.
+ * processMessage já dedupe por (groupId, telegramMessageId) sozinho — uma
+ * mensagem que já virou tip só volta "skipped_duplicate", intocada. */
+export async function fillGapsSince(client: TelegramClient, sinceUnix: number, untilUnix?: number) {
+  const groups = await prisma.telegramGroup.findMany({ where: { active: true } });
+  const results: { group: string; messages: number; created: number; skipped: number }[] = [];
+
+  for (const group of groups) {
+    const messages = await fetchMessagesSince(client, group.telegramChatId, sinceUnix, untilUnix);
+
+    let created = 0;
+    let skipped = 0;
+    for (const message of [...messages].reverse()) {
+      if (!message.message && !message.photo) continue;
+      const status = await processMessage(message, group);
+      if (status === "created") created++;
+      else skipped++;
+    }
+    results.push({ group: group.name, messages: messages.length, created, skipped });
+  }
+
+  return results;
+}

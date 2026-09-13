@@ -137,6 +137,18 @@ export const rebuildTelegramTips = (
 export const saveBookmakerBalances = (rows: TelegramBookmakerBalance[]): Promise<TelegramBookmakerBalance[]> =>
   apiFetch("/telegram-tips/bookmaker-balances", { method: "PUT", body: JSON.stringify(rows) });
 
+/** Admin only — igual a rebuildTelegramTips, mas NUNCA apaga tips já
+ * existentes na janela, só preenche o que ficou faltando (ex.: mensagem
+ * que chegou bem na hora de um deploy). Não-destrutivo. */
+export const fillTelegramTipsGaps = (
+  sinceUnix: number,
+  untilUnix?: number,
+): Promise<{ results: { group: string; messages: number; created: number; skipped: number }[] }> =>
+  apiFetch("/telegram-tips/admin/fill-gaps", {
+    method: "POST",
+    body: JSON.stringify(untilUnix !== undefined ? { sinceUnix, untilUnix } : { sinceUnix }),
+  });
+
 /** Admin only — reenfileira OCR só pras tips que já existem mas ainda faltam
  * odd/mercado/jogo (a foto já foi baixada) — nunca apaga/recria a tip. */
 export const retryMissingOcr = (): Promise<{ groupsEnqueued: number; tipsEnqueued: number }> =>

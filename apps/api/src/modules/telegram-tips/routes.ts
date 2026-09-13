@@ -600,6 +600,26 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     return { results };
   });
 
+  // Igual ao /admin/rebuild acima, mas NUNCA apaga tips existentes na janela
+  // — só preenche mensagens que ficaram de fora (ex.: chegaram bem na hora
+  // de um deploy/restart do worker), sem arriscar perder peguei/não peguei
+  // ou resultado de outra tip que já exista nessa mesma janela. Admin only,
+  // não-destrutivo.
+  app.post<{ Body: { sinceUnix: number; untilUnix?: number } }>("/admin/fill-gaps", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const { sinceUnix, untilUnix } = request.body ?? {};
+    if (typeof sinceUnix !== "number" || !Number.isFinite(sinceUnix)) {
+      return reply.code(400).send({ error: "invalid_input", details: "sinceUnix (unix seconds) is required" });
+    }
+    if (untilUnix !== undefined && (typeof untilUnix !== "number" || !Number.isFinite(untilUnix))) {
+      return reply.code(400).send({ error: "invalid_input", details: "untilUnix, when given, must be unix seconds" });
+    }
+
+    const { runFillGapsSince } = await import("@evobo/worker");
+    const results = await runFillGapsSince(sinceUnix, untilUnix);
+    return { results };
+  });
+
   // Reenfileira OCR só pra tips que já existem mas ainda faltam odd/mercado/
   // jogo (a foto já foi baixada) — nunca apaga/recria a tip, só preenche o
   // que falta. Sem parâmetro de período: sempre pega TODAS as tips
