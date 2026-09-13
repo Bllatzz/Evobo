@@ -1,6 +1,7 @@
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { NewMessage, type NewMessageEvent } from "telegram/events/index.js";
+import { EditedMessage, type EditedMessageEvent } from "telegram/events/EditedMessage.js";
 import input from "input";
 import { prisma, requireEnv } from "./db.js";
 import { processMessage } from "./processMessage.js";
@@ -8,6 +9,7 @@ import { startExtractDetailsWorker } from "./queues/extractDetailsWorker.js";
 import { purgeOldTips } from "./purgeOldTips.js";
 import { backfillSince } from "./backfillRange.js";
 import { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
+import { applyEditedMessageResult } from "./resultFromEmoji.js";
 
 export { retryMissingOcr } from "./retryOcr.js";
 export { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
@@ -89,4 +91,18 @@ export async function startTelegramWorker() {
       console.error("[worker] falha ao processar mensagem:", err);
     }
   }, new NewMessage({}));
+
+  // Só usado hoje pelo Super Odds, que marca o resultado editando a própria
+  // mensagem em vez de mandar no bet-analytix (3x ✅/❌) — ver resultFromEmoji.ts.
+  client.addEventHandler(async (event: EditedMessageEvent) => {
+    const chatId = event.chatId?.toString();
+    const group = chatId ? groupByChatId.get(chatId) : undefined;
+    if (!group) return;
+
+    try {
+      await applyEditedMessageResult(event.message.id, event.message.message, group);
+    } catch (err) {
+      console.error("[worker] falha ao processar mensagem editada:", err);
+    }
+  }, new EditedMessage({}));
 }
