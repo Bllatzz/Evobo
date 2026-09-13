@@ -8,6 +8,7 @@ import {
   deleteTelegramTip,
   retryMissingOcr,
   runBetAnalytixGrading,
+  backfillResultFromEmoji,
   type TelegramTip,
   type TelegramGroup,
 } from "../../../lib/telegramTips";
@@ -337,6 +338,8 @@ export function AdminTelegramTipsPage() {
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const [grading, setGrading] = useState(false);
   const [gradingMessage, setGradingMessage] = useState<string | null>(null);
+  const [emojiBackfilling, setEmojiBackfilling] = useState(false);
+  const [emojiBackfillMessage, setEmojiBackfillMessage] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -478,9 +481,29 @@ export function AdminTelegramTipsPage() {
           >
             {grading ? "Checando…" : "Checar bet-analytix agora"}
           </button>
+          <button
+            onClick={async () => {
+              setEmojiBackfilling(true);
+              setEmojiBackfillMessage(null);
+              try {
+                const res = await backfillResultFromEmoji();
+                const applied = res.results.reduce((sum, r) => sum + r.applied, 0);
+                const checked = res.results.reduce((sum, r) => sum + r.checked, 0);
+                setEmojiBackfillMessage(`${applied} tip(s) gradada(s) via ✅/❌ (${checked} mensagem(ns) checada(s)).`);
+                load();
+              } finally {
+                setEmojiBackfilling(false);
+              }
+            }}
+            disabled={emojiBackfilling}
+            className="flex-none rounded-full bg-accent-soft px-3.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.02em] text-accent disabled:opacity-50"
+          >
+            {emojiBackfilling ? "Checando…" : "Aplicar ✅/❌ retroativo (Super Odds)"}
+          </button>
         </div>
         {retryMessage && <p className="mt-2 text-[12px] text-text-tertiary">{retryMessage}</p>}
         {gradingMessage && <p className="mt-2 text-[12px] text-text-tertiary">{gradingMessage}</p>}
+        {emojiBackfillMessage && <p className="mt-2 text-[12px] text-text-tertiary">{emojiBackfillMessage}</p>}
       </div>
 
       {tips === null && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}

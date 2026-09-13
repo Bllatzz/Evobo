@@ -548,6 +548,17 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     return result;
   });
 
+  // Aplica ✅✅✅/❌❌❌ retroativamente nas mensagens do Super Odds já
+  // importadas antes do listener de edição existir (ver resultFromEmoji.ts
+  // no worker) — sempre sobrescreve `result`, mesmo se já gradado. Admin
+  // only, não-destrutivo (nunca apaga/recria tip).
+  app.post("/admin/backfill-result-emoji", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const { runBackfillResultFromEmoji } = await import("@evobo/worker");
+    const results = await runBackfillResultFromEmoji();
+    return { results };
+  });
+
   // ── Gestão de banca ───────────────────────────────────────────────────
   // "geral" = todas as tips resolvidas com o registro OFICIAL (mede o
   // grupo/tipster, igual pra todo mundo); "peguei" = só as que este usuário

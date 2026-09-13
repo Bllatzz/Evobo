@@ -138,3 +138,8 @@ export const retryMissingOcr = (): Promise<{ groupsEnqueued: number; tipsEnqueue
 /** Admin only — dispara sob demanda a checagem no bet-analytix (normalmente roda sozinha às 3h). */
 export const runBetAnalytixGrading = (): Promise<{ groupsChecked: number; graded: number; needsReview: number }> =>
   apiFetch("/telegram-tips/admin/grade-now", { method: "POST" });
+
+/** Admin only — aplica ✅✅✅/❌❌❌ retroativamente nas mensagens do Super Odds
+ * já importadas antes do listener de edição existir. */
+export const backfillResultFromEmoji = (): Promise<{ results: { group: string; checked: number; applied: number }[] }> =>
+  apiFetch("/telegram-tips/admin/backfill-result-emoji", { method: "POST" });

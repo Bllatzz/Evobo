@@ -5,7 +5,7 @@ import { prisma } from "./db.js";
  * (3x ✅ = green, 3x ❌ = red) em vez de depender do bet-analytix — hoje só
  * o Super Odds faz isso. Fixo no código, mesmo padrão de
  * betAnalytix/config.ts (adicionar um grupo novo = adicionar uma linha aqui). */
-const RESULT_EMOJI_GROUP_NAMES = new Set(["ST - Super Odds de Valor"]);
+export const RESULT_EMOJI_GROUP_NAMES = new Set(["ST - Super Odds de Valor"]);
 
 const MIN_EMOJI_COUNT = 3;
 
@@ -36,11 +36,11 @@ export async function applyEditedMessageResult(
   messageId: number,
   messageText: string | null | undefined,
   group: TelegramGroup,
-): Promise<void> {
-  if (!RESULT_EMOJI_GROUP_NAMES.has(group.name)) return;
+): Promise<number> {
+  if (!RESULT_EMOJI_GROUP_NAMES.has(group.name)) return 0;
 
   const result = detectResultFromEmojis(messageText);
-  if (!result) return;
+  if (!result) return 0;
 
   const { count } = await prisma.telegramTip.updateMany({
     where: { groupId: group.id, telegramMessageId: BigInt(messageId) },
@@ -49,4 +49,5 @@ export async function applyEditedMessageResult(
   if (count > 0) {
     console.log(`[worker] resultado "${result}" aplicado via edição (grupo ${group.name}, msg ${messageId}) em ${count} tip(s)`);
   }
+  return count;
 }

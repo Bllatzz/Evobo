@@ -10,6 +10,7 @@ import { purgeOldTips } from "./purgeOldTips.js";
 import { backfillSince } from "./backfillRange.js";
 import { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
 import { applyEditedMessageResult } from "./resultFromEmoji.js";
+import { backfillResultFromEmoji } from "./backfillResultFromEmoji.js";
 
 export { retryMissingOcr } from "./retryOcr.js";
 export { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
@@ -46,6 +47,14 @@ let liveClient: TelegramClient | null = null;
 export async function runBackfillSince(sinceUnix: number, untilUnix?: number) {
   if (!liveClient) throw new Error("telegram worker not connected yet");
   return backfillSince(liveClient, sinceUnix, untilUnix);
+}
+
+/** On-demand, mesmo padrão do runBackfillSince acima — aplica ✅✅✅/❌❌❌
+ * retroativamente nas mensagens já importadas (ver backfillResultFromEmoji.ts),
+ * pra pegar edições que o tipster já tinha feito antes desse listener existir. */
+export async function runBackfillResultFromEmoji() {
+  if (!liveClient) throw new Error("telegram worker not connected yet");
+  return backfillResultFromEmoji(liveClient);
 }
 
 /** Telegram MTProto listener + OCR queue consumer. Exported (rather than
