@@ -13,6 +13,7 @@ import { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
 import { applyEditedMessageResult } from "./resultFromEmoji.js";
 import { backfillResultFromEmoji } from "./backfillResultFromEmoji.js";
 import { applyMyReactionTake } from "./reactionTake.js";
+import { backfillReactionTake } from "./backfillReactionTake.js";
 
 export { retryMissingOcr } from "./retryOcr.js";
 export { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
@@ -57,6 +58,14 @@ export async function runBackfillSince(sinceUnix: number, untilUnix?: number) {
 export async function runBackfillResultFromEmoji() {
   if (!liveClient) throw new Error("telegram worker not connected yet");
   return backfillResultFromEmoji(liveClient);
+}
+
+/** On-demand, mesmo padrão acima — aplica retroativamente os 👍/👎 que a
+ * conta do worker já tinha dado antes do listener de reação existir (ver
+ * backfillReactionTake.ts). */
+export async function runBackfillReactionTake() {
+  if (!liveClient) throw new Error("telegram worker not connected yet");
+  return backfillReactionTake(liveClient);
 }
 
 /** Telegram MTProto listener + OCR queue consumer. Exported (rather than

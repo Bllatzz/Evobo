@@ -574,6 +574,16 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     return { results };
   });
 
+  // Aplica retroativamente os 👍/👎 que a conta do worker já tinha dado antes
+  // do listener de reação existir (ver reactionTake.ts no worker) — cobre
+  // TODOS os grupos. Admin only, não-destrutivo (upsert, nunca apaga take).
+  app.post("/admin/backfill-reaction-take", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const { runBackfillReactionTake } = await import("@evobo/worker");
+    const results = await runBackfillReactionTake();
+    return { results };
+  });
+
   // ── Gestão de banca ───────────────────────────────────────────────────
   // "geral" = todas as tips resolvidas com o registro OFICIAL (mede o
   // grupo/tipster, igual pra todo mundo); "peguei" = só as que este usuário

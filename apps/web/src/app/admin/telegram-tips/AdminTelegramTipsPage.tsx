@@ -9,6 +9,7 @@ import {
   retryMissingOcr,
   runBetAnalytixGrading,
   backfillResultFromEmoji,
+  backfillReactionTake,
   type TelegramTip,
   type TelegramGroup,
 } from "../../../lib/telegramTips";
@@ -343,6 +344,8 @@ export function AdminTelegramTipsPage() {
   const [emojiUnmatched, setEmojiUnmatched] = useState<
     { messageId: number; greenCount: number; redCount: number; text: string }[]
   >([]);
+  const [reactionBackfilling, setReactionBackfilling] = useState(false);
+  const [reactionBackfillMessage, setReactionBackfillMessage] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -506,10 +509,30 @@ export function AdminTelegramTipsPage() {
           >
             {emojiBackfilling ? "Checando…" : "Aplicar ✅/❌ retroativo (Super Odds)"}
           </button>
+          <button
+            onClick={async () => {
+              setReactionBackfilling(true);
+              setReactionBackfillMessage(null);
+              try {
+                const res = await backfillReactionTake();
+                const applied = res.results.reduce((sum, r) => sum + r.applied, 0);
+                const checked = res.results.reduce((sum, r) => sum + r.checked, 0);
+                setReactionBackfillMessage(`${applied} tip(s) marcada(s) via 👍/👎 (${checked} mensagem(ns) checada(s)).`);
+                load();
+              } finally {
+                setReactionBackfilling(false);
+              }
+            }}
+            disabled={reactionBackfilling}
+            className="flex-none rounded-full bg-accent-soft px-3.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.02em] text-accent disabled:opacity-50"
+          >
+            {reactionBackfilling ? "Checando…" : "Aplicar 👍/👎 retroativo"}
+          </button>
         </div>
         {retryMessage && <p className="mt-2 text-[12px] text-text-tertiary">{retryMessage}</p>}
         {gradingMessage && <p className="mt-2 text-[12px] text-text-tertiary">{gradingMessage}</p>}
         {emojiBackfillMessage && <p className="mt-2 text-[12px] text-text-tertiary">{emojiBackfillMessage}</p>}
+        {reactionBackfillMessage && <p className="mt-2 text-[12px] text-text-tertiary">{reactionBackfillMessage}</p>}
         {emojiUnmatched.length > 0 && (
           <div className="mt-2 space-y-1.5 rounded-lg bg-surface-chip p-2.5">
             <p className="font-mono text-[10px] uppercase tracking-[0.02em] text-text-tertiary">
