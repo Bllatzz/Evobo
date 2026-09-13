@@ -366,6 +366,11 @@ export const TelegramTipSchema = z.object({
     odd: z.number().nullable(),
     bookmaker: z.string().nullable(),
     betUrl: z.string().nullable(),
+    /** True quando `unit` acima foi ajustado pra baixo porque a unidade
+     * pedida, convertida em reais pelo `unitValue` da Banca deste usuário,
+     * passava do `limit` (R$) da tip — o valor gravado já é o efetivo
+     * (limite ÷ unitValue), não o que a pessoa pediu originalmente. */
+    limitApplied: z.boolean(),
   }),
   /** Which worker parser matcher recognized the message — null means nothing
    * matched and every extractable field still needs a manual look. */
@@ -385,6 +390,10 @@ export const UpdateTelegramTipInput = z.object({
   match: z.string().max(200).nullable().optional(),
   bookmaker: z.string().max(80).nullable().optional(),
   betUrl: z.string().url().nullable().optional(),
+  /** "Limite de aposta" da casa em reais — quando setado, a unidade pessoal
+   * de quem pegar essa tip é automaticamente limitada a isso (ver PATCH
+   * /:id/take e TelegramTip.mine.limitApplied). */
+  limit: z.number().positive().nullable().optional(),
 });
 export type UpdateTelegramTipInput = z.infer<typeof UpdateTelegramTipInput>;
 

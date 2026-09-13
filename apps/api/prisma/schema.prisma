@@ -505,6 +505,10 @@ model TelegramTipTake {
   odd         Decimal? @db.Decimal(6, 2)
   bookmaker   String?
   betUrl      String?  @map("bet_url")
+  /// True quando `unit` acima foi ajustado pra baixo porque a unidade pedida,
+  /// convertida em reais pelo unitValue da Banca deste usuário, passava do
+  /// `limit` (R$) da TelegramTip — ver PATCH /:id/take.
+  limitApplied Boolean @default(false) @map("limit_applied")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   tip  TelegramTip @relation(fields: [tipId], references: [id], onDelete: Cascade)

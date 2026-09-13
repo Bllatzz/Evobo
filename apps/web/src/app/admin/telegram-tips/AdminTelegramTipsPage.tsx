@@ -82,6 +82,7 @@ function AdminTipRow({
   const [selection, setSelection] = useState(tip.selection ?? "");
   const [unitText, setUnitText] = useState(tip.unit != null ? String(tip.unit) : "");
   const [oddText, setOddText] = useState(tip.odd != null ? String(tip.odd) : "");
+  const [limitText, setLimitText] = useState(tip.limit != null ? String(tip.limit) : "");
   const [betUrl, setBetUrl] = useState(tip.betUrl ?? "");
   const [saving, setSaving] = useState(false);
 
@@ -184,7 +185,7 @@ function AdminTipRow({
         />
       </div>
 
-      <div className="mb-2.5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="mb-2.5 grid grid-cols-2 gap-2 lg:grid-cols-5">
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-accent-border bg-accent-soft p-2.5">
           <span className="text-[10px] text-text-secondary">Unidade</span>
           <input
@@ -226,6 +227,18 @@ function AdminTipRow({
             className="w-full truncate rounded bg-transparent text-[12px] text-text outline-none"
           />
         </div>
+        <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
+          <span className="text-[10px] text-text-secondary">Limite (R$)</span>
+          <input
+            inputMode="decimal"
+            value={limitText}
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => setLimitText(e.target.value)}
+            onBlur={() => commit({ limit: parseNumber(limitText) })}
+            placeholder="—"
+            className="w-full rounded bg-transparent font-mono text-[14px] font-bold outline-none"
+          />
+        </div>
       </div>
 
       <div className="mb-2.5 flex gap-1.5">
@@ -244,7 +257,8 @@ function AdminTipRow({
 
       {tip.limit != null && (
         <p className="mb-2 text-[11px] text-text-tertiary">
-          Limite de aposta na mensagem: R$ {tip.limit.toFixed(2)} — stake abaixo disso não é bandeira vermelha pro auto-grader.
+          Limite de aposta: R$ {tip.limit.toFixed(2)} — se a unidade pessoal de quem pegar essa tip passar disso
+          (convertida pelo valor da unidade da Banca dela), a unidade registrada é ajustada automaticamente pro limite.
         </p>
       )}
 

@@ -65,7 +65,7 @@ async function resolvePhotoUrls(paths: (string | null)[]): Promise<Map<string, s
 
 type TipWithGroup = Prisma.TelegramTipGetPayload<{ include: { group: { select: { name: true } } } }>;
 type TipTakeRow = Prisma.TelegramTipTakeGetPayload<{
-  select: { takenStatus: true; unit: true; odd: true; bookmaker: true; betUrl: true };
+  select: { takenStatus: true; unit: true; odd: true; bookmaker: true; betUrl: true; limitApplied: true };
 }>;
 
 /** Batch-fetches the current user's own TelegramTipTake for each tip id,
@@ -75,9 +75,29 @@ async function fetchMyTakes(tipIds: string[], userId: string): Promise<Map<strin
   if (tipIds.length === 0) return new Map();
   const rows = await prisma.telegramTipTake.findMany({
     where: { tipId: { in: tipIds }, userId },
-    select: { tipId: true, takenStatus: true, unit: true, odd: true, bookmaker: true, betUrl: true },
+    select: { tipId: true, takenStatus: true, unit: true, odd: true, bookmaker: true, betUrl: true, limitApplied: true },
   });
   return new Map(rows.map((r) => [r.tipId, r]));
+}
+
+/** Se a tip tem um `limit` (R$) registrado e a unidade pedida, convertida em
+ * reais pelo unitValue (R$/u) da Banca deste usuário, passa desse limite, a
+ * unidade EFETIVA gravada vira limite ÷ unitValue — nunca desqualifica a
+ * aposta, só ajusta o número pro que a casa de fato deixou entrar. Sem
+ * `limit` na tip ou sem unitValue configurado, não há como comparar (reais
+ * contra uma unidade abstrata): devolve a unidade como pedida, sem marcar. */
+async function applyStakeLimit(tipId: string, userId: string, requestedUnit: number): Promise<{ unit: number; limitApplied: boolean }> {
+  const [tip, settings] = await Promise.all([
+    prisma.telegramTip.findUnique({ where: { id: tipId }, select: { limit: true } }),
+    prisma.telegramBancaSettings.findUnique({ where: { userId }, select: { unitValue: true } }),
+  ]);
+  const limitRs = tip?.limit != null ? Number(tip.limit) : null;
+  const unitValueRs = settings?.unitValue != null ? Number(settings.unitValue) : null;
+  if (limitRs === null || unitValueRs === null || unitValueRs <= 0) return { unit: requestedUnit, limitApplied: false };
+
+  const requestedRs = requestedUnit * unitValueRs;
+  if (requestedRs <= limitRs) return { unit: requestedUnit, limitApplied: false };
+  return { unit: Math.round((limitRs / unitValueRs) * 100) / 100, limitApplied: true };
 }
 
 function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>, myTake: TipTakeRow | undefined): TelegramTip {
@@ -106,6 +126,7 @@ function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>, myTake:
       odd: myTake?.odd != null ? Number(myTake.odd) : null,
       bookmaker: myTake?.bookmaker ?? null,
       betUrl: myTake?.betUrl ?? null,
+      limitApplied: myTake?.limitApplied ?? false,
     },
     parsePattern: tip.parsePattern,
     receivedAt: tip.receivedAt.toISOString(),
@@ -134,7 +155,15 @@ function buildScopeWhere(query: { groupId?: string; bookmaker?: string; marketTy
 
   return {
     ...(groupIds.length === 1 ? { groupId: groupIds[0] } : groupIds.length > 1 ? { groupId: { in: groupIds } } : {}),
-    ...(bookmaker ? { bookmaker } : {}),
+    // Uma tip com mais de uma casa possível guarda `bookmaker` NULL e as
+    // opções em `bookmakerOptions` (ver parseTip.ts) — sem o AND/OR abaixo,
+    // filtrar por "Betano" nunca encontrava essa tip mesmo com um link da
+    // Betano nela. Usa AND (em vez de espalhar OR direto no objeto) porque
+    // `search` abaixo também precisa do seu próprio OR — dois `OR` soltos no
+    // mesmo objeto se sobrescreveriam.
+    ...(bookmaker
+      ? { AND: [{ OR: [{ bookmaker }, { bookmakerOptions: { array_contains: [{ bookmaker }] } }] }] }
+      : {}),
     ...(marketType ? { marketType } : {}),
     ...(search ? { OR: [{ match: { contains: search, mode: "insensitive" } }, { selection: { contains: search, mode: "insensitive" } }] } : {}),
     ...(dateFrom || untilExclusive
@@ -480,6 +509,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         ...(input.bookmaker !== undefined ? { bookmaker: input.bookmaker } : {}),
         ...(input.betUrl !== undefined ? { betUrl: input.betUrl } : {}),
         ...(input.odd !== undefined ? { odd: input.odd, oddSource: input.odd !== null ? "manual" : null } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
       },
       include: { group: { select: { name: true } } },
     });
@@ -503,10 +533,18 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const tipId = request.params.id;
     const input = parsed.data;
 
+    // Limite de aposta da casa (ver applyStakeLimit) só se aplica quando a
+    // unidade está sendo tocada nesta chamada — odd/casa/link/status sozinhos
+    // nunca recalculam nem mexem em limitApplied.
+    const data =
+      input.unit !== undefined && input.unit !== null
+        ? { ...input, ...(await applyStakeLimit(tipId, userId, input.unit)) }
+        : input;
+
     await prisma.telegramTipTake.upsert({
       where: { tipId_userId: { tipId, userId } },
-      create: { tipId, userId, ...input },
-      update: input,
+      create: { tipId, userId, ...data },
+      update: data,
     });
 
     const tip = await prisma.telegramTip.findUniqueOrThrow({

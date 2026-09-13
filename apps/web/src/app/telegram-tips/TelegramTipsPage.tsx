@@ -290,6 +290,11 @@ function TipRow({
           {effUnit != null && unitValue != null && (
             <span className="font-mono text-[10px] text-accent/80">{formatBRL(effUnit * unitValue)}</span>
           )}
+          {tip.mine.limitApplied && (
+            <span className="text-[10px] leading-tight text-vip">
+              Ajustada pro limite da casa (R$ {tip.limit?.toFixed(2)}).
+            </span>
+          )}
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Minha odd</span>
@@ -503,10 +508,9 @@ function MessageGroupCard({
   );
 }
 
-/** "N grupos selecionados" trigger abre um checklist — cada marcação já
- * aplica o filtro na hora (sem botão "Aplicar"), igual aos outros filtros
- * da tela. Seleções renderizam como chips removíveis ao lado do trigger,
- * não como uma linha permanente de todo grupo. */
+/** "N grupos selecionados" trigger abre um checklist rascunho (nada aplica
+ * até "Aplicar") — seleções renderizam como chips removíveis ao lado do
+ * trigger, não como uma linha permanente de todo grupo. */
 function GroupMultiSelect({
   groups,
   selected,
@@ -521,6 +525,7 @@ function GroupMultiSelect({
   totalCount: number;
 }) {
   const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<string[]>(selected);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -532,8 +537,13 @@ function GroupMultiSelect({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [open]);
 
+  function openPanel() {
+    setPending(selected);
+    setOpen(true);
+  }
+
   function toggle(id: string) {
-    onApply(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+    setPending((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   const selectedCount = selected.reduce((sum, id) => sum + countByGroup(id), 0);
@@ -546,7 +556,7 @@ function GroupMultiSelect({
     <div ref={ref} className="relative flex-none">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (open ? setOpen(false) : openPanel())}
         className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] ${
           selected.length === 0 ? "bg-accent font-semibold text-[#08090A]" : "bg-surface-alt text-text-secondary"
         }`}
@@ -558,7 +568,7 @@ function GroupMultiSelect({
         <div className="absolute left-0 z-20 mt-1.5 w-max min-w-[240px] rounded-xl border border-border bg-surface p-1 shadow-lg">
           <div className="flex items-center justify-between px-3 py-1.5">
             <span className="font-mono text-[10px] tracking-[0.05em] text-text-tertiary">FILTRAR POR GRUPO</span>
-            <button type="button" onClick={() => onApply([])} className="text-[11px] font-semibold text-accent">
+            <button type="button" onClick={() => setPending([])} className="text-[11px] font-semibold text-accent">
               limpar
             </button>
           </div>
@@ -566,8 +576,8 @@ function GroupMultiSelect({
             <label className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-text-secondary hover:bg-surface-alt">
               <input
                 type="checkbox"
-                checked={selected.length === 0}
-                onChange={() => onApply([])}
+                checked={pending.length === 0}
+                onChange={() => setPending([])}
                 className="h-3.5 w-3.5 flex-none accent-accent"
               />
               <span className="min-w-0 flex-1 truncate">Todos os grupos</span>
@@ -580,7 +590,7 @@ function GroupMultiSelect({
               >
                 <input
                   type="checkbox"
-                  checked={selected.includes(g.id)}
+                  checked={pending.includes(g.id)}
                   onChange={() => toggle(g.id)}
                   className="h-3.5 w-3.5 flex-none accent-accent"
                 />
@@ -588,6 +598,18 @@ function GroupMultiSelect({
                 <span className="flex-none font-mono text-[11px] text-text-tertiary">{countByGroup(g.id)}</span>
               </label>
             ))}
+          </div>
+          <div className="p-1 pt-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                onApply(pending);
+                setOpen(false);
+              }}
+              className="w-full rounded-lg bg-accent py-2 text-[12px] font-bold text-[#08090A]"
+            >
+              Aplicar{pending.length > 0 ? ` (${pending.length})` : ""}
+            </button>
           </div>
         </div>
       )}
@@ -635,9 +657,9 @@ function shortDateLabel(iso: string): string {
 }
 
 /** Dropdown "Hoje / Ontem / Últimos N dias / personalizado", no mesmo estilo
- * dos outros filtros da página — o painel some assim que um preset é
- * escolhido, mas o personalizado só aplica ao clicar "Aplicar" (depende de
- * preencher os dois campos). */
+ * dos outros filtros da página — cada escolha já aplica na hora (preset
+ * fecha o painel na hora; personalizado aplica assim que os dois campos
+ * estiverem preenchidos), sem botão "Aplicar". */
 function PeriodFilter({
   label,
   dateFrom,
@@ -654,7 +676,6 @@ function PeriodFilter({
     const r = presetRange(p.key);
     return r.dateFrom === dateFrom && r.dateTo === dateTo;
   })?.key;
-  const [pendingPreset, setPendingPreset] = useState<PeriodPreset | undefined>(appliedPreset);
   const [customFrom, setCustomFrom] = useState(appliedPreset ? "" : dateFrom);
   const [customTo, setCustomTo] = useState(appliedPreset ? "" : dateTo);
   const ref = useRef<HTMLDivElement>(null);
@@ -669,31 +690,32 @@ function PeriodFilter({
   }, [open]);
 
   function openPanel() {
-    setPendingPreset(appliedPreset);
     setCustomFrom(appliedPreset ? "" : dateFrom);
     setCustomTo(appliedPreset ? "" : dateTo);
     setOpen(true);
   }
 
   function pickPreset(key: PeriodPreset) {
-    setPendingPreset(key);
-    setCustomFrom("");
-    setCustomTo("");
-  }
-
-  function apply() {
-    if (pendingPreset) {
-      const r = presetRange(pendingPreset);
-      onApply(PERIOD_PRESETS.find((p) => p.key === pendingPreset)!.label, r.dateFrom, r.dateTo);
-    } else if (customFrom && customTo) {
-      onApply(`${shortDateLabel(customFrom)} - ${shortDateLabel(customTo)}`, customFrom, customTo);
-    } else {
-      return;
-    }
+    const r = presetRange(key);
+    onApply(PERIOD_PRESETS.find((p) => p.key === key)!.label, r.dateFrom, r.dateTo);
     setOpen(false);
   }
 
-  const canApply = pendingPreset !== undefined || (customFrom !== "" && customTo !== "");
+  function pickCustomFrom(value: string) {
+    setCustomFrom(value);
+    if (value && customTo) {
+      onApply(`${shortDateLabel(value)} - ${shortDateLabel(customTo)}`, value, customTo);
+      setOpen(false);
+    }
+  }
+
+  function pickCustomTo(value: string) {
+    setCustomTo(value);
+    if (customFrom && value) {
+      onApply(`${shortDateLabel(customFrom)} - ${shortDateLabel(value)}`, customFrom, value);
+      setOpen(false);
+    }
+  }
 
   return (
     <div ref={ref} className="relative flex-none">
@@ -715,11 +737,11 @@ function PeriodFilter({
               type="button"
               onClick={() => pickPreset(p.key)}
               className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] ${
-                pendingPreset === p.key ? "bg-accent-soft text-accent" : "text-text-secondary hover:bg-surface-alt"
+                appliedPreset === p.key ? "bg-accent-soft text-accent" : "text-text-secondary hover:bg-surface-alt"
               }`}
             >
               {p.label}
-              {pendingPreset === p.key && <IconCheck size={13} className="flex-none" />}
+              {appliedPreset === p.key && <IconCheck size={13} className="flex-none" />}
             </button>
           ))}
           <div className="mt-1 border-t border-border-subtle px-3 pb-1.5 pt-2 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
@@ -732,10 +754,7 @@ function PeriodFilter({
                 type="date"
                 value={customFrom}
                 max={customTo || undefined}
-                onChange={(e) => {
-                  setCustomFrom(e.target.value);
-                  setPendingPreset(undefined);
-                }}
+                onChange={(e) => pickCustomFrom(e.target.value)}
                 className="w-full rounded-lg border border-border-strong bg-surface-alt px-2 py-1.5 font-mono text-[12px] text-text outline-none"
               />
             </label>
@@ -745,23 +764,10 @@ function PeriodFilter({
                 type="date"
                 value={customTo}
                 min={customFrom || undefined}
-                onChange={(e) => {
-                  setCustomTo(e.target.value);
-                  setPendingPreset(undefined);
-                }}
+                onChange={(e) => pickCustomTo(e.target.value)}
                 className="w-full rounded-lg border border-border-strong bg-surface-alt px-2 py-1.5 font-mono text-[12px] text-text outline-none"
               />
             </label>
-          </div>
-          <div className="p-1 pt-0.5">
-            <button
-              type="button"
-              disabled={!canApply}
-              onClick={apply}
-              className="w-full rounded-lg bg-accent py-2 text-[12px] font-bold text-[#08090A] disabled:opacity-50"
-            >
-              Aplicar
-            </button>
           </div>
         </div>
       )}
