@@ -6,8 +6,9 @@ import { prisma } from "./db.js";
 /// código de propósito (mesmo padrão de betAnalytix/config.ts e
 /// resultFromEmoji.ts): não existe hoje uma tela pra mapear "qual conta
 /// Telegram é qual usuário do app", e só há um usuário de verdade usando
-/// essa conta.
-const REACTION_TAKEN_USER_ID = "8d779784-8159-457b-bc93-70fb093530e7";
+/// essa conta. ATENÇÃO: id de PRODUÇÃO (users.id da tabela real, não do
+/// banco local de dev — os dois têm UUIDs diferentes pro mesmo username).
+const REACTION_TAKEN_USER_ID = "6affeeee-9e09-4615-b887-245ace22ec67";
 
 const REACTION_TO_TAKEN_STATUS: Record<string, "taken" | "skipped"> = {
   "👍": "taken",
@@ -20,15 +21,18 @@ const REACTION_TO_TAKEN_STATUS: Record<string, "taken" | "skipped"> = {
  * reagiu, ou reagiu com algo fora de REACTION_TO_TAKEN_STATUS (reação
  * custom/paga, ou qualquer emoji sem sentido pra peguei/não peguei).
  *
- * Checa a presença de `emoticon` em vez de `instanceof Api.ReactionEmoji`:
- * em produção esse `instanceof` nunca bateu (confirmado via log — a reação
- * chegava certinha, com `chosenOrder` preenchido e `emoticon` presente, mas
- * o `instanceof` rejeitava o objeto mesmo assim), deixando toda reação
- * silenciosamente sem efeito. */
+ * Duas pegadinhas reais encontradas em produção:
+ * - `chosenOrder` vem `null` (não `undefined`) nas reações que NÃO são da
+ *   própria conta — checar só `=== undefined` deixava passar a primeira
+ *   reação de qualquer um (ex.: sempre pegava um ❤️ de outro membro em vez
+ *   do 👍 da própria conta). Por isso `== null`, que cobre os dois.
+ * - `"emoticon" in r.reaction` em vez de `instanceof Api.ReactionEmoji`: o
+ *   instanceof nunca bateu no objeto real (mesma classe, mesmo import —
+ *   causa exata não identificada, mas o duck-typing é equivalente e funciona). */
 function extractMyReactionEmoji(reactions: Api.TypeMessageReactions | undefined): string | null {
   if (!reactions) return null;
   for (const r of reactions.results) {
-    if (r.chosenOrder === undefined) continue;
+    if (r.chosenOrder == null) continue;
     if ("emoticon" in r.reaction) return r.reaction.emoticon as string;
   }
   return null;
@@ -69,9 +73,7 @@ export async function applyMyReactionTake(
   reactions: Api.TypeMessageReactions | undefined,
 ): Promise<number> {
   const emoji = extractMyReactionEmoji(reactions);
-  console.log(`[worker][debug] applyMyReactionTake: emoji=${emoji}`);
   const takenStatus = emoji ? REACTION_TO_TAKEN_STATUS[emoji] : undefined;
-  console.log(`[worker][debug] applyMyReactionTake: takenStatus=${takenStatus}`);
   if (!takenStatus) return 0;
 
   const [tips, settings] = await Promise.all([
@@ -81,7 +83,6 @@ export async function applyMyReactionTake(
     }),
     prisma.telegramBancaSettings.findUnique({ where: { userId: REACTION_TAKEN_USER_ID }, select: { unitValue: true } }),
   ]);
-  console.log(`[worker][debug] applyMyReactionTake: tips=${tips.length} settings=${JSON.stringify(settings)}`);
   if (tips.length === 0) return 0;
   const unitValueRs = settings?.unitValue != null ? Number(settings.unitValue) : null;
 
@@ -91,21 +92,18 @@ export async function applyMyReactionTake(
       const officialUnit = tip.unit != null ? Number(tip.unit) : null;
       const capped = takenStatus === "taken" ? applyStakeLimit(limitRs, officialUnit, unitValueRs) : null;
 
-      return prisma.telegramTipTake
-        .upsert({
-          where: { tipId_userId: { tipId: tip.id, userId: REACTION_TAKEN_USER_ID } },
-          create: {
-            tipId: tip.id,
-            userId: REACTION_TAKEN_USER_ID,
-            takenStatus,
-            ...(capped
-              ? { unit: capped.unit, limitApplied: capped.limitApplied, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl }
-              : {}),
-          },
-          update: { takenStatus },
-        })
-        .then((row) => console.log(`[worker][debug] upsert ok tipId=${tip.id} row=${JSON.stringify(row)}`))
-        .catch((err) => console.error(`[worker][debug] upsert FALHOU tipId=${tip.id}:`, err));
+      return prisma.telegramTipTake.upsert({
+        where: { tipId_userId: { tipId: tip.id, userId: REACTION_TAKEN_USER_ID } },
+        create: {
+          tipId: tip.id,
+          userId: REACTION_TAKEN_USER_ID,
+          takenStatus,
+          ...(capped
+            ? { unit: capped.unit, limitApplied: capped.limitApplied, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl }
+            : {}),
+        },
+        update: { takenStatus },
+      });
     }),
   );
 
