@@ -18,12 +18,18 @@ const REACTION_TO_TAKEN_STATUS: Record<string, "taken" | "skipped"> = {
  * mensagem — `chosenOrder` só vem preenchido na entrada da reação que essa
  * conta deu, nunca nas dos outros membros do grupo. null se a conta não
  * reagiu, ou reagiu com algo fora de REACTION_TO_TAKEN_STATUS (reação
- * custom/paga, ou qualquer emoji sem sentido pra peguei/não peguei). */
+ * custom/paga, ou qualquer emoji sem sentido pra peguei/não peguei).
+ *
+ * Checa a presença de `emoticon` em vez de `instanceof Api.ReactionEmoji`:
+ * em produção esse `instanceof` nunca bateu (confirmado via log — a reação
+ * chegava certinha, com `chosenOrder` preenchido e `emoticon` presente, mas
+ * o `instanceof` rejeitava o objeto mesmo assim), deixando toda reação
+ * silenciosamente sem efeito. */
 function extractMyReactionEmoji(reactions: Api.TypeMessageReactions | undefined): string | null {
   if (!reactions) return null;
   for (const r of reactions.results) {
     if (r.chosenOrder === undefined) continue;
-    if (r.reaction instanceof Api.ReactionEmoji) return r.reaction.emoticon;
+    if ("emoticon" in r.reaction) return r.reaction.emoticon as string;
   }
   return null;
 }
