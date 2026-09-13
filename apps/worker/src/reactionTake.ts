@@ -69,7 +69,9 @@ export async function applyMyReactionTake(
   reactions: Api.TypeMessageReactions | undefined,
 ): Promise<number> {
   const emoji = extractMyReactionEmoji(reactions);
+  console.log(`[worker][debug] applyMyReactionTake: emoji=${emoji}`);
   const takenStatus = emoji ? REACTION_TO_TAKEN_STATUS[emoji] : undefined;
+  console.log(`[worker][debug] applyMyReactionTake: takenStatus=${takenStatus}`);
   if (!takenStatus) return 0;
 
   const [tips, settings] = await Promise.all([
@@ -79,6 +81,7 @@ export async function applyMyReactionTake(
     }),
     prisma.telegramBancaSettings.findUnique({ where: { userId: REACTION_TAKEN_USER_ID }, select: { unitValue: true } }),
   ]);
+  console.log(`[worker][debug] applyMyReactionTake: tips=${tips.length} settings=${JSON.stringify(settings)}`);
   if (tips.length === 0) return 0;
   const unitValueRs = settings?.unitValue != null ? Number(settings.unitValue) : null;
 
@@ -88,18 +91,21 @@ export async function applyMyReactionTake(
       const officialUnit = tip.unit != null ? Number(tip.unit) : null;
       const capped = takenStatus === "taken" ? applyStakeLimit(limitRs, officialUnit, unitValueRs) : null;
 
-      return prisma.telegramTipTake.upsert({
-        where: { tipId_userId: { tipId: tip.id, userId: REACTION_TAKEN_USER_ID } },
-        create: {
-          tipId: tip.id,
-          userId: REACTION_TAKEN_USER_ID,
-          takenStatus,
-          ...(capped
-            ? { unit: capped.unit, limitApplied: capped.limitApplied, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl }
-            : {}),
-        },
-        update: { takenStatus },
-      });
+      return prisma.telegramTipTake
+        .upsert({
+          where: { tipId_userId: { tipId: tip.id, userId: REACTION_TAKEN_USER_ID } },
+          create: {
+            tipId: tip.id,
+            userId: REACTION_TAKEN_USER_ID,
+            takenStatus,
+            ...(capped
+              ? { unit: capped.unit, limitApplied: capped.limitApplied, odd: tip.odd, bookmaker: tip.bookmaker, betUrl: tip.betUrl }
+              : {}),
+          },
+          update: { takenStatus },
+        })
+        .then((row) => console.log(`[worker][debug] upsert ok tipId=${tip.id} row=${JSON.stringify(row)}`))
+        .catch((err) => console.error(`[worker][debug] upsert FALHOU tipId=${tip.id}:`, err));
     }),
   );
 
