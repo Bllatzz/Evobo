@@ -814,6 +814,8 @@ export function TelegramTipsPage() {
   function refreshSummary() {
     fetchTelegramTipsSummary({
       groupId: groupIds.length > 0 ? groupIds.join(",") : undefined,
+      result: result || undefined,
+      takenStatus: takenStatus || undefined,
       bookmaker: bookmaker || undefined,
       search: search || undefined,
       dateFrom: period.dateFrom,
@@ -833,9 +835,10 @@ export function TelegramTipsPage() {
     refreshPendingCounts();
   }, []);
 
-  // Os 3 cards do topo seguem grupo/casa/busca/período — não result/takenStatus
-  // (o backend já ignora esses dois de propósito, ver buildScopeWhere).
-  useEffect(refreshSummary, [groupIds, bookmaker, search, period]);
+  // Os 3 cards do topo seguem TODOS os filtros ativos, igual à lista abaixo —
+  // pode legitimamente voltar 0 numa combinação estranha (ex.: aba "Green" +
+  // "Tips Pendentes"), intencional.
+  useEffect(refreshSummary, [groupIds, result, takenStatus, bookmaker, search, period]);
 
   useEffect(() => {
     fetchTelegramTips({

@@ -141,6 +141,14 @@ function buildScopeWhere(query: { groupId?: string; bookmaker?: string; search?:
   };
 }
 
+/** takenStatus é por usuário (relação TelegramTipTake), nunca uma coluna na
+ * própria tip — compartilhado por GET / e GET /summary pra nunca divergir. */
+function buildTakenFilter(takenStatus: string | undefined, userId: string): Prisma.TelegramTipWhereInput {
+  if (takenStatus === "pending") return { takes: { none: { userId, takenStatus: { in: ["taken", "skipped"] } } } };
+  if (takenStatus === "taken" || takenStatus === "skipped") return { takes: { some: { userId, takenStatus } } };
+  return {};
+}
+
 /** green: stake × (odd − 1); red: −stake; reembolso: 0 — same convention robot-signals/routes.ts uses. */
 function tipProfit(unit: number, odd: number | null, result: string): number | null {
   if (result === "green") return odd ? unit * (odd - 1) : null;
@@ -346,14 +354,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const { result, takenStatus, missing, needsReview } = request.query;
     const userId = request.authUser!.id;
 
-    // takenStatus agora é por usuário — filtra pela relação, nunca por uma
-    // coluna na própria tip (essa coluna não existe mais, ver TelegramTipTake).
-    const takenFilter: Prisma.TelegramTipWhereInput =
-      takenStatus === "pending"
-        ? { takes: { none: { userId, takenStatus: { in: ["taken", "skipped"] } } } }
-        : takenStatus === "taken" || takenStatus === "skipped"
-          ? { takes: { some: { userId, takenStatus } } }
-          : {};
+    const takenFilter = buildTakenFilter(takenStatus, userId);
 
     const missingFields = missing ? missing.split(",").filter(Boolean) : [];
     const missingFilter: Prisma.TelegramTipWhereInput =
@@ -398,21 +399,35 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     };
   });
 
-  // Números dos cards do topo (Tips pendentes / Peguei / Resultado) —
-  // recebe o mesmo grupo/casa/busca/período da lista acima (nunca
-  // result/takenStatus: cada número já força o critério dele, senão
-  // "pendentes" ou "peguei" sempre voltariam 0 assim que o usuário troca de
-  // aba de resultado ou do dropdown Peguei/Não peguei).
+  // Números dos cards do topo (Tips pendentes / Peguei / Resultado) — segue
+  // TODOS os filtros ativos (grupo/casa/busca/período + a aba de resultado e
+  // o dropdown Peguei/Não peguei), igual à lista abaixo. Pode legitimamente
+  // voltar 0 numa combinação estranha (ex.: aba "Green" + "Tips Pendentes",
+  // já que uma tip pendente nunca tem result=green) — intencional, o usuário
+  // prefere ver o número condizer com o filtro a um número sempre "cheio".
   app.get<{
-    Querystring: { groupId?: string; bookmaker?: string; search?: string; dateFrom?: string; dateTo?: string };
+    Querystring: {
+      groupId?: string;
+      bookmaker?: string;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      result?: string;
+      takenStatus?: string;
+    };
   }>("/summary", async (request) => {
-    const scope = buildScopeWhere(request.query);
+    const { result, takenStatus } = request.query;
     const userId = request.authUser!.id;
+    const filtered: Prisma.TelegramTipWhereInput = {
+      AND: [buildScopeWhere(request.query), result ? { result } : {}, buildTakenFilter(takenStatus, userId)],
+    };
+    const notDecided: Prisma.TelegramTipWhereInput = { takes: { none: { userId, takenStatus: { in: ["taken", "skipped"] } } } };
+    const isTaken: Prisma.TelegramTipWhereInput = { takes: { some: { userId, takenStatus: "taken" } } };
 
     const [pendingCount, taken] = await Promise.all([
-      prisma.telegramTip.count({ where: { ...scope, takes: { none: { userId, takenStatus: { in: ["taken", "skipped"] } } } } }),
+      prisma.telegramTip.count({ where: { AND: [filtered, notDecided] } }),
       prisma.telegramTip.findMany({
-        where: { ...scope, takes: { some: { userId, takenStatus: "taken" } } },
+        where: { AND: [filtered, isTaken] },
         select: { result: true, takes: { where: { userId }, select: { unit: true, odd: true } } },
       }),
     ]);

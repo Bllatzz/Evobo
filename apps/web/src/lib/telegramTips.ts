@@ -85,7 +85,7 @@ export type TelegramTipsSummary = {
  * mesmo grupo/casa/busca/período da lista — nunca leva result/takenStatus,
  * cada número já força o próprio critério (ver rota no backend). */
 export function fetchTelegramTipsSummary(
-  filter: Pick<TelegramTipsFilter, "groupId" | "bookmaker" | "search" | "dateFrom" | "dateTo"> = {},
+  filter: Pick<TelegramTipsFilter, "groupId" | "bookmaker" | "search" | "dateFrom" | "dateTo" | "result" | "takenStatus"> = {},
 ): Promise<TelegramTipsSummary> {
   const params = new URLSearchParams();
   if (filter.groupId) params.set("groupId", filter.groupId);
@@ -93,6 +93,8 @@ export function fetchTelegramTipsSummary(
   if (filter.search) params.set("search", filter.search);
   if (filter.dateFrom) params.set("dateFrom", filter.dateFrom);
   if (filter.dateTo) params.set("dateTo", filter.dateTo);
+  if (filter.result) params.set("result", filter.result);
+  if (filter.takenStatus) params.set("takenStatus", filter.takenStatus);
   const qs = params.toString();
   return apiFetch(`/telegram-tips/summary${qs ? `?${qs}` : ""}`);
 }
