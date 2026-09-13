@@ -9,9 +9,26 @@ const BOOKMAKER_ALIASES: Record<string, string> = {
   pix: "pixbet",
 };
 
+/** Colapsa variações de escrita da mesma casa (acento, maiúscula, espaço/
+ * pontuação — "Betão", "Betao", "BETÃO" viram todas "betao") no mesmo
+ * formato que o slug derivado de URL já usa (label da hostname: minúsculo,
+ * sem separador) — nunca duplicar a mesma casa só por causa de como o
+ * tipster escreveu o texto dessa vez. Duplicado em
+ * apps/web/src/components/BookmakerCombobox.tsx (entrada manual) — mesma
+ * regra, sem pacote compartilhado entre worker e web pra essa função pura. */
+export function normalizeBookmakerSlug(raw: string): string {
+  return raw
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
 function normalizeBookmaker(name: string | null): string | null {
   if (!name) return name;
-  return BOOKMAKER_ALIASES[name] ?? name;
+  const slug = normalizeBookmakerSlug(name);
+  if (!slug) return null;
+  return BOOKMAKER_ALIASES[slug] ?? slug;
 }
 
 export function extractBookmaker(url: string | null): string | null {
@@ -222,7 +239,7 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
       } else {
         // Mais de uma casa na mesma linha: "Betfair · 🔗 Betnacional".
         for (const part of value.split(/\s*·\s*🔗\s*/)) {
-          const name = normalizeBookmaker(part.trim().toLowerCase());
+          const name = normalizeBookmaker(part.trim());
           if (name) bookmakerNames.push(name);
         }
       }
@@ -246,10 +263,16 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
   // casa), com o mesmo mercado/jogo/unidade/odd. Descompasso entre
   // quantidade de nomes e de links não dá pra casar com certeza, então usa
   // só o primeiro de cada.
+  //
+  // O NOME sempre vem do link (hostname), não do texto visível, quando um
+  // link existe naquela posição — o texto de um link oculto do Telegram
+  // pode ser qualquer rótulo (ex.: "🔗 Super Sub" apontando pra
+  // betmgm.com/...), nunca necessariamente o nome real da casa. O texto só
+  // vira o nome quando não há link nenhum (o tipster só escreveu o nome).
   const pairs: { bookmaker: string | null; betUrl: string | null }[] =
     bookmakerNames.length > 1 && bookmakerNames.length === urls.length
-      ? bookmakerNames.map((name, i) => ({ bookmaker: name, betUrl: urls[i]! }))
-      : [{ bookmaker: bookmakerNames[0] ?? (urls[0] ? extractBookmaker(urls[0]) : null), betUrl: urls[0] ?? null }];
+      ? bookmakerNames.map((name, i) => ({ bookmaker: extractBookmaker(urls[i]!) ?? name, betUrl: urls[i]! }))
+      : [{ bookmaker: (urls[0] ? extractBookmaker(urls[0]) : null) ?? bookmakerNames[0] ?? null, betUrl: urls[0] ?? null }];
 
   const primary = pairs[0]!;
   if (!primary.bookmaker && !primary.betUrl) return null; // sem casa nem link — não é uma tip de verdade

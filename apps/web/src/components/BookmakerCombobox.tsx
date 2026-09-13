@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { bookmakerLabel } from "../lib/bookmakers";
+import { bookmakerLabel, normalizeBookmakerSlug } from "../lib/bookmakers";
 
 /** Campo "Casa" — digita e filtra. Duas seções: "Nessa tip" (as casas que a
  * própria mensagem já trazia, cada uma com o link real dela — escolher uma
@@ -47,7 +47,7 @@ export function BookmakerCombobox({
   }
 
   function commitFree(raw: string) {
-    const normalized = raw.trim().toLowerCase();
+    const normalized = normalizeBookmakerSlug(raw);
     if (!normalized) {
       setOpen(false);
       return;

@@ -26,6 +26,21 @@ const BOOKMAKER_LABELS: Record<string, string> = {
   vbet: "VBet",
 };
 
+/** Colapsa variações de escrita da mesma casa (acento, maiúscula, espaço/
+ * pontuação — "Betão", "Betao", "BETÃO" viram todas "betao") no mesmo
+ * formato que o slug derivado de URL do parser já usa (label da hostname:
+ * minúsculo, sem separador) — nunca criar uma casa duplicada só porque foi
+ * digitada diferente dessa vez. Duplicado em
+ * apps/worker/src/parseTip.ts — mesma regra, sem pacote compartilhado entre
+ * worker e web pra essa função pura. */
+export function normalizeBookmakerSlug(raw: string): string {
+  return raw
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
 const LOWERCASE_WORDS = new Set(["de", "da", "do", "das", "dos", "e"]);
 
 function titleCaseFallback(raw: string): string {

@@ -306,10 +306,19 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   // Renomeia uma casa em toda tip que a referencia (bookmaker + dentro de
   // bookmakerOptions) e, quando existir, no saldo/cor por casa deste admin
   // (settings são por usuário — não mexe no de outros usuários). Admin only.
+  // Canonicaliza o novo nome (mesma regra de apps/worker/src/parseTip.ts e
+  // apps/web/src/lib/bookmakers.ts) — senão um rename manual reintroduziria
+  // a mesma duplicata por acento/maiúscula que essa tela existe pra resolver.
   app.patch<{ Params: { name: string }; Body: { name?: string } }>("/bookmakers/:name", async (request, reply) => {
     if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
     const oldName = request.params.name;
-    const newName = request.body?.name?.trim();
+    const rawNewName = request.body?.name?.trim();
+    if (!rawNewName) return reply.code(400).send({ error: "invalid_input", details: "name is required" });
+    const newName = rawNewName
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
     if (!newName) return reply.code(400).send({ error: "invalid_input", details: "name is required" });
     if (newName === oldName) return { renamed: 0 };
 
