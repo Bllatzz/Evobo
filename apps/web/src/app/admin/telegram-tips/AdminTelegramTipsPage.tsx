@@ -5,6 +5,7 @@ import {
   fetchTelegramGroups,
   fetchBookmakerNames,
   patchTelegramTip,
+  deleteTelegramTip,
   retryMissingOcr,
   runBetAnalytixGrading,
   type TelegramTip,
@@ -22,6 +23,7 @@ import {
   IconExternalLink,
   IconEyeOff,
   IconX,
+  IconTrash,
 } from "../../../components/Icon";
 
 const PAGE_SIZE = 30;
@@ -57,7 +59,19 @@ function parseNumber(raw: string): number | null {
 /** Uma tip no registro OFICIAL — cada campo comita direto (blur/seleção),
  * sem rascunho: é correção pontual, não um fluxo de revisão em lote. Mesmo
  * visual da tela pessoal (VIP Telegram), só sem peguei/não peguei. */
-function AdminTipRow({ tip, index, bookmakers, onUpdate }: { tip: TelegramTip; index: number; bookmakers: string[]; onUpdate: (tip: TelegramTip) => void }) {
+function AdminTipRow({
+  tip,
+  index,
+  bookmakers,
+  onUpdate,
+  onDelete,
+}: {
+  tip: TelegramTip;
+  index: number;
+  bookmakers: string[];
+  onUpdate: (tip: TelegramTip) => void;
+  onDelete: (tip: TelegramTip) => void;
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [match, setMatch] = useState(tip.match ?? "");
   const [selection, setSelection] = useState(tip.selection ?? "");
@@ -87,6 +101,13 @@ function AdminTipRow({ tip, index, bookmakers, onUpdate }: { tip: TelegramTip; i
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>{chip.text}</span>
         {tip.needsReview && <span className="flex-none rounded-md bg-vip-soft px-2 py-1 font-mono text-[9px] font-bold text-vip">!</span>}
+        <button
+          onClick={() => onDelete(tip)}
+          aria-label="Excluir tip"
+          className="flex-none rounded-lg border border-border-strong bg-surface-chip p-1.5 text-live"
+        >
+          <IconTrash size={14} />
+        </button>
         <button
           onClick={() => setCollapsed(false)}
           aria-label="Mostrar tip"
@@ -119,6 +140,13 @@ function AdminTipRow({ tip, index, bookmakers, onUpdate }: { tip: TelegramTip; i
             PRECISA REVISAR
           </span>
         )}
+        <button
+          onClick={() => onDelete(tip)}
+          aria-label="Excluir tip"
+          className="flex-none self-start rounded-lg border border-border-strong bg-surface-chip p-1.5 text-live"
+        >
+          <IconTrash size={14} />
+        </button>
         <button
           onClick={() => setCollapsed(true)}
           aria-label="Ocultar tip"
@@ -225,6 +253,7 @@ function AdminMessageGroupCard({
   onTogglePhoto,
   onOpenPhoto,
   onUpdate,
+  onDelete,
 }: {
   group: MessageGroup;
   bookmakers: string[];
@@ -232,6 +261,7 @@ function AdminMessageGroupCard({
   onTogglePhoto: (key: string, visible: boolean) => void;
   onOpenPhoto: (url: string) => void;
   onUpdate: (tip: TelegramTip) => void;
+  onDelete: (tip: TelegramTip) => void;
 }) {
   return (
     <div className="rounded-[18px] border border-border bg-surface p-3.5 lg:p-4">
@@ -284,7 +314,7 @@ function AdminMessageGroupCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-col">
             {group.tips.map((tip, i) => (
-              <AdminTipRow key={tip.id} tip={tip} index={i + 1} bookmakers={bookmakers} onUpdate={onUpdate} />
+              <AdminTipRow key={tip.id} tip={tip} index={i + 1} bookmakers={bookmakers} onUpdate={onUpdate} onDelete={onDelete} />
             ))}
           </div>
         </div>
@@ -345,6 +375,13 @@ export function AdminTelegramTipsPage() {
 
   function updateTip(updated: TelegramTip) {
     setTips((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev);
+  }
+
+  async function deleteTip(tip: TelegramTip) {
+    if (!confirm(`Excluir a tip "${tip.selection ?? tip.match ?? "sem descrição"}"? Essa ação não pode ser desfeita.`)) return;
+    await deleteTelegramTip(tip.id);
+    setTips((prev) => prev?.filter((t) => t.id !== tip.id) ?? prev);
+    setTotal((prev) => Math.max(0, prev - 1));
   }
 
   function togglePhoto(key: string, visible: boolean) {
@@ -458,6 +495,7 @@ export function AdminTelegramTipsPage() {
           onTogglePhoto={togglePhoto}
           onOpenPhoto={setPhotoModal}
           onUpdate={updateTip}
+          onDelete={deleteTip}
         />
       ))}
 
