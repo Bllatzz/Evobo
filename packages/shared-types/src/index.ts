@@ -409,6 +409,70 @@ export const UpdateTelegramTipTakeInput = z.object({
 });
 export type UpdateTelegramTipTakeInput = z.infer<typeof UpdateTelegramTipTakeInput>;
 
+/** Uma linha do histórico de apostas de uma casa, extraída pelo usuário
+ * via script no próprio navegador (ver scripts/bookmaker-scrapers/) — nunca
+ * um scraping automatizado do nosso lado, sem login nem senha guardada em
+ * lugar nenhum. "aberta" ainda não tem resultado; "cashout"/"cancelado" só
+ * viram take pessoal, nunca gradam o result oficial (ver POST
+ * /telegram-tips/import-bets). */
+export const ImportedBookmakerBetSchema = z.object({
+  betNumber: z.string(),
+  status: z.enum(["aberta", "ganha", "perdido", "cashout", "cancelado"]),
+  placedAt: z.string(),
+  selection: z.string(),
+  game: z.string().nullable(),
+  odd: z.number().positive(),
+  stakeReais: z.number().positive(),
+});
+export type ImportedBookmakerBet = z.infer<typeof ImportedBookmakerBetSchema>;
+
+export const ImportBookmakerBetsInput = z.object({
+  bookmaker: z.string().min(1),
+  bets: z.array(ImportedBookmakerBetSchema),
+  /** Default true — só grava de verdade quando explicitamente false, depois
+   * que o usuário validar o resultado do dry run contra dados já conferidos. */
+  dryRun: z.boolean().optional(),
+});
+export type ImportBookmakerBetsInput = z.infer<typeof ImportBookmakerBetsInput>;
+
+const ImportBookmakerBetMatch = z.object({
+  bet: ImportedBookmakerBetSchema,
+  tipId: z.string().uuid(),
+  match: z.string().nullable(),
+  selection: z.string().nullable(),
+  /** null quando não dá pra converter reais em unidade (sem unitValue configurado). */
+  unit: z.number().nullable(),
+  odd: z.number(),
+  /** null quando o `result` oficial não seria tocado (status cashout/
+   * cancelado, ou a tip já tinha um result que nunca é sobrescrito). */
+  result: TelegramTipResult.nullable(),
+  /** O que já está salvo hoje nessa tip — só preenchido no dry run, pra
+   * comparar lado a lado na tela antes de decidir gravar de verdade. */
+  current: z
+    .object({
+      takenStatus: TelegramTipTakenStatus,
+      unit: z.number().nullable(),
+      odd: z.number().nullable(),
+      result: TelegramTipResult,
+    })
+    .nullable(),
+});
+
+const ImportBookmakerBetAmbiguous = z.object({
+  bet: ImportedBookmakerBetSchema,
+  candidates: z.array(
+    z.object({ tipId: z.string().uuid(), match: z.string().nullable(), selection: z.string().nullable(), unit: z.number().nullable() }),
+  ),
+});
+
+export const ImportBookmakerBetsResult = z.object({
+  dryRun: z.boolean(),
+  matched: z.array(ImportBookmakerBetMatch),
+  ambiguous: z.array(ImportBookmakerBetAmbiguous),
+  unmatched: z.array(ImportedBookmakerBetSchema),
+});
+export type ImportBookmakerBetsResult = z.infer<typeof ImportBookmakerBetsResult>;
+
 export const TelegramBancaRow = z.object({
   key: z.string(),
   total: z.number(),

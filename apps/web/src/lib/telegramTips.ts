@@ -9,7 +9,11 @@ import type {
   UpdateTelegramTipInput,
   UpdateTelegramTipTakeInput,
   UpdateTelegramBancaSettingsInput,
+  ImportedBookmakerBet,
+  ImportBookmakerBetsResult,
 } from "@evobo/shared-types";
+
+export type { ImportedBookmakerBet, ImportBookmakerBetsResult };
 
 export type { TelegramTip, TelegramGroup, TelegramBancaSummary, TelegramBancaSettings, TelegramBookmakerBalance };
 export { TELEGRAM_TIP_MARKET_TYPES };
@@ -136,6 +140,21 @@ export const rebuildTelegramTips = (
 
 export const saveBookmakerBalances = (rows: TelegramBookmakerBalance[]): Promise<TelegramBookmakerBalance[]> =>
   apiFetch("/telegram-tips/bookmaker-balances", { method: "PUT", body: JSON.stringify(rows) });
+
+/** Casa o histórico de apostas de uma casa (extraído pelo usuário no
+ * próprio navegador, ver scripts/bookmaker-scrapers/) contra as tips ainda
+ * não decididas por ele. `dryRun` (default true no backend) só calcula, sem
+ * gravar nada — usado enquanto o piloto de uma casa ainda está sendo
+ * validado. */
+export const importBookmakerBets = (
+  bookmaker: string,
+  bets: ImportedBookmakerBet[],
+  dryRun?: boolean,
+): Promise<ImportBookmakerBetsResult> =>
+  apiFetch("/telegram-tips/import-bets", {
+    method: "POST",
+    body: JSON.stringify(dryRun !== undefined ? { bookmaker, bets, dryRun } : { bookmaker, bets }),
+  });
 
 /** Admin only — igual a rebuildTelegramTips, mas NUNCA apaga tips já
  * existentes na janela, só preenche o que ficou faltando (ex.: mensagem

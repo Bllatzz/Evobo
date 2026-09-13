@@ -7,11 +7,14 @@ import {
   UpdateTelegramTipTakeInput,
   UpdateTelegramBancaSettingsInput,
   UpdateTelegramBookmakerBalancesInput,
+  ImportBookmakerBetsInput,
   type TelegramTip,
   type TelegramBancaRow,
   type TelegramBancaSettings,
   type TelegramBookmakerBalance,
+  type ImportBookmakerBetsResult,
 } from "@evobo/shared-types";
+import { matchBookmakerBet, type CandidateTip } from "@evobo/worker";
 import { authGuard } from "../../middleware/authGuard.js";
 import { roleGuard } from "../../middleware/roleGuard.js";
 import { prisma } from "../../db/prisma.js";
@@ -569,6 +572,99 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     });
     const [photoUrls, myTakes] = await Promise.all([resolvePhotoUrls([tip.photoPath]), fetchMyTakes([tipId], userId)]);
     return serializeTip(tip, photoUrls, myTakes.get(tipId));
+  });
+
+  // Importa o histórico de apostas de uma casa (extraído pelo próprio
+  // usuário no navegador — ver scripts/bookmaker-scrapers/, nunca um
+  // scraping nosso nem senha guardada) e casa cada aposta contra as tips
+  // que ELE ainda não decidiu, de qualquer grupo (a odd+jogo da aposta real
+  // é quem resolve, não precisa saber o tipster de antemão — ver
+  // matchBookmakerBet em @evobo/worker). Sem gate de admin: é o histórico
+  // PESSOAL de quem está importando, mesma regra do PATCH /:id/take.
+  // `dryRun` (default true) calcula tudo sem gravar nada — usado enquanto o
+  // piloto (Esportes da Sorte) ainda está sendo validado contra tips já
+  // 100% conferidas manualmente.
+  app.post("/import-bets", async (request, reply): Promise<ImportBookmakerBetsResult> => {
+    const parsed = ImportBookmakerBetsInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() }) as never;
+    }
+    const { bookmaker, bets, dryRun = true } = parsed.data;
+    const userId = request.authUser!.id;
+
+    const [settings, candidateTips] = await Promise.all([
+      prisma.telegramBancaSettings.findUnique({ where: { userId }, select: { unitValue: true } }),
+      prisma.telegramTip.findMany({
+        where: { takes: { none: { userId } } },
+        select: {
+          id: true,
+          match: true,
+          selection: true,
+          unit: true,
+          odd: true,
+          originalOdd: true,
+          limit: true,
+          result: true,
+          receivedAt: true,
+        },
+      }),
+    ]);
+    const unitValueReais = settings?.unitValue != null ? Number(settings.unitValue) : null;
+
+    const remaining: CandidateTip[] = candidateTips.map((t) => ({
+      id: t.id,
+      match: t.match,
+      selection: t.selection,
+      unit: t.unit !== null ? Number(t.unit) : null,
+      odd: t.odd !== null ? Number(t.odd) : null,
+      originalOdd: t.originalOdd !== null ? Number(t.originalOdd) : null,
+      limit: t.limit !== null ? Number(t.limit) : null,
+      currentResult: t.result as TelegramTip["result"],
+      receivedAt: t.receivedAt,
+    }));
+
+    const result: ImportBookmakerBetsResult = { dryRun, matched: [], ambiguous: [], unmatched: [] };
+
+    for (const bet of bets) {
+      const outcome = matchBookmakerBet(bet, remaining, unitValueReais);
+
+      if (outcome.kind === "unmatched") {
+        result.unmatched.push(bet);
+        continue;
+      }
+      if (outcome.kind === "ambiguous") {
+        result.ambiguous.push({
+          bet,
+          candidates: outcome.candidates.map((c) => ({ tipId: c.id, match: c.match, selection: c.selection, unit: c.unit })),
+        });
+        continue;
+      }
+
+      const { value } = outcome;
+      // Tira do pool pra outra aposta do mesmo import não reaproveitar a
+      // mesma tip (mesmo dry run: o que se mostraria já reflete isso).
+      const idx = remaining.findIndex((c) => c.id === value.tipId);
+      const original = idx !== -1 ? remaining.splice(idx, 1)[0]! : undefined;
+
+      result.matched.push({
+        bet,
+        ...value,
+        current: dryRun && original ? { takenStatus: "pending", unit: original.unit, odd: original.odd, result: original.currentResult } : null,
+      });
+
+      if (!dryRun) {
+        await prisma.telegramTipTake.upsert({
+          where: { tipId_userId: { tipId: value.tipId, userId } },
+          create: { tipId: value.tipId, userId, takenStatus: "taken", unit: value.unit, odd: value.odd, bookmaker },
+          update: { takenStatus: "taken", unit: value.unit, odd: value.odd, bookmaker },
+        });
+        if (value.result !== null) {
+          await prisma.telegramTip.update({ where: { id: value.tipId }, data: { result: value.result, needsReview: false } });
+        }
+      }
+    }
+
+    return result;
   });
 
   // Apaga a tip de vez (chat/correção que nunca devia ter virado tip, ou

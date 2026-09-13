@@ -6,14 +6,14 @@ export type MatchOutcome = { result: "green" | "red" } | { needsReview: true } |
  * forte. Unidade/stake propositalmente NÃO entra aqui: um "Limite de
  * aposta" na casa faz o stake real vir abaixo do pretendido, então usar
  * isso pra desqualificar um match derrubaria casos legítimos. */
-const ODD_TOLERANCE = 0.01;
-const TIME_WINDOW_MS = 12 * 60 * 60 * 1000;
+export const ODD_TOLERANCE = 0.01;
+export const TIME_WINDOW_MS = 12 * 60 * 60 * 1000;
 /** Ponto de partida — ajustar depois de rodar contra dados reais (ver
  * plano/memória: "ajustar a tolerância se muita coisa cair em 'precisa
  * revisar' à toa"). */
-const TEXT_SIMILARITY_THRESHOLD = 0.3;
+export const TEXT_SIMILARITY_THRESHOLD = 0.3;
 
-function normalizeText(s: string): string {
+export function normalizeText(s: string): string {
   return s
     .toLowerCase()
     .normalize("NFD")
@@ -25,7 +25,7 @@ function normalizeText(s: string): string {
 
 /** Jaccard sobre tokens — simples de propósito, dá pra trocar por algo
  * mais sofisticado depois que houver dados reais pra calibrar. */
-function textSimilarity(a: string, b: string): number {
+export function textSimilarity(a: string, b: string): number {
   const setA = new Set(normalizeText(a).split(" ").filter(Boolean));
   const setB = new Set(normalizeText(b).split(" ").filter(Boolean));
   if (setA.size === 0 || setB.size === 0) return 0;

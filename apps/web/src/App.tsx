@@ -25,6 +25,7 @@ import { NewTipPage } from "./app/new-tip/NewTipPage";
 import { RobotPage } from "./app/robot/RobotPage";
 import { TelegramTipsPage } from "./app/telegram-tips/TelegramTipsPage";
 import { TelegramReportPage } from "./app/telegram-tips/TelegramReportPage";
+import { ImportBookmakerBetsPage } from "./app/telegram-tips/ImportBookmakerBetsPage";
 import { MarketChartPage } from "./app/robot/MarketChartPage";
 import { MarketsPage } from "./app/robot/MarketsPage";
 import { AdminPage } from "./app/admin/AdminPage";
@@ -290,6 +291,16 @@ function App() {
               <RouteGuard screen="telegram_banca">
                 <SidebarFrame>
                   <TelegramReportPage />
+                </SidebarFrame>
+              </RouteGuard>
+            }
+          />
+          <Route
+            path="/telegram-tips/importar"
+            element={
+              <RouteGuard screen="telegram_banca">
+                <SidebarFrame>
+                  <ImportBookmakerBetsPage />
                 </SidebarFrame>
               </RouteGuard>
             }

@@ -1025,6 +1025,12 @@ export function TelegramTipsPage() {
             Minha banca
           </Link>
           <Link
+            to="/telegram-tips/importar"
+            className="hidden rounded-[11px] border border-border-strong px-3.5 py-2 text-[13px] font-semibold text-text-secondary lg:block"
+          >
+            Importar
+          </Link>
+          <Link
             to="/telegram-tips/relatorio"
             className="hidden rounded-[11px] bg-accent px-3.5 py-2 text-[13px] font-bold text-[#08090A] lg:block"
           >
