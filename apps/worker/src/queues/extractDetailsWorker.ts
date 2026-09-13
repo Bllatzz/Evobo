@@ -109,11 +109,18 @@ async function processJob(data: ExtractDetailsJob) {
 }
 
 export function startExtractDetailsWorker(): Worker<ExtractDetailsJob> {
-  return new Worker<ExtractDetailsJob>(
+  const worker = new Worker<ExtractDetailsJob>(
     QUEUE_NAME,
     async (job) => {
       await processJob(job.data);
     },
     { connection: connection() },
   );
+  // Sem isso, um job que esgota as 3 tentativas (ex.: timeout do provedor de
+  // visão) fica em silêncio total — nada nos logs, nada na tip, só o campo
+  // continua vazio pra sempre. Isso torna visível qual foto/motivo falhou.
+  worker.on("failed", (job, err) => {
+    console.error(`[extract-details] job ${job?.id} falhou (photo=${job?.data?.photoPath}, tentativa ${job?.attemptsMade}):`, err?.message);
+  });
+  return worker;
 }
