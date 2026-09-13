@@ -10,6 +10,7 @@ import {
   runBetAnalytixGrading,
   backfillResultFromEmoji,
   backfillReactionTake,
+  TELEGRAM_TIP_MARKET_TYPES,
   type TelegramTip,
   type TelegramGroup,
 } from "../../../lib/telegramTips";
@@ -43,6 +44,8 @@ const STATUS_CHIPS: Record<string, { text: string; className: string }> = {
   red: { text: "RED", className: "bg-live/10 text-live" },
   reembolso: { text: "REEMB.", className: "bg-surface-alt text-text-secondary" },
 };
+
+const MARKET_TYPE_OPTIONS = TELEGRAM_TIP_MARKET_TYPES.map((m) => ({ value: m, label: m }));
 
 const MISSING_FILTERS = [
   { key: "odd", label: "Odd faltando" },
@@ -99,6 +102,11 @@ function AdminTipRow({
       <div className="flex items-center gap-2.5 border-t border-border-subtle py-2.5 first:border-t-0">
         <span className="w-3.5 flex-none text-center font-mono text-[11px] text-text-tertiary">{index}</span>
         <p className="min-w-0 flex-1 truncate text-[13px] font-semibold">{tip.selection ?? "—"}</p>
+        {tip.marketType && (
+          <span className="flex-none truncate rounded-md bg-surface-chip px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.02em] text-text-tertiary">
+            {tip.marketType}
+          </span>
+        )}
         <span className="flex-none font-mono text-[12px] font-bold">{tip.odd != null ? tip.odd.toFixed(2) : "—"}</span>
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>{chip.text}</span>
@@ -158,13 +166,23 @@ function AdminTipRow({
         </button>
       </div>
 
-      <input
-        value={match}
-        onChange={(e) => setMatch(e.target.value)}
-        onBlur={() => match.trim() !== (tip.match ?? "") && commit({ match: match.trim() || null })}
-        placeholder="Jogo (Time A x Time B)"
-        className="mb-2.5 w-full rounded-lg border border-border-strong bg-surface-alt px-2.5 py-1.5 text-[12.5px] text-text outline-none"
-      />
+      <div className="mb-2.5 flex gap-2">
+        <input
+          value={match}
+          onChange={(e) => setMatch(e.target.value)}
+          onBlur={() => match.trim() !== (tip.match ?? "") && commit({ match: match.trim() || null })}
+          placeholder="Jogo (Time A x Time B)"
+          className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface-alt px-2.5 py-1.5 text-[12.5px] text-text outline-none"
+        />
+        <Dropdown
+          value={tip.marketType ?? ""}
+          onChange={(v) => commit({ marketType: (v || null) as TelegramTip["marketType"] })}
+          placeholder="Mercado (categoria)"
+          options={MARKET_TYPE_OPTIONS}
+          buttonClassName="rounded-lg border border-border-strong bg-surface-alt px-2.5 py-1.5 text-[12.5px] text-text-secondary"
+          className="w-auto flex-none"
+        />
+      </div>
 
       <div className="mb-2.5 grid grid-cols-2 gap-2 lg:grid-cols-4">
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-accent-border bg-accent-soft p-2.5">
@@ -331,6 +349,7 @@ export function AdminTelegramTipsPage() {
   const [bookmakers, setBookmakers] = useState<string[]>([]);
   const [groupId, setGroupId] = useState("");
   const [bookmaker, setBookmaker] = useState("");
+  const [marketType, setMarketType] = useState("");
   const [result, setResult] = useState("");
   const [search, setSearch] = useState("");
   const [missing, setMissing] = useState<string[]>([]);
@@ -364,6 +383,7 @@ export function AdminTelegramTipsPage() {
       limit: PAGE_SIZE,
       groupId: groupId || undefined,
       bookmaker: bookmaker || undefined,
+      marketType: marketType || undefined,
       result: result || undefined,
       search: search || undefined,
       missing: missing.length > 0 ? missing.join(",") : undefined,
@@ -375,8 +395,8 @@ export function AdminTelegramTipsPage() {
     });
   }
 
-  useEffect(load, [page, groupId, bookmaker, result, search, missing, needsReviewOnly]);
-  useEffect(() => setPage(1), [groupId, bookmaker, result, search, missing, needsReviewOnly]);
+  useEffect(load, [page, groupId, bookmaker, marketType, result, search, missing, needsReviewOnly]);
+  useEffect(() => setPage(1), [groupId, bookmaker, marketType, result, search, missing, needsReviewOnly]);
 
   function toggleMissing(key: string) {
     setMissing((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -428,6 +448,13 @@ export function AdminTelegramTipsPage() {
             onChange={setResult}
             placeholder="Todos os resultados"
             options={RESULT_BUTTONS.map((r) => ({ value: r.key, label: r.label }))}
+            className="w-auto flex-none"
+          />
+          <Dropdown
+            value={marketType}
+            onChange={setMarketType}
+            placeholder="Todos os mercados"
+            options={MARKET_TYPE_OPTIONS}
             className="w-auto flex-none"
           />
           <span className="ml-auto flex-none font-mono text-[12px] text-text-tertiary">{total} tip(s)</span>

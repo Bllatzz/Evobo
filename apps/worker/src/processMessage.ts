@@ -74,11 +74,17 @@ export async function processMessage(message: Api.Message, group: TelegramGroup)
   if (!photoPath) return "created"; // nada pra OCR sem foto — campos ficam pra edição manual
 
   const needsGame = parsed.match === undefined;
+  // Categoria de mercado não tem contrapartida no parser de texto (ver
+  // parseTip.ts) — só a OCR classifica, então toda tip nova começa
+  // precisando dela; nunca entra no "every" abaixo pra não disparar uma
+  // chamada de OCR só por causa disso quando mais nada falta (ver comentário
+  // logo ali).
   const tipsToFill = createdTips.map((tip, i) => ({
     id: tip.id,
     needMarket: parsed.selections[i]!.text === null,
     needGame: needsGame,
     needOdd: parsed.selections[i]!.odd === undefined,
+    needMarketType: true,
   }));
 
   // Formatos mais completos (Padovan) já trazem mercado/jogo/odd no texto —

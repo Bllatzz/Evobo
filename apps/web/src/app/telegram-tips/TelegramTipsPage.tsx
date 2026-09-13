@@ -8,6 +8,7 @@ import {
   fetchTelegramTipsSummary,
   patchTelegramTipTake,
   deleteTelegramTip,
+  TELEGRAM_TIP_MARKET_TYPES,
   type TelegramTip,
   type TelegramGroup,
   type TelegramTipsSummary,
@@ -41,6 +42,8 @@ const TAKEN_FILTERS = [
   { key: "skipped", label: "Não peguei" },
   { key: "pending", label: "Não decidido" },
 ] as const;
+
+const MARKET_TYPE_OPTIONS = TELEGRAM_TIP_MARKET_TYPES.map((m) => ({ value: m, label: m }));
 
 /** Compact status chip on each row: "NÃO PEGA" while untaken (result is
  * irrelevant until you've taken it), otherwise the tip's own result. */
@@ -213,6 +216,11 @@ function TipRow({
         <span className="w-3.5 flex-none text-center font-mono text-[11px] text-text-tertiary">{index}</span>
         {takenPill}
         <p className="min-w-0 flex-1 truncate text-[13px] font-semibold">{tip.selection ?? "—"}</p>
+        {tip.marketType && (
+          <span className="flex-none truncate rounded-md bg-surface-chip px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.02em] text-text-tertiary">
+            {tip.marketType}
+          </span>
+        )}
         <span className="flex-none font-mono text-[12px] font-bold">{effOdd != null ? effOdd.toFixed(2) : "—"}</span>
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{effUnit != null ? `${effUnit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
@@ -234,6 +242,11 @@ function TipRow({
       <div className="mb-2.5 flex items-center gap-2.5">
         <span className="w-3.5 flex-none text-center font-mono text-[11px] text-text-tertiary">{index}</span>
         <p className="min-w-0 flex-1 truncate text-[13px] font-semibold">{tip.selection ?? "—"}</p>
+        {tip.marketType && (
+          <span className="flex-none truncate rounded-md bg-surface-chip px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.02em] text-text-tertiary">
+            {tip.marketType}
+          </span>
+        )}
         <span className="flex-none font-mono text-[12px] font-bold">{effOdd != null ? effOdd.toFixed(2) : "—"}</span>
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{effUnit != null ? `${effUnit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
@@ -780,6 +793,7 @@ export function TelegramTipsPage() {
   const [takenStatus, setTakenStatus] = useState<string>("");
   const [bookmaker, setBookmaker] = useState<string>("");
   const [bookmakers, setBookmakers] = useState<string[]>([]);
+  const [marketType, setMarketType] = useState<string>("");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [period, setPeriod] = useState(() => ({ label: "Hoje", ...presetRange("hoje") }));
@@ -817,6 +831,7 @@ export function TelegramTipsPage() {
       result: result || undefined,
       takenStatus: takenStatus || undefined,
       bookmaker: bookmaker || undefined,
+      marketType: marketType || undefined,
       search: search || undefined,
       dateFrom: period.dateFrom,
       dateTo: period.dateTo,
@@ -838,7 +853,7 @@ export function TelegramTipsPage() {
   // Os 3 cards do topo seguem TODOS os filtros ativos, igual à lista abaixo —
   // pode legitimamente voltar 0 numa combinação estranha (ex.: aba "Green" +
   // "Tips Pendentes"), intencional.
-  useEffect(refreshSummary, [groupIds, result, takenStatus, bookmaker, search, period]);
+  useEffect(refreshSummary, [groupIds, result, takenStatus, bookmaker, marketType, search, period]);
 
   useEffect(() => {
     fetchTelegramTips({
@@ -846,6 +861,7 @@ export function TelegramTipsPage() {
       result: result || undefined,
       takenStatus: takenStatus || undefined,
       bookmaker: bookmaker || undefined,
+      marketType: marketType || undefined,
       search: search || undefined,
       dateFrom: period.dateFrom,
       dateTo: period.dateTo,
@@ -853,7 +869,7 @@ export function TelegramTipsPage() {
     })
       .then((res) => setTips(res.data))
       .catch(() => setTips([]));
-  }, [groupIds, result, takenStatus, bookmaker, search, period]);
+  }, [groupIds, result, takenStatus, bookmaker, marketType, search, period]);
 
   function updateTip(updated: TelegramTip) {
     setTips((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev);
@@ -1066,6 +1082,13 @@ export function TelegramTipsPage() {
             onChange={setBookmaker}
             placeholder="Todas as casas"
             options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
+            className="w-auto flex-none"
+          />
+          <Dropdown
+            value={marketType}
+            onChange={setMarketType}
+            placeholder="Todos os mercados"
+            options={MARKET_TYPE_OPTIONS}
             className="w-auto flex-none"
           />
         </div>

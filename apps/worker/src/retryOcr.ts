@@ -9,7 +9,7 @@ import { extractDetailsQueue } from "./queues/extractDetailsWorker.js";
 export async function retryMissingOcr(): Promise<{ groupsEnqueued: number; tipsEnqueued: number }> {
   const candidates = await prisma.telegramTip.findMany({
     where: { photoPath: { not: null }, OR: [{ odd: null }, { match: null }, { selection: null }] },
-    select: { id: true, photoPath: true, odd: true, match: true, selection: true },
+    select: { id: true, photoPath: true, odd: true, match: true, selection: true, marketType: true },
   });
 
   const byPhoto = new Map<string, typeof candidates>();
@@ -29,6 +29,11 @@ export async function retryMissingOcr(): Promise<{ groupsEnqueued: number; tipsE
       needMarket: t.selection === null,
       needGame: t.match === null,
       needOdd: t.odd === null,
+      // Não entra no critério de seleção acima (não vale reprocessar o
+      // histórico inteiro só pra classificar mercado) — mas de carona nessas
+      // tips que já vão ser reenviadas à OCR por outro motivo, preenche
+      // também se ainda não tiver.
+      needMarketType: t.marketType === null,
     }));
     await extractDetailsQueue.add("extract", { photoPath, kind: tips.length > 1 ? "rows" : "combo", tips: tipsToFill }, retryOpts);
   }

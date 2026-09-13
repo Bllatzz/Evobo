@@ -1,4 +1,5 @@
 import { apiFetch } from "./api";
+import { TELEGRAM_TIP_MARKET_TYPES } from "@evobo/shared-types";
 import type {
   TelegramTip,
   TelegramGroup,
@@ -11,12 +12,14 @@ import type {
 } from "@evobo/shared-types";
 
 export type { TelegramTip, TelegramGroup, TelegramBancaSummary, TelegramBancaSettings, TelegramBookmakerBalance };
+export { TELEGRAM_TIP_MARKET_TYPES };
 
 export type TelegramTipsFilter = {
   page?: number;
   limit?: number;
   groupId?: string;
   bookmaker?: string;
+  marketType?: string;
   result?: string;
   takenStatus?: string;
   search?: string;
@@ -37,6 +40,7 @@ export function fetchTelegramTips(filter: TelegramTipsFilter = {}): Promise<Tele
   if (filter.limit) params.set("limit", String(filter.limit));
   if (filter.groupId) params.set("groupId", filter.groupId);
   if (filter.bookmaker) params.set("bookmaker", filter.bookmaker);
+  if (filter.marketType) params.set("marketType", filter.marketType);
   if (filter.result) params.set("result", filter.result);
   if (filter.takenStatus) params.set("takenStatus", filter.takenStatus);
   if (filter.search) params.set("search", filter.search);
@@ -85,11 +89,12 @@ export type TelegramTipsSummary = {
  * mesmo grupo/casa/busca/período da lista — nunca leva result/takenStatus,
  * cada número já força o próprio critério (ver rota no backend). */
 export function fetchTelegramTipsSummary(
-  filter: Pick<TelegramTipsFilter, "groupId" | "bookmaker" | "search" | "dateFrom" | "dateTo" | "result" | "takenStatus"> = {},
+  filter: Pick<TelegramTipsFilter, "groupId" | "bookmaker" | "marketType" | "search" | "dateFrom" | "dateTo" | "result" | "takenStatus"> = {},
 ): Promise<TelegramTipsSummary> {
   const params = new URLSearchParams();
   if (filter.groupId) params.set("groupId", filter.groupId);
   if (filter.bookmaker) params.set("bookmaker", filter.bookmaker);
+  if (filter.marketType) params.set("marketType", filter.marketType);
   if (filter.search) params.set("search", filter.search);
   if (filter.dateFrom) params.set("dateFrom", filter.dateFrom);
   if (filter.dateTo) params.set("dateTo", filter.dateTo);

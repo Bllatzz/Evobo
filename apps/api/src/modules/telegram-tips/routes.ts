@@ -88,6 +88,7 @@ function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>, myTake:
     telegramMessageId: tip.telegramMessageId.toString(),
     match: tip.match,
     selection: tip.selection,
+    marketType: tip.marketType as TelegramTip["marketType"],
     unit: tip.unit !== null ? Number(tip.unit) : null,
     odd: tip.odd !== null ? Number(tip.odd) : null,
     oddSource: tip.oddSource as TelegramTip["oddSource"],
@@ -125,8 +126,8 @@ function startOfSpDay(dateStr: string): Date {
  * decide isso por conta (a lista respeita a aba/dropdown ativos; o resumo
  * força o critério de cada número, senão "pendentes"/"peguei" ficariam
  * sempre 0 assim que o usuário troca de aba). */
-function buildScopeWhere(query: { groupId?: string; bookmaker?: string; search?: string; dateFrom?: string; dateTo?: string }): Prisma.TelegramTipWhereInput {
-  const { groupId, bookmaker, search, dateFrom, dateTo } = query;
+function buildScopeWhere(query: { groupId?: string; bookmaker?: string; marketType?: string; search?: string; dateFrom?: string; dateTo?: string }): Prisma.TelegramTipWhereInput {
+  const { groupId, bookmaker, marketType, search, dateFrom, dateTo } = query;
   const groupIds = groupId ? groupId.split(",").filter(Boolean) : [];
   // dateTo é inclusivo — o corte real é o início do dia seguinte.
   const untilExclusive = dateTo ? new Date(startOfSpDay(dateTo).getTime() + 24 * 60 * 60 * 1000) : null;
@@ -134,6 +135,7 @@ function buildScopeWhere(query: { groupId?: string; bookmaker?: string; search?:
   return {
     ...(groupIds.length === 1 ? { groupId: groupIds[0] } : groupIds.length > 1 ? { groupId: { in: groupIds } } : {}),
     ...(bookmaker ? { bookmaker } : {}),
+    ...(marketType ? { marketType } : {}),
     ...(search ? { OR: [{ match: { contains: search, mode: "insensitive" } }, { selection: { contains: search, mode: "insensitive" } }] } : {}),
     ...(dateFrom || untilExclusive
       ? { receivedAt: { ...(dateFrom ? { gte: startOfSpDay(dateFrom) } : {}), ...(untilExclusive ? { lt: untilExclusive } : {}) } }
@@ -335,6 +337,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       limit?: string;
       groupId?: string;
       bookmaker?: string;
+      marketType?: string;
       result?: string;
       takenStatus?: string;
       search?: string;
@@ -409,6 +412,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     Querystring: {
       groupId?: string;
       bookmaker?: string;
+      marketType?: string;
       search?: string;
       dateFrom?: string;
       dateTo?: string;
@@ -471,6 +475,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         ...(input.result !== undefined ? { result: input.result, needsReview: false } : {}),
         ...(input.unit !== undefined ? { unit: input.unit } : {}),
         ...(input.selection !== undefined ? { selection: input.selection } : {}),
+        ...(input.marketType !== undefined ? { marketType: input.marketType } : {}),
         ...(input.match !== undefined ? { match: input.match } : {}),
         ...(input.bookmaker !== undefined ? { bookmaker: input.bookmaker } : {}),
         ...(input.betUrl !== undefined ? { betUrl: input.betUrl } : {}),

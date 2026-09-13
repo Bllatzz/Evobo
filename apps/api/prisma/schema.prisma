@@ -437,6 +437,12 @@ model TelegramTip {
   telegramMessageId BigInt   @map("telegram_message_id")
   match             String?
   selection         String?
+  /// Categoria do mercado (Resultado 1X2, Over/Under Gols, Handicap, Ambas
+  /// Marcam, Escanteios, Cartões, Resultado 1º/2º Tempo, Combinada, Outro) —
+  /// classificada pela OCR (apps/worker/src/ocrShared.ts's MARKET_TYPE_CATEGORIES),
+  /// separado do texto livre em `selection`. Null até a OCR rodar (ou pra
+  /// tips sem foto/já completas por texto, que nunca chamam a OCR).
+  marketType        String?  @map("market_type")
   unit              Decimal? @db.Decimal(5, 2)
   odd               Decimal? @db.Decimal(6, 2)
   /// "ocr" (Gemini Vision) | "manual" | "text" (already explicit in the

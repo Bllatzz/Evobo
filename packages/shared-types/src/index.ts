@@ -296,6 +296,26 @@ export type UpdateTelegramGroupInput = z.infer<typeof UpdateTelegramGroupInput>;
 export const TelegramTipResult = z.enum(["pending", "green", "red", "reembolso"]);
 export type TelegramTipResult = z.infer<typeof TelegramTipResult>;
 
+/** Categoria do mercado, classificada pela OCR — mantenha em sincronia com
+ * MARKET_TYPE_CATEGORIES em apps/worker/src/ocrShared.ts. "Combinada" é a
+ * única entrada que a OCR nunca atribui a uma seleção isolada; é sintetizada
+ * quando uma linha de tip junta pernas de categorias diferentes. */
+export const TELEGRAM_TIP_MARKET_TYPES = [
+  "Resultado (1X2)",
+  "Dupla Chance",
+  "Handicap",
+  "Over/Under Gols",
+  "Ambas Marcam",
+  "Escanteios",
+  "Cartões",
+  "Resultado 1º Tempo",
+  "Resultado 2º Tempo",
+  "Combinada",
+  "Outro",
+] as const;
+export const TelegramTipMarketType = z.enum(TELEGRAM_TIP_MARKET_TYPES);
+export type TelegramTipMarketType = z.infer<typeof TelegramTipMarketType>;
+
 /** Whether the user actually placed this bet. Set manually on the dashboard
  * for now — reading the user's own 👍 reaction on Telegram to set "taken"
  * automatically is future work, not built yet. */
@@ -310,6 +330,9 @@ export const TelegramTipSchema = z.object({
   match: z.string().nullable(),
   /** Null on old resolved tips whose detail was purged for storage cost — see TelegramTip in schema.prisma. */
   selection: z.string().nullable(),
+  /** Categoria do mercado classificada pela OCR — null até a OCR rodar, ou
+   * quando a tip nunca precisou de OCR (ex.: já veio completa por texto). */
+  marketType: TelegramTipMarketType.nullable(),
   unit: z.number().nullable(),
   odd: z.number().nullable(),
   /** "ocr" | "manual" | "text" (already explicit in the Telegram message body). */
@@ -358,6 +381,7 @@ export const UpdateTelegramTipInput = z.object({
   odd: z.number().positive().nullable().optional(),
   unit: z.number().positive().nullable().optional(),
   selection: z.string().min(1).max(200).optional(),
+  marketType: TelegramTipMarketType.nullable().optional(),
   match: z.string().max(200).nullable().optional(),
   bookmaker: z.string().max(80).nullable().optional(),
   betUrl: z.string().url().nullable().optional(),

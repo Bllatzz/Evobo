@@ -1,10 +1,11 @@
 import { Queue, Worker } from "bullmq";
 import { prisma, supabaseAdmin, PHOTO_BUCKET } from "../db.js";
 import { extractTipDetails } from "../visionProvider.js";
+import type { MarketType, MarketTypeCategory } from "../ocrShared.js";
 
 const QUEUE_NAME = "extract-details";
 
-type TipToFill = { id: string; needMarket: boolean; needGame: boolean; needOdd: boolean };
+type TipToFill = { id: string; needMarket: boolean; needGame: boolean; needOdd: boolean; needMarketType: boolean };
 
 /**
  * "rows" with >1 tip: each maps 1:1 to one OCR selection, in bet-slip order
@@ -51,6 +52,11 @@ async function applyMultiLegResult(
     .join("\n");
   const games = [...new Set(selections.map((s) => s.game).filter((g): g is string => !!g))];
   const odd = totalOdd ?? (selections.length === 1 ? selections[0]!.odd : null);
+  // Uma linha de tip pode juntar várias pernas (combo/múltipla) — se todas
+  // caíram na mesma categoria, usa ela; se divergem, marca "Combinada" em vez
+  // de escolher uma arbitrariamente.
+  const marketTypes = [...new Set(selections.map((s) => s.marketType).filter((m): m is MarketTypeCategory => !!m))];
+  const marketType: MarketType | null = marketTypes.length === 1 ? marketTypes[0]! : marketTypes.length > 1 ? "Combinada" : null;
 
   await prisma.telegramTip.update({
     where: { id: tipId },
@@ -58,6 +64,7 @@ async function applyMultiLegResult(
       ...(tip.needMarket && market ? { selection: market } : {}),
       ...(tip.needGame && games.length === 1 ? { match: games[0] } : {}),
       ...(tip.needOdd && odd !== null ? { odd, oddSource: "ocr" } : {}),
+      ...(tip.needMarketType && marketType ? { marketType } : {}),
     },
   });
 }
@@ -95,6 +102,7 @@ async function processJob(data: ExtractDetailsJob) {
         ...(tip.needMarket && sel.market ? { selection: sel.market } : {}),
         ...(tip.needGame && sel.game ? { match: sel.game } : {}),
         ...(tip.needOdd && sel.odd !== null ? { odd: sel.odd, oddSource: "ocr", originalOdd: sel.odd } : {}),
+        ...(tip.needMarketType && sel.marketType ? { marketType: sel.marketType } : {}),
       },
     });
   }
