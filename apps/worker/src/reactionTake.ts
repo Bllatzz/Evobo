@@ -13,6 +13,7 @@ const REACTION_TAKEN_USER_ID = "6affeeee-9e09-4615-b887-245ace22ec67";
 const REACTION_TO_TAKEN_STATUS: Record<string, "taken" | "skipped"> = {
   "👍": "taken",
   "👎": "skipped",
+  "🕊": "skipped",
 };
 
 /** Emoji da PRÓPRIA conta (a logada no worker) entre as reações de uma
