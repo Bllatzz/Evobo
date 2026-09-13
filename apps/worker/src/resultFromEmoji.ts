@@ -13,14 +13,21 @@ function countOccurrences(text: string, char: string): number {
   return text.split(char).length - 1;
 }
 
+/** Exportado à parte de detectResultFromEmojis pra diagnóstico (ver
+ * backfillResultFromEmoji.ts) — permite inspecionar POR QUE uma mensagem com
+ * emoji visível não bateu (contagem insuficiente, mistura de ✅ e ❌, etc.)
+ * em vez de só saber que deu null. */
+export function countResultEmojis(text: string | null | undefined): { greenCount: number; redCount: number } {
+  if (!text) return { greenCount: 0, redCount: 0 };
+  return { greenCount: countOccurrences(text, "✅"), redCount: countOccurrences(text, "❌") };
+}
+
 /** null quando a edição não é um sinal de resultado reconhecível (edição de
  * outra coisa no texto, ou emojis insuficientes/misturados — exige pelo
  * menos 3 de um tipo e ZERO do outro, pra nunca confundir com um emoji solto
  * usado por outro motivo). */
 export function detectResultFromEmojis(text: string | null | undefined): "green" | "red" | null {
-  if (!text) return null;
-  const greenCount = countOccurrences(text, "✅");
-  const redCount = countOccurrences(text, "❌");
+  const { greenCount, redCount } = countResultEmojis(text);
   if (greenCount >= MIN_EMOJI_COUNT && redCount === 0) return "green";
   if (redCount >= MIN_EMOJI_COUNT && greenCount === 0) return "red";
   return null;

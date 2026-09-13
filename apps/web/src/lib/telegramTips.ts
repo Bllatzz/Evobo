@@ -139,7 +139,14 @@ export const retryMissingOcr = (): Promise<{ groupsEnqueued: number; tipsEnqueue
 export const runBetAnalytixGrading = (): Promise<{ groupsChecked: number; graded: number; needsReview: number }> =>
   apiFetch("/telegram-tips/admin/grade-now", { method: "POST" });
 
+export type BackfillResultFromEmojiGroupResult = {
+  group: string;
+  checked: number;
+  applied: number;
+  unmatched: { messageId: number; greenCount: number; redCount: number; text: string }[];
+};
+
 /** Admin only — aplica ✅✅✅/❌❌❌ retroativamente nas mensagens do Super Odds
  * já importadas antes do listener de edição existir. */
-export const backfillResultFromEmoji = (): Promise<{ results: { group: string; checked: number; applied: number }[] }> =>
+export const backfillResultFromEmoji = (): Promise<{ results: BackfillResultFromEmojiGroupResult[] }> =>
   apiFetch("/telegram-tips/admin/backfill-result-emoji", { method: "POST" });

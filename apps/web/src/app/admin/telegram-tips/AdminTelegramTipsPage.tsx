@@ -340,6 +340,9 @@ export function AdminTelegramTipsPage() {
   const [gradingMessage, setGradingMessage] = useState<string | null>(null);
   const [emojiBackfilling, setEmojiBackfilling] = useState(false);
   const [emojiBackfillMessage, setEmojiBackfillMessage] = useState<string | null>(null);
+  const [emojiUnmatched, setEmojiUnmatched] = useState<
+    { messageId: number; greenCount: number; redCount: number; text: string }[]
+  >([]);
   const [page, setPage] = useState(1);
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -485,11 +488,14 @@ export function AdminTelegramTipsPage() {
             onClick={async () => {
               setEmojiBackfilling(true);
               setEmojiBackfillMessage(null);
+              setEmojiUnmatched([]);
               try {
                 const res = await backfillResultFromEmoji();
                 const applied = res.results.reduce((sum, r) => sum + r.applied, 0);
                 const checked = res.results.reduce((sum, r) => sum + r.checked, 0);
+                const unmatched = res.results.flatMap((r) => r.unmatched);
                 setEmojiBackfillMessage(`${applied} tip(s) gradada(s) via ✅/❌ (${checked} mensagem(ns) checada(s)).`);
+                setEmojiUnmatched(unmatched);
                 load();
               } finally {
                 setEmojiBackfilling(false);
@@ -504,6 +510,21 @@ export function AdminTelegramTipsPage() {
         {retryMessage && <p className="mt-2 text-[12px] text-text-tertiary">{retryMessage}</p>}
         {gradingMessage && <p className="mt-2 text-[12px] text-text-tertiary">{gradingMessage}</p>}
         {emojiBackfillMessage && <p className="mt-2 text-[12px] text-text-tertiary">{emojiBackfillMessage}</p>}
+        {emojiUnmatched.length > 0 && (
+          <div className="mt-2 space-y-1.5 rounded-lg bg-surface-chip p-2.5">
+            <p className="font-mono text-[10px] uppercase tracking-[0.02em] text-text-tertiary">
+              Tinha ✅/❌ mas não bateu o critério (≥3 de um tipo, 0 do outro):
+            </p>
+            {emojiUnmatched.map((u) => (
+              <p key={u.messageId} className="whitespace-pre-wrap break-words text-[11px] text-text-secondary">
+                <span className="font-mono text-text-tertiary">
+                  #{u.messageId} (✅{u.greenCount}/❌{u.redCount}):
+                </span>{" "}
+                {u.text}
+              </p>
+            ))}
+          </div>
+        )}
       </div>
 
       {tips === null && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}
