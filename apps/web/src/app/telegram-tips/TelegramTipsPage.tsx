@@ -31,6 +31,7 @@ import {
 import { useAuth } from "../../stores/auth";
 
 const RESULT_FILTERS = [
+  { key: "", label: "Todos", activeClassName: "bg-accent-soft text-accent" },
   { key: "pending", label: "Pendentes", activeClassName: "bg-vip-soft text-vip" },
   { key: "green", label: "Green", activeClassName: "bg-accent-soft text-accent" },
   { key: "red", label: "Red", activeClassName: "bg-live/10 text-live" },
@@ -502,9 +503,10 @@ function MessageGroupCard({
   );
 }
 
-/** "N grupos selecionados" trigger opens a staged checklist (nothing
- * applies until "Aplicar") — selections themselves render as removable
- * chips next to the trigger, not as a permanent row of every group. */
+/** "N grupos selecionados" trigger abre um checklist — cada marcação já
+ * aplica o filtro na hora (sem botão "Aplicar"), igual aos outros filtros
+ * da tela. Seleções renderizam como chips removíveis ao lado do trigger,
+ * não como uma linha permanente de todo grupo. */
 function GroupMultiSelect({
   groups,
   selected,
@@ -519,7 +521,6 @@ function GroupMultiSelect({
   totalCount: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState<string[]>(selected);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -531,13 +532,8 @@ function GroupMultiSelect({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [open]);
 
-  function openPanel() {
-    setPending(selected);
-    setOpen(true);
-  }
-
   function toggle(id: string) {
-    setPending((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    onApply(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   }
 
   const selectedCount = selected.reduce((sum, id) => sum + countByGroup(id), 0);
@@ -550,7 +546,7 @@ function GroupMultiSelect({
     <div ref={ref} className="relative flex-none">
       <button
         type="button"
-        onClick={() => (open ? setOpen(false) : openPanel())}
+        onClick={() => setOpen((o) => !o)}
         className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] ${
           selected.length === 0 ? "bg-accent font-semibold text-[#08090A]" : "bg-surface-alt text-text-secondary"
         }`}
@@ -562,7 +558,7 @@ function GroupMultiSelect({
         <div className="absolute left-0 z-20 mt-1.5 w-max min-w-[240px] rounded-xl border border-border bg-surface p-1 shadow-lg">
           <div className="flex items-center justify-between px-3 py-1.5">
             <span className="font-mono text-[10px] tracking-[0.05em] text-text-tertiary">FILTRAR POR GRUPO</span>
-            <button type="button" onClick={() => setPending([])} className="text-[11px] font-semibold text-accent">
+            <button type="button" onClick={() => onApply([])} className="text-[11px] font-semibold text-accent">
               limpar
             </button>
           </div>
@@ -570,8 +566,8 @@ function GroupMultiSelect({
             <label className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-text-secondary hover:bg-surface-alt">
               <input
                 type="checkbox"
-                checked={pending.length === 0}
-                onChange={() => setPending([])}
+                checked={selected.length === 0}
+                onChange={() => onApply([])}
                 className="h-3.5 w-3.5 flex-none accent-accent"
               />
               <span className="min-w-0 flex-1 truncate">Todos os grupos</span>
@@ -584,7 +580,7 @@ function GroupMultiSelect({
               >
                 <input
                   type="checkbox"
-                  checked={pending.includes(g.id)}
+                  checked={selected.includes(g.id)}
                   onChange={() => toggle(g.id)}
                   className="h-3.5 w-3.5 flex-none accent-accent"
                 />
@@ -592,18 +588,6 @@ function GroupMultiSelect({
                 <span className="flex-none font-mono text-[11px] text-text-tertiary">{countByGroup(g.id)}</span>
               </label>
             ))}
-          </div>
-          <div className="p-1 pt-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                onApply(pending);
-                setOpen(false);
-              }}
-              className="w-full rounded-lg bg-accent py-2 text-[12px] font-bold text-[#08090A]"
-            >
-              Aplicar{pending.length > 0 ? ` (${pending.length})` : ""}
-            </button>
           </div>
         </div>
       )}
@@ -789,7 +773,7 @@ export function TelegramTipsPage() {
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [groups, setGroups] = useState<TelegramGroup[]>([]);
   const [groupIds, setGroupIds] = useState<string[]>([]);
-  const [result, setResultFilter] = useState<string>("pending");
+  const [result, setResultFilter] = useState<string>("");
   const [takenStatus, setTakenStatus] = useState<string>("");
   const [bookmaker, setBookmaker] = useState<string>("");
   const [bookmakers, setBookmakers] = useState<string[]>([]);
@@ -1132,14 +1116,6 @@ export function TelegramTipsPage() {
               {r.label}
             </button>
           ))}
-          <button
-            onClick={() => setResultFilter("")}
-            className={`flex-none rounded-full px-3.5 py-1.5 font-mono text-[11px] uppercase tracking-[0.02em] ${
-              result === "" ? "bg-accent-soft font-bold text-accent" : "text-text-secondary"
-            }`}
-          >
-            Todas
-          </button>
         </div>
       </div>
 
