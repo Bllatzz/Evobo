@@ -269,14 +269,21 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   void ensurePhotoBucket();
 
   // Nomes de casa já vistos nas tips — alimenta o select de saldo por casa
-  // no perfil, pra digitar sempre o mesmo nome ("betano" vs "Betano").
+  // no perfil e o filtro de casa do dashboard, pra digitar sempre o mesmo
+  // nome ("betano" vs "Betano"). Inclui tanto `bookmaker` quanto os nomes
+  // dentro de `bookmakerOptions` — uma tip com mais de uma casa possível
+  // grava `bookmaker` NULL (ver parseTip.ts), então uma casa que só aparece
+  // ali dentro nunca apareceria no filtro sem isso.
   app.get("/bookmakers", async (): Promise<string[]> => {
-    const rows = await prisma.telegramTip.findMany({
-      where: { bookmaker: { not: null } },
-      select: { bookmaker: true },
-      distinct: ["bookmaker"],
-    });
-    return rows.map((r) => r.bookmaker!).sort((a, b) => a.localeCompare(b));
+    const rows = await prisma.$queryRaw<{ name: string }[]>`
+      SELECT DISTINCT name FROM (
+        SELECT bookmaker AS name FROM telegram_tips WHERE bookmaker IS NOT NULL
+        UNION
+        SELECT elem->>'bookmaker' AS name FROM telegram_tips, jsonb_array_elements(bookmaker_options) elem WHERE bookmaker_options IS NOT NULL
+      ) names
+      WHERE name IS NOT NULL
+    `;
+    return rows.map((r) => r.name).sort((a, b) => a.localeCompare(b));
   });
 
   /** Rewrites `bookmakerOptions` (a JSON array, so updateMany can't reach

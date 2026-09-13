@@ -141,6 +141,7 @@ function TipRow({
   draft,
   unitValue,
   bookmakers,
+  activeBookmaker,
   onUpdateDraft,
   onTake,
   onUntake,
@@ -152,6 +153,10 @@ function TipRow({
   draft: DraftEdit | undefined;
   unitValue: number | null;
   bookmakers: string[];
+  /** Casa selecionada no filtro do topo ("" = Todas) — quando a tip pode ser
+   * feita em mais de uma casa, o botão "Abrir aposta" segue essa casa em vez
+   * de sempre cair na primeira opção (ver bookmarkerMatch abaixo). */
+  activeBookmaker: string;
   onUpdateDraft: (tip: TelegramTip, patch: Partial<DraftEdit>) => void;
   onTake: (tip: TelegramTip) => void;
   onUntake: (tip: TelegramTip) => void;
@@ -182,8 +187,17 @@ function TipRow({
   // "Abrir aposta" already has somewhere to go before the user explicitly
   // picks a casa — otherwise every tip started with the link dead.
   const firstOption = tip.bookmakerOptions?.[0];
-  const effBookmaker = draft?.bookmaker ?? tip.mine.bookmaker ?? tip.bookmaker ?? firstOption?.bookmaker ?? null;
-  const effBetUrl = draft?.betUrl ?? tip.mine.betUrl ?? tip.betUrl ?? firstOption?.betUrl ?? null;
+  // Uma tip com mais de uma casa possível (ex.: 🔗 Betano · 🔗 Pinnacle) grava
+  // `bookmaker` oficial NULL e as opções em `bookmakerOptions` — sem esse
+  // match, o botão sempre caía na primeira opção da lista, nunca na casa que
+  // o usuário está filtrando no topo (ex.: filtrar "Betano" mas o link
+  // mostrado seguir sendo o da Pinnacle).
+  const filterMatch =
+    activeBookmaker && tip.bookmaker !== activeBookmaker
+      ? tip.bookmakerOptions?.find((o) => o.bookmaker === activeBookmaker)
+      : undefined;
+  const effBookmaker = draft?.bookmaker ?? tip.mine.bookmaker ?? filterMatch?.bookmaker ?? tip.bookmaker ?? firstOption?.bookmaker ?? null;
+  const effBetUrl = draft?.betUrl ?? tip.mine.betUrl ?? filterMatch?.betUrl ?? tip.betUrl ?? firstOption?.betUrl ?? null;
   const oddDrifted = tip.originalOdd !== null && tip.odd !== null && tip.originalOdd !== tip.odd;
   const betActive = !!effBetUrl;
   const chip = tip.mine.takenStatus === "taken" ? (STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!) : NAO_PEGA_CHIP;
@@ -375,6 +389,7 @@ function MessageGroupCard({
   drafts,
   unitValue,
   bookmakers,
+  activeBookmaker,
   photoVisible,
   onTogglePhoto,
   onOpenPhoto,
@@ -388,6 +403,7 @@ function MessageGroupCard({
   drafts: Record<string, DraftEdit>;
   unitValue: number | null;
   bookmakers: string[];
+  activeBookmaker: string;
   photoVisible: boolean;
   onTogglePhoto: (key: string, visible: boolean) => void;
   onOpenPhoto: (url: string) => void;
@@ -475,6 +491,7 @@ function MessageGroupCard({
                 draft={drafts[tip.id]}
                 unitValue={unitValue}
                 bookmakers={bookmakers}
+                activeBookmaker={activeBookmaker}
                 onUpdateDraft={onUpdateDraft}
                 onTake={onTake}
                 onUntake={onUntake}
@@ -1137,6 +1154,7 @@ export function TelegramTipsPage() {
             drafts={drafts}
             unitValue={unitValue}
             bookmakers={bookmakers}
+            activeBookmaker={bookmaker}
             photoVisible={isPhotoVisible(group.key)}
             onTogglePhoto={togglePhoto}
             onOpenPhoto={setPhotoModal}
