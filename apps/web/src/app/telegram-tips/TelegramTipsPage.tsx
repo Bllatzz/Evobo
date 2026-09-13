@@ -135,6 +135,26 @@ export function groupTipsByMessage(tips: TelegramTip[]): MessageGroup[] {
   return [...map.values()];
 }
 
+/** Casa/link efetivos pra uma tip que pode ser feita em mais de uma casa
+ * (`bookmakerOptions`, com o `bookmaker` oficial NULL — ver parseTip.ts):
+ * minha escolha pessoal já salva > a opção que bate com o filtro de casa
+ * ativo no topo > a casa oficial > a primeira opção parseada. Usado tanto
+ * pro que aparece na tela (TipRow) quanto pro que "Pegar"/editar de fato
+ * grava (updateDraft/takeTip) — sem isso, pegar uma tip com bookmakerOptions
+ * antes de mexer no campo "Casa" salvava bookmaker/betUrl nulos (a tip
+ * ficava "peguei" sem casa nenhuma registrada). */
+export function defaultBookmaker(tip: TelegramTip, activeBookmaker: string): { bookmaker: string | null; betUrl: string | null } {
+  const filterMatch =
+    activeBookmaker && tip.bookmaker !== activeBookmaker
+      ? tip.bookmakerOptions?.find((o) => o.bookmaker === activeBookmaker)
+      : undefined;
+  const firstOption = tip.bookmakerOptions?.[0];
+  return {
+    bookmaker: tip.mine.bookmaker ?? filterMatch?.bookmaker ?? tip.bookmaker ?? firstOption?.bookmaker ?? null,
+    betUrl: tip.mine.betUrl ?? filterMatch?.betUrl ?? tip.betUrl ?? firstOption?.betUrl ?? null,
+  };
+}
+
 function TipRow({
   tip,
   index,
@@ -183,21 +203,12 @@ function TipRow({
   // parseDraftNumber rounds it down to a plain number.
   const [unitText, setUnitText] = useState(() => (effUnit != null ? String(effUnit) : ""));
   const [oddText, setOddText] = useState(() => (effOdd != null ? String(effOdd) : ""));
-  // Falls back to the official casa, then the first parsed option, so
-  // "Abrir aposta" already has somewhere to go before the user explicitly
+  // Falls back to the official casa, then the filtered/first parsed option,
+  // so "Abrir aposta" already has somewhere to go before the user explicitly
   // picks a casa — otherwise every tip started with the link dead.
-  const firstOption = tip.bookmakerOptions?.[0];
-  // Uma tip com mais de uma casa possível (ex.: 🔗 Betano · 🔗 Pinnacle) grava
-  // `bookmaker` oficial NULL e as opções em `bookmakerOptions` — sem esse
-  // match, o botão sempre caía na primeira opção da lista, nunca na casa que
-  // o usuário está filtrando no topo (ex.: filtrar "Betano" mas o link
-  // mostrado seguir sendo o da Pinnacle).
-  const filterMatch =
-    activeBookmaker && tip.bookmaker !== activeBookmaker
-      ? tip.bookmakerOptions?.find((o) => o.bookmaker === activeBookmaker)
-      : undefined;
-  const effBookmaker = draft?.bookmaker ?? tip.mine.bookmaker ?? filterMatch?.bookmaker ?? tip.bookmaker ?? firstOption?.bookmaker ?? null;
-  const effBetUrl = draft?.betUrl ?? tip.mine.betUrl ?? filterMatch?.betUrl ?? tip.betUrl ?? firstOption?.betUrl ?? null;
+  const defBookmaker = defaultBookmaker(tip, activeBookmaker);
+  const effBookmaker = draft?.bookmaker ?? defBookmaker.bookmaker;
+  const effBetUrl = draft?.betUrl ?? defBookmaker.betUrl;
   const oddDrifted = tip.originalOdd !== null && tip.odd !== null && tip.originalOdd !== tip.odd;
   const betActive = !!effBetUrl;
   const chip = tip.mine.takenStatus === "taken" ? (STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!) : NAO_PEGA_CHIP;
@@ -887,8 +898,7 @@ export function TelegramTipsPage() {
       const base = prev[tip.id] ?? {
         unit: tip.mine.unit ?? tip.unit,
         odd: tip.mine.odd ?? tip.odd,
-        bookmaker: tip.mine.bookmaker ?? tip.bookmaker,
-        betUrl: tip.mine.betUrl ?? tip.betUrl,
+        ...defaultBookmaker(tip, bookmaker),
       };
       return { ...prev, [tip.id]: { ...base, ...patch } };
     });
@@ -941,8 +951,7 @@ export function TelegramTipsPage() {
     const d = drafts[tip.id] ?? {
       unit: tip.mine.unit ?? tip.unit,
       odd: tip.mine.odd ?? tip.odd,
-      bookmaker: tip.mine.bookmaker ?? tip.bookmaker,
-      betUrl: tip.mine.betUrl ?? tip.betUrl,
+      ...defaultBookmaker(tip, bookmaker),
     };
     const updated = await patchTelegramTipTake(tip.id, {
       unit: d.unit,
