@@ -131,17 +131,6 @@ export async function startTelegramWorker() {
   client.addEventHandler(async (update: Api.UpdateMessageReactions) => {
     const chatId = utils.getPeerId(update.peer);
     const group = groupByChatId.get(chatId);
-    // Log temporário pra diagnosticar reação não aplicada — remover depois
-    // de confirmar o formato real de update.reactions em produção.
-    console.log(
-      `[worker] UpdateMessageReactions recebido: chatId=${chatId} conhecido=${!!group} msgId=${update.msgId} reactions=${JSON.stringify(
-        (update.reactions?.results ?? []).map((r) => ({
-          emoji: "emoticon" in r.reaction ? r.reaction.emoticon : r.reaction.className,
-          count: r.count,
-          chosenOrder: r.chosenOrder ?? null,
-        })),
-      )}`,
-    );
     if (!group) return;
 
     try {
