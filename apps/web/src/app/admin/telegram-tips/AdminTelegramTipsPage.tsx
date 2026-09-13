@@ -379,6 +379,9 @@ export function AdminTelegramTipsPage() {
   >([]);
   const [reactionBackfilling, setReactionBackfilling] = useState(false);
   const [reactionBackfillMessage, setReactionBackfillMessage] = useState<string | null>(null);
+  const [reactionSamples, setReactionSamples] = useState<
+    { messageId: number; reactions: { emoji: string | null; count: number; chosenOrder: number | null }[] }[]
+  >([]);
   const [page, setPage] = useState(1);
   const [tips, setTips] = useState<TelegramTip[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -559,6 +562,7 @@ export function AdminTelegramTipsPage() {
                 const applied = res.results.reduce((sum, r) => sum + r.applied, 0);
                 const checked = res.results.reduce((sum, r) => sum + r.checked, 0);
                 setReactionBackfillMessage(`${applied} tip(s) marcada(s) via 👍/👎 (${checked} mensagem(ns) checada(s)).`);
+                setReactionSamples(res.results.flatMap((r) => r.samples));
                 load();
               } finally {
                 setReactionBackfilling(false);
@@ -574,6 +578,21 @@ export function AdminTelegramTipsPage() {
         {gradingMessage && <p className="mt-2 text-[12px] text-text-tertiary">{gradingMessage}</p>}
         {emojiBackfillMessage && <p className="mt-2 text-[12px] text-text-tertiary">{emojiBackfillMessage}</p>}
         {reactionBackfillMessage && <p className="mt-2 text-[12px] text-text-tertiary">{reactionBackfillMessage}</p>}
+        {reactionSamples.length > 0 && (
+          <div className="mt-2 space-y-1.5 rounded-lg bg-surface-chip p-2.5">
+            <p className="font-mono text-[10px] uppercase tracking-[0.02em] text-text-tertiary">
+              Mensagens com alguma reação registrada (diagnóstico):
+            </p>
+            {reactionSamples.map((s) => (
+              <p key={s.messageId} className="whitespace-pre-wrap break-words text-[11px] text-text-secondary">
+                <span className="font-mono text-text-tertiary">#{s.messageId}:</span>{" "}
+                {s.reactions
+                  .map((r) => `${r.emoji ?? "?"} x${r.count}${r.chosenOrder !== null ? ` (minha, ordem ${r.chosenOrder})` : ""}`)
+                  .join(", ")}
+              </p>
+            ))}
+          </div>
+        )}
         {emojiUnmatched.length > 0 && (
           <div className="mt-2 space-y-1.5 rounded-lg bg-surface-chip p-2.5">
             <p className="font-mono text-[10px] uppercase tracking-[0.02em] text-text-tertiary">

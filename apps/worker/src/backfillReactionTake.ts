@@ -7,7 +7,17 @@ import { applyMyReactionTake } from "./reactionTake.js";
 // ids — mantém os lotes bem abaixo disso por segurança/margem.
 const BATCH_SIZE = 100;
 
-export type BackfillReactionTakeGroupResult = { group: string; checked: number; applied: number };
+const MAX_SAMPLES = 20;
+
+export type BackfillReactionTakeGroupResult = {
+  group: string;
+  checked: number;
+  applied: number;
+  /** Diagnóstico: mensagens que TÊM alguma reação registrada, com o detalhe
+   * cru de cada uma (emoji + chosenOrder) — inclui as que não bateram, pra
+   * enxergar se a própria conta aparece ali ou não. Cap de MAX_SAMPLES. */
+  samples: { messageId: number; reactions: { emoji: string | null; count: number; chosenOrder: number | null }[] }[];
+};
 
 /** Aplica retroativamente 👍/👎 que a conta do worker já tinha dado ANTES do
  * listener de reação existir (ver reactionTake.ts) — getMessages sempre
@@ -30,16 +40,29 @@ export async function backfillReactionTake(client: TelegramClient): Promise<Back
     const ids = tips.map((t) => Number(t.telegramMessageId));
 
     let applied = 0;
+    const samples: BackfillReactionTakeGroupResult["samples"] = [];
     for (let i = 0; i < ids.length; i += BATCH_SIZE) {
       const batch = ids.slice(i, i + BATCH_SIZE);
       const messages = await client.getMessages(bigInt(group.telegramChatId), { ids: batch });
       for (const message of messages) {
         if (!message) continue; // mensagem apagada — undefined no lugar dela
         applied += await applyMyReactionTake(group.id, BigInt(message.id), message.reactions);
+
+        const rawResults = message.reactions?.results ?? [];
+        if (rawResults.length > 0 && samples.length < MAX_SAMPLES) {
+          samples.push({
+            messageId: message.id,
+            reactions: rawResults.map((r) => ({
+              emoji: "emoticon" in r.reaction ? (r.reaction.emoticon as string) : null,
+              count: r.count,
+              chosenOrder: r.chosenOrder ?? null,
+            })),
+          });
+        }
       }
     }
 
-    results.push({ group: group.name, checked: ids.length, applied });
+    results.push({ group: group.name, checked: ids.length, applied, samples });
   }
 
   return results;

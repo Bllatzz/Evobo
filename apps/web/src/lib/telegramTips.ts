@@ -158,7 +158,14 @@ export type BackfillResultFromEmojiGroupResult = {
 export const backfillResultFromEmoji = (): Promise<{ results: BackfillResultFromEmojiGroupResult[] }> =>
   apiFetch("/telegram-tips/admin/backfill-result-emoji", { method: "POST" });
 
+export type BackfillReactionTakeGroupResult = {
+  group: string;
+  checked: number;
+  applied: number;
+  samples: { messageId: number; reactions: { emoji: string | null; count: number; chosenOrder: number | null }[] }[];
+};
+
 /** Admin only — aplica retroativamente os 👍/👎 que a conta já tinha dado
  * antes do listener de reação existir, em todos os grupos. */
-export const backfillReactionTake = (): Promise<{ results: { group: string; checked: number; applied: number }[] }> =>
+export const backfillReactionTake = (): Promise<{ results: BackfillReactionTakeGroupResult[] }> =>
   apiFetch("/telegram-tips/admin/backfill-reaction-take", { method: "POST" });
