@@ -1,6 +1,7 @@
-import { TelegramClient } from "telegram";
+import { TelegramClient, utils } from "telegram";
+import { Api } from "telegram/tl/index.js";
 import { StringSession } from "telegram/sessions/index.js";
-import { NewMessage, type NewMessageEvent } from "telegram/events/index.js";
+import { NewMessage, Raw, type NewMessageEvent } from "telegram/events/index.js";
 import { EditedMessage, type EditedMessageEvent } from "telegram/events/EditedMessage.js";
 import input from "input";
 import { prisma, requireEnv } from "./db.js";
@@ -11,6 +12,7 @@ import { backfillSince } from "./backfillRange.js";
 import { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
 import { applyEditedMessageResult } from "./resultFromEmoji.js";
 import { backfillResultFromEmoji } from "./backfillResultFromEmoji.js";
+import { applyMyReactionTake } from "./reactionTake.js";
 
 export { retryMissingOcr } from "./retryOcr.js";
 export { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
@@ -114,4 +116,18 @@ export async function startTelegramWorker() {
       console.error("[worker] falha ao processar mensagem editada:", err);
     }
   }, new EditedMessage({}));
+
+  // 👍/👎 na própria conta marca peguei/não peguei — ver reactionTake.ts.
+  // Reação não vem como NewMessage/EditedMessage, só como update raw.
+  client.addEventHandler(async (update: Api.UpdateMessageReactions) => {
+    const chatId = utils.getPeerId(update.peer);
+    const group = groupByChatId.get(chatId);
+    if (!group) return;
+
+    try {
+      await applyMyReactionTake(group.id, BigInt(update.msgId), update.reactions);
+    } catch (err) {
+      console.error("[worker] falha ao processar reação:", err);
+    }
+  }, new Raw({ types: [Api.UpdateMessageReactions] }));
 }
