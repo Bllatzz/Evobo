@@ -254,8 +254,9 @@ const NO_TELEGRAM_FOLD: TelegramFold = {
 /** Compact ranked list — bookmakers or groups sorted by profit (best first),
  * filling the vertical space below the bankroll chart with something
  * actually useful instead of empty padding. */
-function ProfitRankList({
+function ProfitTable({
   title,
+  nameHeader,
   rows,
   unitValue,
   displayUnit,
@@ -263,40 +264,62 @@ function ProfitRankList({
   dotFor,
 }: {
   title: string;
+  nameHeader: string;
   rows: TelegramBancaRow[];
   unitValue: number | null;
   displayUnit: "u" | "brl";
   labelFor?: (key: string) => string;
   dotFor?: (key: string) => string;
 }) {
-  function formatValue(v: number): string {
+  function formatProfit(v: number): string {
     if (displayUnit === "brl" && unitValue != null) return `${v >= 0 ? "+" : ""}${brl(v * unitValue)}`;
     return `${v >= 0 ? "+" : ""}${v.toFixed(1)}u`;
   }
 
   return (
-    <div className="min-w-0">
+    <div>
       <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">{title}</div>
       {rows.length === 0 ? (
         <p className="text-[12px] text-text-tertiary">Sem dados ainda.</p>
       ) : (
-        <div className="flex flex-col gap-1.5">
-          {rows.map((row) => (
-            <div
-              key={row.key}
-              className="flex items-center justify-between gap-2 rounded-[10px] bg-surface-alt px-3 py-2"
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                {dotFor && <span className={`h-2 w-2 flex-none rounded-full ${dotFor(row.key)}`} />}
-                <span className="truncate text-[12.5px] font-semibold">{labelFor ? labelFor(row.key) : row.key}</span>
-              </div>
-              <span
-                className={`flex-none font-mono text-[12px] font-bold ${row.profit >= 0 ? "text-accent" : "text-live"}`}
-              >
-                {formatValue(row.profit)}
-              </span>
-            </div>
-          ))}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] border-collapse text-[13px]">
+            <thead>
+              <tr className="border-b border-border-subtle text-left font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
+                <th className="py-2 pr-3 font-normal">{nameHeader}</th>
+                <th className="py-2 pr-3 text-right font-normal">APOSTAS</th>
+                <th className="py-2 pr-3 text-right font-normal">LUCRO</th>
+                <th className="py-2 pl-3 text-right font-normal">ROI</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key} className="border-b border-border-subtle last:border-0">
+                  <td className="py-2.5 pr-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {dotFor && <span className={`h-2 w-2 flex-none rounded-full ${dotFor(row.key)}`} />}
+                      <span className="truncate font-semibold">{labelFor ? labelFor(row.key) : row.key}</span>
+                    </div>
+                  </td>
+                  <td className="py-2.5 pr-3 text-right font-mono text-text-secondary">{row.total}</td>
+                  <td
+                    className={`py-2.5 pr-3 text-right font-mono font-semibold ${
+                      row.profit >= 0 ? "text-accent" : "text-live"
+                    }`}
+                  >
+                    {formatProfit(row.profit)}
+                  </td>
+                  <td
+                    className={`py-2.5 pl-3 text-right font-mono ${
+                      row.roiPct == null ? "text-text-tertiary" : row.roiPct >= 0 ? "text-accent" : "text-live"
+                    }`}
+                  >
+                    {row.roiPct == null ? "—" : `${row.roiPct >= 0 ? "+" : ""}${row.roiPct.toFixed(1)}%`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -679,17 +702,19 @@ export function MyProfilePage() {
                 />
 
                 {hasTelegram && (bookmakerRows.length > 0 || groupRows.length > 0) && (
-                  <div className="mt-6 grid grid-cols-2 gap-5 border-t border-border pt-5">
-                    <ProfitRankList
-                      title="CASAS DE APOSTAS · POR LUCRO"
+                  <div className="mt-6 flex flex-col gap-6 border-t border-border pt-5">
+                    <ProfitTable
+                      title="CASAS DE APOSTAS"
+                      nameHeader="CASA"
                       rows={bookmakerRows}
                       unitValue={stats.unitValue}
                       displayUnit={stats.unitValue != null ? chartUnit : "u"}
                       labelFor={bookmakerLabel}
                       dotFor={bookmakerColor}
                     />
-                    <ProfitRankList
-                      title="GRUPOS · POR LUCRO"
+                    <ProfitTable
+                      title="GRUPOS"
+                      nameHeader="GRUPO"
                       rows={groupRows}
                       unitValue={stats.unitValue}
                       displayUnit={stats.unitValue != null ? chartUnit : "u"}
