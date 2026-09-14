@@ -6,6 +6,7 @@ import {
   fetchTelegramSettings,
   fetchBookmakerNames,
   fetchTelegramTipsSummary,
+  fetchPendingCounts,
   patchTelegramTipTake,
   deleteTelegramTip,
   TELEGRAM_TIP_MARKET_TYPES,
@@ -818,7 +819,10 @@ export function TelegramTipsPage() {
   const [photoModal, setPhotoModal] = useState<string | null>(null);
   const [unitValue, setUnitValue] = useState<number | null>(null);
   const [summary, setSummary] = useState<TelegramTipsSummary | null>(null);
-  const [pendingTips, setPendingTips] = useState<TelegramTip[]>([]);
+  const [pendingCounts, setPendingCounts] = useState<{ total: number; byGroup: { groupId: string; count: number }[] }>({
+    total: 0,
+    byGroup: [],
+  });
   const [drafts, setDrafts] = useState<Record<string, DraftEdit>>({});
   const [, forceTick] = useState(0);
   // Global photo visibility default, plus per-card overrides so one bilhete
@@ -859,9 +863,7 @@ export function TelegramTipsPage() {
   }
 
   function refreshPendingCounts() {
-    fetchTelegramTips({ takenStatus: "pending", limit: 200 })
-      .then((res) => setPendingTips(res.data))
-      .catch(() => {});
+    fetchPendingCounts().then(setPendingCounts).catch(() => {});
   }
 
   useEffect(() => {
@@ -988,11 +990,10 @@ export function TelegramTipsPage() {
 
   const groupedList = useMemo(() => groupTipsByMessage(tips ?? []), [tips]);
 
-  const pendingCountsByGroup = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const t of pendingTips) map.set(t.groupId, (map.get(t.groupId) ?? 0) + 1);
-    return map;
-  }, [pendingTips]);
+  const pendingCountsByGroup = useMemo(
+    () => new Map(pendingCounts.byGroup.map((g) => [g.groupId, g.count])),
+    [pendingCounts],
+  );
 
   return (
     <div className="pb-6 lg:pl-6 lg:pr-6 lg:pt-6">
@@ -1124,7 +1125,7 @@ export function TelegramTipsPage() {
             selected={groupIds}
             onApply={setGroupIds}
             countByGroup={(id) => pendingCountsByGroup.get(id) ?? 0}
-            totalCount={pendingTips.length}
+            totalCount={pendingCounts.total}
           />
           {groupIds.map((id) => {
             const g = groups.find((x) => x.id === id);

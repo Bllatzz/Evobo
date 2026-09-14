@@ -108,6 +108,12 @@ export function fetchTelegramTipsSummary(
   return apiFetch(`/telegram-tips/summary${qs ? `?${qs}` : ""}`);
 }
 
+/** Total de tips "não decididas" por este usuário, geral e por grupo — pro
+ * badge do filtro de grupo. Contagem de verdade no banco (nunca capada em
+ * 100 como as listas paginadas). */
+export const fetchPendingCounts = (): Promise<{ total: number; byGroup: { groupId: string; count: number }[] }> =>
+  apiFetch("/telegram-tips/pending-counts");
+
 export const fetchTelegramSettings = (): Promise<TelegramBancaSettings> => apiFetch("/telegram-tips/settings");
 
 export const saveTelegramSettings = (input: UpdateTelegramBancaSettingsInput): Promise<TelegramBancaSettings> =>

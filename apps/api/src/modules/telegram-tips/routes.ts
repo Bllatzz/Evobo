@@ -502,6 +502,23 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     };
   });
 
+  // Total de tips "não decididas" por ESTE usuário, geral e por grupo — só
+  // pro badge do filtro de grupo (GroupMultiSelect). Conta de verdade
+  // (agregada no banco, sem limite de página nenhum) — nunca buscar as
+  // linhas só pra contar (todo endpoint de lista aqui trava em 100 por
+  // página, então contar via `.data.length` sempre subestima passado isso).
+  app.get("/pending-counts", async (request) => {
+    const userId = request.authUser!.id;
+    const notDecided: Prisma.TelegramTipWhereInput = { takes: { none: { userId, takenStatus: { in: ["taken", "skipped"] } } } };
+
+    const [total, byGroup] = await Promise.all([
+      prisma.telegramTip.count({ where: notDecided }),
+      prisma.telegramTip.groupBy({ by: ["groupId"], where: notDecided, _count: true }),
+    ]);
+
+    return { total, byGroup: byGroup.map((g) => ({ groupId: g.groupId, count: g._count })) };
+  });
+
   // Corrige o registro OFICIAL da tip (odd/unidade/casa/link/mercado/jogo/
   // resultado) — o que o tipster falou de verdade e como resolveu, igual
   // pra todo mundo. Editável só pelo admin (tela /admin/telegram-tips);
