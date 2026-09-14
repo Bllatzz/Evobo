@@ -701,8 +701,9 @@ export function MyProfilePage() {
               </div>
             </div>
 
-            <div className="flex gap-6">
-              <div className="min-w-0 flex-1 rounded-2xl border border-border bg-surface p-[22px]">
+            <div className="flex items-start gap-6">
+              <div className="flex min-w-0 flex-1 flex-col gap-6">
+              <div className="rounded-2xl border border-border bg-surface p-[22px]">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[14px] font-bold">Evolução da banca</span>
                   <div className="flex items-center gap-3">
@@ -752,6 +753,28 @@ export function MyProfilePage() {
                   unitValue={stats.unitValue}
                   displayUnit={stats.unitValue != null ? chartUnit : "u"}
                 />
+              </div>
+
+              {hasTelegram && (bookmakerRows.length > 0 || groupRows.length > 0) && (
+                <>
+                  <ProfitTable
+                    title="Casas de apostas"
+                    nameHeader="CASA"
+                    rows={bookmakerRows}
+                    unitValue={stats.unitValue}
+                    displayUnit={stats.unitValue != null ? chartUnit : "u"}
+                    labelFor={bookmakerLabel}
+                    dotFor={bookmakerColor}
+                  />
+                  <ProfitTable
+                    title="Grupos"
+                    nameHeader="GRUPO"
+                    rows={groupRows}
+                    unitValue={stats.unitValue}
+                    displayUnit={stats.unitValue != null ? chartUnit : "u"}
+                  />
+                </>
+              )}
               </div>
 
               {hasTelegram && (
@@ -929,27 +952,6 @@ export function MyProfilePage() {
                 </div>
               )}
             </div>
-
-            {hasTelegram && (bookmakerRows.length > 0 || groupRows.length > 0) && (
-              <div className="mt-6 flex flex-col gap-6">
-                <ProfitTable
-                  title="Casas de apostas"
-                  nameHeader="CASA"
-                  rows={bookmakerRows}
-                  unitValue={stats.unitValue}
-                  displayUnit={stats.unitValue != null ? chartUnit : "u"}
-                  labelFor={bookmakerLabel}
-                  dotFor={bookmakerColor}
-                />
-                <ProfitTable
-                  title="Grupos"
-                  nameHeader="GRUPO"
-                  rows={groupRows}
-                  unitValue={stats.unitValue}
-                  displayUnit={stats.unitValue != null ? chartUnit : "u"}
-                />
-              </div>
-            )}
           </>
         )}
       </div>
