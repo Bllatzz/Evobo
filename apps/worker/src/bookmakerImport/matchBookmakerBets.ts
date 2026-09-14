@@ -96,6 +96,14 @@ export function matchBookmakerBet(
     // quando falta jogo de um dos lados pra comparar.
     if (bet.game !== null && c.match !== null) return textSimilarity(bet.game, c.match) >= GAME_SIMILARITY_THRESHOLD;
     const tipText = `${c.match ?? ""} ${c.selection ?? ""}`.trim();
+    // Tip sem NENHUM texto (nem jogo nem seleção) — comum em props de
+    // jogador/loteria/individual escritos livre no Telegram (ex.: "Harry
+    // Kane marcar") ou em prints cuja OCR não extraiu nada. Não dá pra
+    // comparar texto nenhum, então odd+horário já filtrados acima viram o
+    // único critério — seguro porque, com 2+ candidatos nessa situação, cai
+    // no desempate por unidade implícita (ou "ambíguo" sem unitValueReais)
+    // abaixo, nunca escolhe errado sem chance de revisão.
+    if (tipText === "") return true;
     return textSimilarity(betText, tipText) >= TEXT_SIMILARITY_THRESHOLD;
   });
 

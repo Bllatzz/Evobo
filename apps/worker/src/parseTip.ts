@@ -204,6 +204,20 @@ function stripLeadingEmoji(s: string): string {
   return s.replace(/^(?:[\p{Extended_Pictographic}️\s]|\d️?⃣)+/u, "");
 }
 
+/** "CA Huracán - Racing Club" — separador usado no cabeçalho das
+ * combinadas Padovan "MÚLTIPLA (mesmo jogo)" (ver padovan_combo abaixo),
+ * diferente do "x" de MATCH_LINE_RE. Só usada ali: por esse ramo ser
+ * especificamente "mesmo jogo" (nunca ESCADA/multi-jogo), a 1ª linha nesse
+ * formato nunca mistura confrontos diferentes — usar esse separador de
+ * forma geral (ex. dentro de extractGameLine) arriscaria confundir
+ * descrição de mercado com confronto em outros tipsters. */
+const PADOVAN_SAME_GAME_RE = /^(.+?)\s+-\s+(.+)$/;
+
+function extractDashGameLine(line: string): string | null {
+  const s = stripLeadingEmoji(line);
+  return PADOVAN_SAME_GAME_RE.test(s) ? s : null;
+}
+
 /** "MMA · Fulano x Ciclano" / "🏈 ESCADA · Time A x Time B" / "Time A x Time B"
  * (sem prefixo) — tira emoji/rótulo antes do "·" (se houver) e confere se o
  * que sobra é mesmo um confronto. */
@@ -294,12 +308,19 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
       .filter((l): l is string => !!l);
     const stakeMatch = content.map((l) => l.match(STAKE_AT_ODD_RE)).find((m): m is RegExpMatchArray => m !== null);
     if (legs.length > 0 && stakeMatch) {
+      // "MÚLTIPLA (mesmo jogo)" repete o confronto antes das pernas
+      // ("CA Huracán - Racing Club\n • CA Huracán - Racing Club\n • ...")
+      // usando "-", não "x" — extractGameLine não pega (ver MATCH_LINE_RE),
+      // então cai pro separador "-" aqui. Seguro só neste ramo: por ser
+      // "mesmo jogo" (não ESCADA/multi-jogo), a 1ª linha nesse formato
+      // nunca mistura confrontos diferentes.
+      const comboMatch = match ?? content.map(extractDashGameLine).find((v): v is string => v !== null) ?? undefined;
       return {
         pattern: "padovan_combo",
         bookmaker: hasMultipleBookmakers ? null : primary.bookmaker,
         betUrl: hasMultipleBookmakers ? null : primary.betUrl,
         fields: {},
-        ...(match ? { match } : {}),
+        ...(comboMatch ? { match: comboMatch } : {}),
         selections: [
           {
             text: legs.join("\n"),
