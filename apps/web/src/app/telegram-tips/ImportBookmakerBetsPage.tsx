@@ -89,7 +89,7 @@ export function ImportBookmakerBetsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl pb-10 lg:pt-6">
+    <div className="pb-6 lg:pl-6 lg:pr-6 lg:pt-6">
       <div className="flex items-center gap-2.5 px-5 pb-3 pt-3 lg:px-0">
         <Link to="/telegram-tips" aria-label="Voltar" className="hidden flex-none items-center justify-center text-text-secondary lg:flex">
           <IconChevronLeft size={20} />
@@ -98,46 +98,48 @@ export function ImportBookmakerBetsPage() {
         <span className="text-[20px] font-bold tracking-[-0.02em] lg:text-[22px]">Importar apostas · VIP Telegram</span>
       </div>
 
-      <div className="mx-5 rounded-2xl border border-border bg-surface p-4 lg:mx-0">
-        <p className="mb-3 text-[12.5px] text-text-tertiary">
-          Cole o JSON gerado pelo script de scraping (rodado no seu próprio navegador, já logado na casa). "Conferir"
-          nunca grava nada — só depois de ver o resultado é que aparece a opção de gravar de verdade.
-        </p>
+      <div className="px-5 lg:px-0">
+        <div className="rounded-2xl border border-border bg-surface p-4">
+          <p className="mb-3 text-[12.5px] text-text-tertiary">
+            Cole o JSON gerado pelo script de scraping (rodado no seu próprio navegador, já logado na casa). "Conferir"
+            nunca grava nada — só depois de ver o resultado é que aparece a opção de gravar de verdade.
+          </p>
 
-        <label className="mb-3 block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-secondary">Casa</span>
-          <Dropdown
-            value={bookmaker}
-            onChange={setBookmaker}
-            placeholder="Escolha a casa"
-            options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
-            className="w-full"
-          />
-        </label>
+          <label className="mb-3 block">
+            <span className="mb-1 block text-[12px] font-semibold text-text-secondary">Casa</span>
+            <Dropdown
+              value={bookmaker}
+              onChange={setBookmaker}
+              placeholder="Escolha a casa"
+              options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
+              className="w-full"
+            />
+          </label>
 
-        <label className="mb-3 block">
-          <span className="mb-1 block text-[12px] font-semibold text-text-secondary">JSON do script</span>
-          <textarea
-            value={raw}
-            onChange={(e) => setRaw(e.target.value)}
-            placeholder='[{"betNumber": "...", "status": "ganha", ...}]'
-            rows={8}
-            className="w-full rounded-lg border border-border-strong bg-surface-alt px-3 py-2 font-mono text-[12px] text-text outline-none"
-          />
-        </label>
+          <label className="mb-3 block">
+            <span className="mb-1 block text-[12px] font-semibold text-text-secondary">JSON do script</span>
+            <textarea
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+              placeholder='[{"betNumber": "...", "status": "ganha", ...}]'
+              rows={8}
+              className="w-full rounded-lg border border-border-strong bg-surface-alt px-3 py-2 font-mono text-[12px] text-text outline-none"
+            />
+          </label>
 
-        <button
-          onClick={handleCheck}
-          disabled={running}
-          className="w-full rounded-lg bg-accent py-2.5 text-[13px] font-bold text-[#08090A] disabled:opacity-50"
-        >
-          {running ? "Conferindo…" : "Conferir"}
-        </button>
-        {error && <p className="mt-2 text-[12.5px] text-live">{error}</p>}
+          <button
+            onClick={handleCheck}
+            disabled={running}
+            className="w-full rounded-lg bg-accent py-2.5 text-[13px] font-bold text-[#08090A] disabled:opacity-50"
+          >
+            {running ? "Conferindo…" : "Conferir"}
+          </button>
+          {error && <p className="mt-2 text-[12.5px] text-live">{error}</p>}
+        </div>
       </div>
 
       {result && (
-        <div className="mx-5 mt-4 flex flex-col gap-4 lg:mx-0">
+        <div className="mt-4 flex flex-col gap-4 px-5 lg:px-0">
           <p className="text-[12.5px] text-text-tertiary">
             {result.matched.length} bateram · {result.ambiguous.length} ambíguas · {result.unmatched.length} sem match
             {result.dryRun ? " — nada foi gravado ainda." : " — gravado."}

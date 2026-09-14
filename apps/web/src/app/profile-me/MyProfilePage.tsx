@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { fetchMyBets, type ProfileTip } from "../../lib/profile";
-import { formatOdds, formatUnits, timeAgo } from "../../lib/format";
+import { formatOdds, formatUnits } from "../../lib/format";
 import { Avatar } from "../../components/Avatar";
 import { AccountMenu } from "../../components/AccountMenu";
 import { useAuth } from "../../stores/auth";
@@ -15,10 +15,10 @@ import {
   fetchBookmakerNames,
   fetchTelegramBanca,
   fetchTelegramTips,
-  type TelegramTip,
   type TelegramBookmakerBalance,
   type TelegramBancaSummary,
 } from "../../lib/telegramTips";
+import type { TelegramBancaRow } from "@evobo/shared-types";
 
 const resultLabel: Record<string, { text: string; className: string; Icon?: typeof IconCheck }> = {
   green: { text: "Green", className: "text-accent", Icon: IconCheck },
@@ -39,13 +39,6 @@ function betProfit(tip: ProfileTip): number {
   return 0;
 }
 
-function telegramTipProfit(tip: TelegramTip): number {
-  const unit = tip.mine.unit ?? 0;
-  if (tip.result === "green") return tip.mine.odd ? unit * (tip.mine.odd - 1) : 0;
-  if (tip.result === "red") return -unit;
-  return 0; // reembolso — nem ganho nem perda
-}
-
 function brl(v: number): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -59,31 +52,6 @@ function bookmakerColor(name: string): string {
   return DOT_COLORS[hash % DOT_COLORS.length]!;
 }
 
-// `Tip.house` stores the bet link, not a bookmaker name — read the domain
-// as a human-friendly stand-in for "casa" on native bets, which don't carry
-// a dedicated bookmaker field.
-function hostFromUrl(url: string): string {
-  try {
-    const host = new URL(url).hostname.replace(/^www\./, "");
-    const base = host.split(".")[0] ?? host;
-    return base.charAt(0).toUpperCase() + base.slice(1);
-  } catch {
-    return url || "—";
-  }
-}
-
-function formatFixtureLabel(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
-  const hm = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  if (d.toDateString() === now.toDateString()) return `hoje ${hm}`;
-  if (d.toDateString() === tomorrow.toDateString()) return `amanhã ${hm}`;
-  return `${d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${hm}`;
-}
-
 type TimelineEvent = { date: number; profit: number };
 type SeriesPoint = TelegramBancaSummary["series"]["peguei"][number];
 
@@ -91,7 +59,7 @@ const RANGE_OPTIONS = [
   { key: "7", label: "7d" },
   { key: "30", label: "30d" },
   { key: "90", label: "90d" },
-  { key: "all", label: "tudo" },
+  { key: "all", label: "Tudo" },
 ] as const;
 type RangeKey = (typeof RANGE_OPTIONS)[number]["key"];
 
@@ -283,64 +251,66 @@ const NO_TELEGRAM_FOLD: TelegramFold = {
   red: 0,
 };
 
-type UnifiedTipRow = {
-  key: string;
+/** Compact ranked list — bookmakers or groups sorted by profit (best first),
+ * filling the vertical space below the bankroll chart with something
+ * actually useful instead of empty padding. */
+function ProfitRankList({
+  title,
+  rows,
+  unitValue,
+  displayUnit,
+  labelFor,
+  dotFor,
+}: {
   title: string;
-  subtitle: string;
-  timeLabel: string;
-  bookmaker: string;
-  stakeLabel: string;
-  oddLabel: string;
-  profitValue: number | null;
-  status: string;
-  date: number;
-};
+  rows: TelegramBancaRow[];
+  unitValue: number | null;
+  displayUnit: "u" | "brl";
+  labelFor?: (key: string) => string;
+  dotFor?: (key: string) => string;
+}) {
+  function formatValue(v: number): string {
+    if (displayUnit === "brl" && unitValue != null) return `${v >= 0 ? "+" : ""}${brl(v * unitValue)}`;
+    return `${v >= 0 ? "+" : ""}${v.toFixed(1)}u`;
+  }
 
-function nativeRow(b: ProfileTip): UnifiedTipRow {
-  const profit = b.status === "green" || b.status === "red" ? betProfit(b) : null;
-  return {
-    key: `native-${b.id}`,
-    title: `${b.match.homeTeam} x ${b.match.awayTeam}`,
-    subtitle: b.market,
-    timeLabel: formatFixtureLabel(b.match.startsAt),
-    bookmaker: hostFromUrl(b.house),
-    stakeLabel: formatUnits(b.stakeUnits),
-    oddLabel: formatOdds(b.odds),
-    profitValue: profit,
-    status: b.status,
-    date: new Date(b.resultSettledAt ?? b.createdAt).getTime(),
-  };
+  return (
+    <div className="min-w-0">
+      <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">{title}</div>
+      {rows.length === 0 ? (
+        <p className="text-[12px] text-text-tertiary">Sem dados ainda.</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {rows.map((row) => (
+            <div
+              key={row.key}
+              className="flex items-center justify-between gap-2 rounded-[10px] bg-surface-alt px-3 py-2"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                {dotFor && <span className={`h-2 w-2 flex-none rounded-full ${dotFor(row.key)}`} />}
+                <span className="truncate text-[12.5px] font-semibold">{labelFor ? labelFor(row.key) : row.key}</span>
+              </div>
+              <span
+                className={`flex-none font-mono text-[12px] font-bold ${row.profit >= 0 ? "text-accent" : "text-live"}`}
+              >
+                {formatValue(row.profit)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
-
-function telegramRow(t: TelegramTip): UnifiedTipRow {
-  const profit = t.result === "green" || t.result === "red" ? telegramTipProfit(t) : null;
-  return {
-    key: `tg-${t.id}`,
-    title: t.match ?? t.groupName,
-    subtitle: t.selection ?? "—",
-    timeLabel: timeAgo(t.receivedAt),
-    bookmaker: t.mine.bookmaker ?? "—",
-    stakeLabel: t.mine.unit != null ? formatUnits(t.mine.unit) : "—",
-    oddLabel: t.mine.odd != null ? formatOdds(t.mine.odd) : "—",
-    profitValue: profit,
-    status: t.result,
-    date: new Date(t.receivedAt).getTime(),
-  };
-}
-
-const RESULT_FILTERS = [
-  { key: "all", label: "Todas" },
-  { key: "green", label: "Green" },
-  { key: "red", label: "Red" },
-  { key: "pending", label: "Em aberto" },
-] as const;
-type ResultFilterKey = (typeof RESULT_FILTERS)[number]["key"];
 
 export function MyProfilePage() {
   const { me, canAccess } = useAuth();
   const [bets, setBets] = useState<ProfileTip[] | null>(null);
   const [tg, setTg] = useState<TelegramFold | null>(null);
-  const [tgTips, setTgTips] = useState<TelegramTip[] | null>(null);
+  // Só a contagem real (o endpoint sempre limita `data` a 100 registros,
+  // mas `total` reflete o total de verdade independente da paginação —
+  // usar `data.length` aqui subestimava quem tem mais de 100 tips pegas).
+  const [tgTipsCount, setTgTipsCount] = useState<number | null>(null);
 
   // "Unidade & saldos" — folded in from the old TelegramBancaOverview.
   const [unitValueRaw, setUnitValueRaw] = useState<string>("");
@@ -357,14 +327,14 @@ export function MyProfilePage() {
   const [profitByBookmaker, setProfitByBookmaker] = useState<Record<string, number | null> | null>(null);
   const [editingBookmaker, setEditingBookmaker] = useState<string | null>(null);
 
+  // Ranked lists below the chart — bookmakers and groups sorted by profit.
+  const [bookmakerRows, setBookmakerRows] = useState<TelegramBancaRow[]>([]);
+  const [groupRows, setGroupRows] = useState<TelegramBancaRow[]>([]);
+
   // "Evolução da banca" chart controls.
   const [chartRange, setChartRange] = useState<RangeKey>("30");
   const [chartUnit, setChartUnit] = useState<"u" | "brl">("u");
   const [telegramSeries, setTelegramSeries] = useState<SeriesPoint[] | null>(null);
-
-  // Unified tips section.
-  const [tipsTab, setTipsTab] = useState<"peguei" | "minhas">("peguei");
-  const [resultFilter, setResultFilter] = useState<ResultFilterKey>("all");
 
   const load = useCallback(() => {
     fetchMyBets().then(setBets);
@@ -377,10 +347,12 @@ export function MyProfilePage() {
   useEffect(() => {
     if (!canAccess("telegram_banca")) {
       setTg(NO_TELEGRAM_FOLD);
-      setTgTips([]);
+      setTgTipsCount(0);
       setBalances([]);
       setBookmakerNames([]);
       setProfitByBookmaker({});
+      setBookmakerRows([]);
+      setGroupRows([]);
       return;
     }
     Promise.all([fetchTelegramSettings(), fetchBookmakerBalances(), fetchTelegramBanca(), fetchBookmakerNames()])
@@ -402,15 +374,19 @@ export function MyProfilePage() {
         const map: Record<string, number | null> = {};
         for (const row of banca.peguei.byBookmaker) map[row.key] = row.profitBRL;
         setProfitByBookmaker(map);
+        setBookmakerRows([...banca.peguei.byBookmaker].sort((a, b) => b.profit - a.profit));
+        setGroupRows([...banca.peguei.byGroup].sort((a, b) => b.profit - a.profit));
       })
       .catch(() => {
         setTg(NO_TELEGRAM_FOLD);
         setBalances([]);
         setProfitByBookmaker({});
+        setBookmakerRows([]);
+        setGroupRows([]);
       });
-    fetchTelegramTips({ takenStatus: "taken", limit: 100 })
-      .then((res) => setTgTips(res.data))
-      .catch(() => setTgTips([]));
+    fetchTelegramTips({ takenStatus: "taken", limit: 1 })
+      .then((res) => setTgTipsCount(res.total))
+      .catch(() => setTgTipsCount(0));
   }, [canAccess]);
 
   useEffect(() => {
@@ -430,7 +406,7 @@ export function MyProfilePage() {
   );
 
   const stats = useMemo(() => {
-    if (!settled || !tg || !tgTips) return null;
+    if (!settled || !tg || tgTipsCount === null) return null;
     const pnl = settled.reduce((sum, b) => sum + betProfit(b), 0);
     const staked = settled.reduce((sum, b) => sum + Number(b.stakeUnits), 0);
     const greenCount = settled.filter((b) => b.status === "green").length;
@@ -450,18 +426,18 @@ export function MyProfilePage() {
       combinedRoi: combinedStaked > 0 ? (combinedPnl / combinedStaked) * 100 : 0,
       hitRate: combinedDecided > 0 ? (combinedGreen / combinedDecided) * 100 : 0,
       staked,
-      tipsCount: (bets?.length ?? 0) + tgTips.length,
+      tipsCount: (bets?.length ?? 0) + tgTipsCount,
       bancaInicial,
       bankroll: bancaInicial + combinedPnl,
       unitValue: tg.unitValue,
     };
-  }, [settled, tg, bets, tgTips]);
+  }, [settled, tg, bets, tgTipsCount]);
 
   // Windowed chart data: native bets are filtered client-side (no server date
   // filter for fetchMyBets), the Telegram half comes straight from
-  // fetchTelegramBanca's own `days` param so it isn't capped by the 100-row
-  // tgTips fetch. Both are converted to per-event deltas and merged so the
-  // existing BankrollChart accumulation logic doesn't change.
+  // fetchTelegramBanca's own `days` param (server-side aggregate, no
+  // pagination limit involved). Both are converted to per-event deltas and
+  // merged so the existing BankrollChart accumulation logic doesn't change.
   const rangeCutoffMs = useMemo(() => {
     if (chartRange === "all") return null;
     return Date.now() - Number(chartRange) * 86_400_000;
@@ -556,34 +532,6 @@ export function MyProfilePage() {
     const next = balances.map((b) => (b.bookmaker === bookmaker ? { ...b, balance: value } : b));
     void persistBalances(next);
   }
-
-  const peguiRows = useMemo(() => {
-    if (!bets || !tgTips) return null;
-    return [...bets.map(nativeRow), ...tgTips.map(telegramRow)].sort((a, b) => b.date - a.date);
-  }, [bets, tgTips]);
-
-  const minhasRows = useMemo(() => {
-    if (!bets) return null;
-    return bets.map(nativeRow).sort((a, b) => b.date - a.date);
-  }, [bets]);
-
-  const activeRows = tipsTab === "peguei" ? peguiRows : minhasRows;
-
-  const filterCounts = useMemo(() => {
-    const rows = activeRows ?? [];
-    return {
-      all: rows.length,
-      green: rows.filter((r) => r.status === "green").length,
-      red: rows.filter((r) => r.status === "red").length,
-      pending: rows.filter((r) => r.status === "pending").length,
-    };
-  }, [activeRows]);
-
-  const visibleRows = useMemo(() => {
-    const rows = activeRows ?? [];
-    const filtered = resultFilter === "all" ? rows : rows.filter((r) => r.status === resultFilter);
-    return filtered.slice(0, 30);
-  }, [activeRows, resultFilter]);
 
   if (!me) return null;
 
@@ -729,6 +677,25 @@ export function MyProfilePage() {
                   unitValue={stats.unitValue}
                   displayUnit={stats.unitValue != null ? chartUnit : "u"}
                 />
+
+                {hasTelegram && (bookmakerRows.length > 0 || groupRows.length > 0) && (
+                  <div className="mt-6 grid grid-cols-2 gap-5 border-t border-border pt-5">
+                    <ProfitRankList
+                      title="CASAS DE APOSTAS · POR LUCRO"
+                      rows={bookmakerRows}
+                      unitValue={stats.unitValue}
+                      displayUnit={stats.unitValue != null ? chartUnit : "u"}
+                      labelFor={bookmakerLabel}
+                      dotFor={bookmakerColor}
+                    />
+                    <ProfitRankList
+                      title="GRUPOS · POR LUCRO"
+                      rows={groupRows}
+                      unitValue={stats.unitValue}
+                      displayUnit={stats.unitValue != null ? chartUnit : "u"}
+                    />
+                  </div>
+                )}
               </div>
 
               {hasTelegram && (
@@ -887,102 +854,26 @@ export function MyProfilePage() {
                       <span className="font-mono text-[11px] text-text-tertiary">
                         TOTAL · {balances.length} casa{balances.length !== 1 ? "s" : ""}
                       </span>
-                      <span className="font-mono text-[14px] font-bold">
-                        {brl(balances.reduce((sum, b) => sum + b.balance + (profitByBookmaker?.[b.bookmaker] ?? 0), 0))}
-                      </span>
+                      <div className="text-right">
+                        <div className="font-mono text-[14px] font-bold">
+                          {brl(balances.reduce((sum, b) => sum + b.balance + (profitByBookmaker?.[b.bookmaker] ?? 0), 0))}
+                        </div>
+                        {(() => {
+                          const totalProfit = balances.reduce((sum, b) => sum + (profitByBookmaker?.[b.bookmaker] ?? 0), 0);
+                          return (
+                            <div className={`font-mono text-[11px] font-semibold ${totalProfit >= 0 ? "text-accent" : "text-live"}`}>
+                              {totalProfit >= 0 ? "+" : ""}
+                              {brl(totalProfit)} de lucro
+                            </div>
+                          );
+                        })()}
+                      </div>
                     </div>
                   )}
                 </div>
               )}
             </div>
 
-            <div className="mt-6 rounded-2xl border border-border bg-surface p-[22px]">
-              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex gap-1.5 rounded-[12px] bg-surface-alt p-1">
-                  <button
-                    onClick={() => setTipsTab("peguei")}
-                    className={`rounded-[9px] px-4 py-1.5 text-[13px] font-semibold ${
-                      tipsTab === "peguei" ? "bg-accent text-[#08090A]" : "text-text-secondary"
-                    }`}
-                  >
-                    Tips que peguei ({stats.tipsCount})
-                  </button>
-                  <button
-                    onClick={() => setTipsTab("minhas")}
-                    className={`rounded-[9px] px-4 py-1.5 text-[13px] font-semibold ${
-                      tipsTab === "minhas" ? "bg-accent text-[#08090A]" : "text-text-secondary"
-                    }`}
-                  >
-                    Minhas tips ({bets?.length ?? 0})
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {RESULT_FILTERS.map((f) => (
-                    <button
-                      key={f.key}
-                      onClick={() => setResultFilter(f.key)}
-                      className={`rounded-[9px] px-3 py-1.5 font-mono text-[11px] font-semibold ${
-                        resultFilter === f.key ? "bg-accent text-[#08090A]" : "bg-surface-alt text-text-secondary"
-                      }`}
-                    >
-                      {f.label} {filterCounts[f.key]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] border-collapse text-[13px]">
-                  <thead>
-                    <tr className="border-b border-border-subtle text-left font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
-                      <th className="py-2 pr-3 font-normal">JOGO/MERCADO</th>
-                      <th className="py-2 pr-3 font-normal">CASA</th>
-                      <th className="py-2 pr-3 text-right font-normal">STAKE</th>
-                      <th className="py-2 pr-3 text-right font-normal">ODD</th>
-                      <th className="py-2 pr-3 text-right font-normal">RETORNO</th>
-                      <th className="py-2 pl-3 text-right font-normal">STATUS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleRows.map((row) => {
-                      const result = resultLabel[row.status] ?? resultLabel.pending!;
-                      return (
-                        <tr key={row.key} className="border-b border-border-subtle last:border-0">
-                          <td className="py-3 pr-3">
-                            <div className="font-semibold">{row.title}</div>
-                            <div className="mt-0.5 truncate font-mono text-[11px] text-text-tertiary">
-                              {row.subtitle} · {row.timeLabel}
-                            </div>
-                          </td>
-                          <td className="py-3 pr-3 text-text-secondary">{bookmakerLabel(row.bookmaker)}</td>
-                          <td className="py-3 pr-3 text-right font-mono">{row.stakeLabel}</td>
-                          <td className="py-3 pr-3 text-right font-mono">{row.oddLabel}</td>
-                          <td
-                            className={`py-3 pr-3 text-right font-mono font-semibold ${
-                              row.profitValue == null ? "text-text-tertiary" : row.profitValue >= 0 ? "text-accent" : "text-live"
-                            }`}
-                          >
-                            {row.profitValue == null ? "—" : `${row.profitValue >= 0 ? "+" : ""}${row.profitValue.toFixed(2)}u`}
-                          </td>
-                          <td className="py-3 pl-3 text-right">
-                            <span className={`inline-block rounded-lg border px-2 py-1 font-mono text-[10px] font-bold border-current/40 ${result.className}`}>
-                              {result.text.toUpperCase()}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {visibleRows.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-[13px] text-text-tertiary">
-                          Nenhuma tip encontrada.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
           </>
         )}
       </div>
