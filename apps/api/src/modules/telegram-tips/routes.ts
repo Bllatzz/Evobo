@@ -14,7 +14,7 @@ import {
   type TelegramBookmakerBalance,
   type ImportBookmakerBetsResult,
 } from "@evobo/shared-types";
-import { matchBookmakerBet, type CandidateTip } from "@evobo/worker";
+import { matchBookmakerBet, type CandidateTip, ODD_TOLERANCE } from "@evobo/worker";
 import { authGuard } from "../../middleware/authGuard.js";
 import { roleGuard } from "../../middleware/roleGuard.js";
 import { prisma } from "../../db/prisma.js";
@@ -652,7 +652,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
           limit: true,
           result: true,
           receivedAt: true,
-          takes: { where: { userId }, select: { takenStatus: true, unit: true, odd: true } },
+          takes: { where: { userId }, select: { takenStatus: true, unit: true, odd: true, bookmaker: true } },
         },
       }),
     ]);
@@ -671,13 +671,34 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     }));
     const takeByTipId = new Map(candidateTips.map((t) => [t.id, t.takes[0] ?? null]));
 
-    const result: ImportBookmakerBetsResult = { dryRun, matched: [], ambiguous: [], unmatched: [] };
+    const result: ImportBookmakerBetsResult = { dryRun, matched: [], ambiguous: [], divergent: [], unmatched: [] };
 
     for (const bet of bets) {
       const outcome = matchBookmakerBet(bet, remaining, unitValueReais);
 
       if (outcome.kind === "unmatched") {
-        result.unmatched.push(bet);
+        // O casamento normal (odd+jogo/texto) não achou nada, mas já existe
+        // uma take NESSA MESMA casa com a odd exatamente igual — sinal bom
+        // demais pra descartar (o texto pode não bater só porque o combo
+        // estava recolhido na tela quando o script rodou). Nunca grava
+        // sozinho, só reporta pra revisão manual.
+        const divergentTip = candidateTips.find((t) => {
+          const take = t.takes[0];
+          return take?.bookmaker === bookmaker && take.odd !== null && Math.abs(Number(take.odd) - bet.odd) <= ODD_TOLERANCE;
+        });
+        if (divergentTip) {
+          const take = divergentTip.takes[0]!;
+          result.divergent.push({
+            bet,
+            tipId: divergentTip.id,
+            match: divergentTip.match,
+            selection: divergentTip.selection,
+            recordedUnit: take.unit !== null ? Number(take.unit) : null,
+            impliedUnit: unitValueReais !== null ? Math.round((bet.stakeReais / unitValueReais) * 100) / 100 : null,
+          });
+        } else {
+          result.unmatched.push(bet);
+        }
         continue;
       }
       if (outcome.kind === "ambiguous") {
@@ -833,7 +854,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       receivedAt: t.receivedAt,
     }));
 
-    const result: ImportBookmakerBetsResult = { dryRun, matched: [], ambiguous: [], unmatched: [] };
+    const result: ImportBookmakerBetsResult = { dryRun, matched: [], ambiguous: [], divergent: [], unmatched: [] };
 
     for (const bet of bets) {
       // unitValueReais null de propósito: aqui não interessa a unidade

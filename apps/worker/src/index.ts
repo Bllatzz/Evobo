@@ -18,6 +18,7 @@ import { backfillReactionTake } from "./backfillReactionTake.js";
 export { retryMissingOcr } from "./retryOcr.js";
 export { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
 export { matchBookmakerBet, type CandidateTip, type BookmakerBetOutcome, type BookmakerBetMatch } from "./bookmakerImport/matchBookmakerBets.js";
+export { ODD_TOLERANCE } from "./betAnalytix/matchTips.js";
 
 const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 // 03:00 América/São Paulo == 06:00 UTC — fuso fixo (UTC-3, sem horário de

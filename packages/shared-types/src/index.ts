@@ -465,10 +465,27 @@ const ImportBookmakerBetAmbiguous = z.object({
   ),
 });
 
+/** Aposta que não bateu pelo casamento normal (odd+jogo/texto) mas já existe
+ * uma tip marcada "peguei" NESSA MESMA casa com a odd exatamente igual — sinal
+ * forte demais pra ignorar, fraco demais pra gravar sozinho (o texto/jogo
+ * pode não bater por o combo estar recolhido na tela, por exemplo). Fica só
+ * pra revisão manual, nunca grava nada. */
+const ImportBookmakerBetDivergent = z.object({
+  bet: ImportedBookmakerBetSchema,
+  tipId: z.string().uuid(),
+  match: z.string().nullable(),
+  selection: z.string().nullable(),
+  /** Unidade salva hoje nessa take. */
+  recordedUnit: z.number().nullable(),
+  /** Unidade que o valor real apostado implica (stake ÷ valor da unidade) — null sem unitValue configurado. */
+  impliedUnit: z.number().nullable(),
+});
+
 export const ImportBookmakerBetsResult = z.object({
   dryRun: z.boolean(),
   matched: z.array(ImportBookmakerBetMatch),
   ambiguous: z.array(ImportBookmakerBetAmbiguous),
+  divergent: z.array(ImportBookmakerBetDivergent),
   unmatched: z.array(ImportedBookmakerBetSchema),
 });
 export type ImportBookmakerBetsResult = z.infer<typeof ImportBookmakerBetsResult>;

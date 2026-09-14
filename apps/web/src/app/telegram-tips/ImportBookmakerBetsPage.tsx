@@ -141,7 +141,8 @@ export function ImportBookmakerBetsPage() {
       {result && (
         <div className="mt-4 flex flex-col gap-4 px-5 lg:px-0">
           <p className="text-[12.5px] text-text-tertiary">
-            {result.matched.length} bateram · {result.ambiguous.length} ambíguas · {result.unmatched.length} sem match
+            {result.matched.length} bateram · {result.ambiguous.length} ambíguas · {result.divergent.length} divergentes ·{" "}
+            {result.unmatched.length} sem match
             {result.dryRun ? " — nada foi gravado ainda." : " — gravado."}
           </p>
 
@@ -176,6 +177,24 @@ export function ImportBookmakerBetsPage() {
                       </p>
                     </div>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {result.divergent.length > 0 && (
+            <div className="rounded-2xl border border-border bg-surface">
+              <div className="border-b border-border-subtle px-4 py-2.5 text-[13px] font-bold">
+                Odd bate mas o valor apostado diverge (confira e corrija na tela da tip)
+              </div>
+              {result.divergent.map((d, i) => (
+                <div key={i} className="border-b border-border-subtle px-4 py-3 last:border-b-0">
+                  <p className="mb-1.5 text-[13px] font-semibold">
+                    {d.match ?? d.selection ?? "—"} · odd {d.bet.odd} · R$ {d.bet.stakeReais.toFixed(2)}
+                  </p>
+                  <p className="text-[12px] text-text-tertiary">
+                    Hoje: {formatUnit(d.recordedUnit)} · aposta real implica {formatUnit(d.impliedUnit)}
+                  </p>
                 </div>
               ))}
             </div>
