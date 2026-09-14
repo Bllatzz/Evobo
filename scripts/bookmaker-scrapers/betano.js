@@ -52,7 +52,27 @@
     return [...document.querySelectorAll(".vue-recycle-scroller__item-view")];
   }
 
-  function parseLeg(leg) {
+  // "Criar Aposta" (bet builder) pode ter MAIS DE UMA condição dentro da
+  // mesma perna (ex.: "1+ Fred Total de Assistências" + "Fred (Atlético-MG)
+  // - Jogador a Marcar um gol ou dar uma assistência") — esse detalhe fica
+  // numa <section> IRMÃ logo depois da linha da perna (só visível expandida
+  // na tela), nunca dentro da própria linha. Sem isso, marketDesc ficava
+  // vazio pra essas pernas.
+  function parseLegDetails(detailSection) {
+    if (!detailSection) return "";
+    const descDivs = [...detailSection.querySelectorAll("div.tw-text-xs.tw-text-sem-color-text-gray-soft")].filter(
+      (d) => d.getAttribute("data-qa") !== "player-substitution" && d.textContent.trim(),
+    );
+    const labelSpans = [...detailSection.querySelectorAll("span.tw-font-bold.tw-text-xs.tw-text-sem-color-text-gray-emphasis")];
+    // Rótulo (ex. "Fred (Atlético-MG)") + descrição (ex. "Jogador a Marcar
+    // um gol ou dar uma assistência") de cada condição vêm em pares, na
+    // mesma ordem no DOM.
+    return descDivs
+      .map((d, i) => [labelSpans[i]?.textContent.trim(), d.textContent.trim()].filter(Boolean).join(" "))
+      .join(" | ");
+  }
+
+  function parseLeg(leg, detailSection) {
     const labelSpan = leg.querySelector("div.tw-font-bold span");
     let selectionLabel = labelSpan ? labelSpan.textContent.trim() : "";
 
@@ -64,7 +84,10 @@
     const descDivs = [...leg.querySelectorAll("div.tw-text-xs.tw-text-sem-color-text-gray-soft")].filter(
       (d) => d.getAttribute("data-qa") !== "player-substitution" && d.textContent.trim(),
     );
-    const marketDesc = descDivs.length ? descDivs[0].textContent.trim() : "";
+    // Pernas normais descrevem o mercado na própria linha (descDivs não
+    // vazio); pernas "Criar Aposta" não têm nada aqui — cai pro detalhe da
+    // section irmã (ver parseLegDetails acima).
+    const marketDesc = descDivs.length ? descDivs[0].textContent.trim() : parseLegDetails(detailSection);
 
     const gameDiv = leg.querySelector('div[class*="tw-max-w-[210px]"]');
     const game = gameDiv ? gameDiv.textContent.trim() : null;
@@ -95,18 +118,31 @@
     const legDivs = content
       ? [...content.querySelectorAll(':scope > div[class*="tw-w-full"][class*="tw-justify-between"]')]
       : [];
-    const legs = legDivs.map(parseLeg).filter((l) => l.odd !== null);
+    const legs = legDivs
+      .map((legDiv) => {
+        const next = legDiv.nextElementSibling;
+        const detailSection = next && next.tagName === "SECTION" ? next : null;
+        return parseLeg(legDiv, detailSection);
+      })
+      .filter((l) => l.odd !== null);
 
     if (!betNumberMatch || !stakeText || !dm || legs.length === 0) {
       console.warn("[betano] aposta sem os campos esperados, pulando:", root.textContent.trim().slice(0, 150));
       return null;
     }
 
+    // "Criar Aposta" não é rótulo nenhum (é o mesmo texto genérico em toda
+    // perna desse tipo) — só entra na seleção final quando marketDesc
+    // continua vazio mesmo depois de checar a section irmã (nada mais pra
+    // usar, melhor que nada). Com marketDesc real, usa só ele.
     let selection;
-    if (legs.length === 1 && legs[0].selectionLabel === "Criar Aposta" && titleText) {
+    const anyRealDesc = legs.some((l) => l.marketDesc);
+    if (legs.length === 1 && legs[0].selectionLabel === "Criar Aposta" && !anyRealDesc && titleText) {
       selection = titleText;
     } else {
-      selection = legs.map((l) => [l.selectionLabel, l.marketDesc].filter(Boolean).join(" - ")).join(" | ");
+      selection = legs
+        .map((l) => [l.selectionLabel && l.selectionLabel !== "Criar Aposta" ? l.selectionLabel : null, l.marketDesc].filter(Boolean).join(" - "))
+        .join(" | ");
     }
     const game = legs.map((l) => l.game).filter(Boolean).join(" - ") || null;
     const odd = Math.round(legs.reduce((acc, l) => acc * l.odd, 1) * 100) / 100;
