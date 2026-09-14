@@ -198,20 +198,26 @@ type BancaSourceRow = {
   groupName: string;
   result: string;
   receivedAt: Date;
+  /** Bônus/turbinada em R$ pago por fora da odd (ver TelegramTipTake) —
+   * sempre 0 no lado "geral" (é pessoal, não existe pra tip oficial). Só
+   * entra na conta quando há unitValue pra converter em unidades. */
+  bonusReais: number;
 };
 
 /** Cumulative profit in units, chronological by receivedAt — feeds the
  * "Evolução da banca" chart on the report page. Tips with a result but no
  * odd (missingOdd) contribute 0, same as they're excluded from `profit`
  * in aggregateBy. */
-function series(rows: BancaSourceRow[]): { t: string; profit: number }[] {
+function series(rows: BancaSourceRow[], unitValue: number | null): { t: string; profit: number }[] {
   let cumulative = 0;
   return [...rows]
     .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
     .map((r) => {
       const unit = r.unit !== null ? Number(r.unit) : 0;
       const odd = r.odd !== null ? Number(r.odd) : null;
-      cumulative += tipProfit(unit, odd, r.result) ?? 0;
+      const pl = tipProfit(unit, odd, r.result);
+      const bonusUnits = unitValue && pl !== null && r.bonusReais ? r.bonusReais / unitValue : 0;
+      cumulative += (pl ?? 0) + bonusUnits;
       return { t: r.receivedAt.toISOString(), profit: Math.round(cumulative * 100) / 100 };
     });
 }
@@ -240,7 +246,10 @@ function aggregateBy(rows: BancaSourceRow[], keyFn: (r: BancaSourceRow) => strin
     if (r.result !== "reembolso") g.staked += unit;
     const pl = tipProfit(unit, odd, r.result);
     if (pl === null) g.missingOdd++;
-    else g.profit += pl;
+    else {
+      const bonusUnits = unitValue && r.bonusReais ? r.bonusReais / unitValue : 0;
+      g.profit += pl + bonusUnits;
+    }
   }
 
   return [...map.values()]
@@ -652,7 +661,10 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
           limit: true,
           result: true,
           receivedAt: true,
-          takes: { where: { userId }, select: { takenStatus: true, unit: true, odd: true, bookmaker: true } },
+          takes: {
+            where: { userId },
+            select: { id: true, takenStatus: true, unit: true, odd: true, bookmaker: true, bonusReais: true },
+          },
         },
       }),
     ]);
@@ -728,6 +740,12 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
                   }
                 : null,
             });
+            // Unit/odd/bookmaker já batem — só preenche o bônus se ainda
+            // não tinha (nunca sobrescreve um bônus já registrado por outro
+            // caminho, ex.: editado na mão).
+            if (!dryRun && bet.bonusReais && take.bonusReais === null) {
+              await prisma.telegramTipTake.update({ where: { id: take.id }, data: { bonusReais: bet.bonusReais } });
+            }
           }
         } else {
           result.unmatched.push(bet);
@@ -766,10 +784,11 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       });
 
       if (!dryRun) {
+        const bonusReais = bet.bonusReais ?? null;
         await prisma.telegramTipTake.upsert({
           where: { tipId_userId: { tipId: value.tipId, userId } },
-          create: { tipId: value.tipId, userId, takenStatus: "taken", unit: value.unit, odd: value.odd, bookmaker },
-          update: { takenStatus: "taken", unit: value.unit, odd: value.odd, bookmaker },
+          create: { tipId: value.tipId, userId, takenStatus: "taken", unit: value.unit, odd: value.odd, bookmaker, bonusReais },
+          update: { takenStatus: "taken", unit: value.unit, odd: value.odd, bookmaker, bonusReais },
         });
       }
     }
@@ -979,7 +998,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
           result: true,
           receivedAt: true,
           group: { select: { name: true } },
-          takes: { where: { userId }, select: { takenStatus: true, unit: true, odd: true, bookmaker: true } },
+          takes: { where: { userId }, select: { takenStatus: true, unit: true, odd: true, bookmaker: true, bonusReais: true } },
         },
       }),
       // Tips já marcadas "peguei" cujo resultado oficial ainda não saiu —
@@ -1003,6 +1022,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         result: r.result,
         groupName: r.group.name,
         receivedAt: r.receivedAt,
+        bonusReais: 0,
       }));
     const taken: BancaSourceRow[] = rows
       .filter((r) => r.takes[0]?.takenStatus === "taken" && (!bookmaker || r.takes[0].bookmaker === bookmaker))
@@ -1015,6 +1035,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
           result: r.result,
           groupName: r.group.name,
           receivedAt: r.receivedAt,
+          bonusReais: mine.bonusReais !== null ? Number(mine.bonusReais) : 0,
         };
       });
 
@@ -1037,7 +1058,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         byBookmaker: aggregateBy(taken, (r) => r.bookmaker, unitValue),
       },
       totals: { geral: totalRow(source), peguei: totalRow(taken) },
-      series: { geral: series(source), peguei: series(taken) },
+      series: { geral: series(source, unitValue), peguei: series(taken, unitValue) },
       aberto: {
         count: openTakes.filter((t) => !bookmaker || (t.bookmaker ?? t.tip.bookmaker) === bookmaker).length,
         units: Math.round(openUnits * 100) / 100,

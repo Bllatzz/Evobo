@@ -111,6 +111,20 @@
     const game = legs.map((l) => l.game).filter(Boolean).join(" - ") || null;
     const odd = Math.round(legs.reduce((acc, l) => acc * l.odd, 1) * 100) / 100;
 
+    // Bônus/turbinada ("Criar Aposta Turbinada +50%", "+25%", "+10%" etc.)
+    // paga por fora da odd, em cima do lucro — a porcentagem varia e não
+    // dá pra prever, então lê sempre o valor real em R$ mostrado na linha
+    // (ex.: "+R$25,63"), nunca calcula a partir do texto da porcentagem.
+    // Só existe quando ganha; em aposta perdida essa linha nem aparece.
+    let bonusReais = 0;
+    const footerSection = root.querySelector('section[class*="tw-rounded-b-s"]');
+    if (footerSection) {
+      for (const row of footerSection.querySelectorAll('div[class*="tw-text-sem-color-fg-denim-emphasis"]')) {
+        const amountSpan = [...row.querySelectorAll("span")].reverse().find((s) => /R\$/.test(s.textContent));
+        if (amountSpan) bonusReais += brlToNumber(amountSpan.textContent);
+      }
+    }
+
     const [, dd, mm, yyyy, hh, min] = dm;
     const pad = (n) => String(n).padStart(2, "0");
 
@@ -122,6 +136,7 @@
       game,
       odd,
       stakeReais: brlToNumber(stakeText),
+      ...(bonusReais > 0 ? { bonusReais: Math.round(bonusReais * 100) / 100 } : {}),
     };
   }
 

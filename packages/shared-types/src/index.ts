@@ -406,6 +406,10 @@ export const UpdateTelegramTipTakeInput = z.object({
   unit: z.number().positive().nullable().optional(),
   bookmaker: z.string().max(80).nullable().optional(),
   betUrl: z.string().url().nullable().optional(),
+  /** Bônus/turbinada em R$ pago por fora da odd (ex.: "Aposta Turbinada
+   * +50%" da Betano) — nunca entra no casamento odd-a-odd do import, só
+   * soma no lucro em R$ quando há unitValue configurado. */
+  bonusReais: z.number().nonnegative().nullable().optional(),
 });
 export type UpdateTelegramTipTakeInput = z.infer<typeof UpdateTelegramTipTakeInput>;
 
@@ -423,6 +427,10 @@ export const ImportedBookmakerBetSchema = z.object({
   game: z.string().nullable(),
   odd: z.number().positive(),
   stakeReais: z.number().positive(),
+  /** Bônus/turbinada em R$ pago por fora da odd (ex.: "Aposta Turbinada
+   * +50%" da Betano, calculado sobre o lucro — nunca entra na odd nem no
+   * casamento contra a tip, só soma no lucro em R$ depois). */
+  bonusReais: z.number().nonnegative().nullable().optional(),
 });
 export type ImportedBookmakerBet = z.infer<typeof ImportedBookmakerBetSchema>;
 

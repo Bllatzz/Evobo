@@ -505,6 +505,11 @@ model TelegramTipTake {
   odd         Decimal? @db.Decimal(6, 2)
   bookmaker   String?
   betUrl      String?  @map("bet_url")
+  /// Bônus/turbinada em R$ pago por fora da odd (ex.: "Aposta Turbinada
+  /// +50%" da Betano, calculado sobre o lucro, não sobre a odd) — nunca
+  /// entra no casamento odd-a-odd do import, só soma no lucro em R$
+  /// (aggregateBy em routes.ts) quando existe unitValue pra converter.
+  bonusReais Decimal? @db.Decimal(8, 2) @map("bonus_reais")
   /// True quando `unit` acima foi ajustado pra baixo porque a unidade pedida,
   /// convertida em reais pelo unitValue da Banca deste usuário, passava do
   /// `limit` (R$) da TelegramTip — ver PATCH /:id/take.
