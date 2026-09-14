@@ -140,16 +140,46 @@
     };
   }
 
-  function collectVisible(seen) {
+  function snapshotVisible() {
+    const map = new Map();
     for (const root of findCardRoots()) {
       const bet = parseCard(root);
-      if (bet) seen.set(bet.betNumber, bet);
+      if (bet) map.set(bet.betNumber, bet);
+    }
+    return map;
+  }
+
+  function sameBet(a, b) {
+    return (
+      a.status === b.status &&
+      a.odd === b.odd &&
+      a.stakeReais === b.stakeReais &&
+      a.selection === b.selection &&
+      a.game === b.game &&
+      (a.bonusReais ?? 0) === (b.bonusReais ?? 0)
+    );
+  }
+
+  // A lista é um scroller virtual (vue-recycle-scroller) — os mesmos nós do
+  // DOM são reciclados pra mostrar apostas diferentes conforme rola. Ler só
+  // uma vez pode pegar um card no meio da troca (ex.: odd já trocou mas o
+  // valor apostado ainda é de outra aposta). Por segurança, só aceita um
+  // card quando duas leituras seguidas (com um intervalinho) derem
+  // exatamente o mesmo resultado — se não bater, ele acaba sendo pego numa
+  // rodada seguinte, quando o conteúdo já estiver assentado.
+  async function collectStable(seen) {
+    const snap1 = snapshotVisible();
+    await new Promise((r) => setTimeout(r, 200));
+    const snap2 = snapshotVisible();
+    for (const [id, bet] of snap2) {
+      const prev = snap1.get(id);
+      if (prev && sameBet(prev, bet)) seen.set(id, bet);
     }
   }
 
   const scroller = document.querySelector(".vue-recycle-scroller") || document.querySelector("#bet-history");
   const seen = new Map();
-  collectVisible(seen);
+  await collectStable(seen);
 
   if (scroller) {
     let lastTop = -1;
@@ -157,10 +187,13 @@
       const before = scroller.scrollTop;
       scroller.scrollTop = before + scroller.clientHeight * 0.8;
       await new Promise((r) => setTimeout(r, 500));
-      collectVisible(seen);
+      await collectStable(seen);
       if (scroller.scrollTop === before || scroller.scrollTop === lastTop) break;
       lastTop = scroller.scrollTop;
     }
+    // Passada final parado (sem rolar) — garante que o último lote de cards
+    // visível teve tempo de assentar antes de fechar a coleta.
+    await collectStable(seen);
   }
 
   const bets = [...seen.values()];
