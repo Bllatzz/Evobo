@@ -4,6 +4,7 @@ import {
   fetchBookmakerNames,
   importBookmakerBets,
   type ImportBookmakerBetsResult,
+  type ImportedBookmakerBet,
 } from "../../lib/telegramTips";
 import { bookmakerLabel } from "../../lib/bookmakers";
 import { Dropdown } from "../../components/Dropdown";
@@ -18,16 +19,20 @@ function formatUnit(v: number | null): string {
  * no navegador, na tela de histórico de apostas da casa — ver
  * scripts/bookmaker-scrapers/) e casa contra as tips ainda não decididas.
  *
- * PILOTO: só roda em modo "conferir" (dry run) — nunca grava nada ainda.
- * Cada match mostra lado a lado o que já está salvo hoje vs o que o import
- * calcularia, pra validar contra uma casa já 100% conferida manualmente
- * antes de ligar a gravação de verdade numa versão futura desta tela.
+ * Sempre confere primeiro (dry run — mostra lado a lado o que já está
+ * salvo vs o que o import calcularia, sem gravar nada); só depois de ver o
+ * resultado aparece o botão "Gravar de verdade", que reenvia os mesmos
+ * bets com dryRun:false. Rodar de novo mais tarde com um JSON maior (ex.:
+ * "Últimos 7 Dias" de novo) é seguro — tips já decididas nunca voltam a
+ * ser candidatas, só o que ainda estiver em aberto é processado.
  */
 export function ImportBookmakerBetsPage() {
   const [bookmakers, setBookmakers] = useState<string[]>([]);
   const [bookmaker, setBookmaker] = useState("");
   const [raw, setRaw] = useState("");
+  const [bets, setBets] = useState<ImportedBookmakerBet[] | null>(null);
   const [running, setRunning] = useState(false);
+  const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportBookmakerBetsResult | null>(null);
 
@@ -35,29 +40,51 @@ export function ImportBookmakerBetsPage() {
     fetchBookmakerNames().then(setBookmakers).catch(() => {});
   }, []);
 
+  function parseBets(): ImportedBookmakerBet[] | null {
+    if (!bookmaker) {
+      setError("Escolha a casa primeiro.");
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error();
+      return parsed;
+    } catch {
+      setError("JSON inválido — cole exatamente o que o script gerou.");
+      return null;
+    }
+  }
+
   async function handleCheck() {
     setError(null);
     setResult(null);
-    if (!bookmaker) {
-      setError("Escolha a casa primeiro.");
-      return;
-    }
-    let bets;
-    try {
-      bets = JSON.parse(raw);
-      if (!Array.isArray(bets)) throw new Error();
-    } catch {
-      setError("JSON inválido — cole exatamente o que o script gerou.");
-      return;
-    }
+    const parsed = parseBets();
+    if (!parsed) return;
+    setBets(parsed);
     setRunning(true);
     try {
-      const res = await importBookmakerBets(bookmaker, bets, true);
+      const res = await importBookmakerBets(bookmaker, parsed, true);
       setResult(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao conferir.");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function handleCommit() {
+    if (!bets) return;
+    if (!confirm(`Gravar de verdade ${result?.matched.length ?? 0} tip(s) na ${bookmaker}? Isso atualiza peguei/odd/unidade e, quando der, o resultado oficial.`))
+      return;
+    setError(null);
+    setCommitting(true);
+    try {
+      const res = await importBookmakerBets(bookmaker, bets, false);
+      setResult(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao gravar.");
+    } finally {
+      setCommitting(false);
     }
   }
 
@@ -73,8 +100,8 @@ export function ImportBookmakerBetsPage() {
 
       <div className="mx-5 rounded-2xl border border-border bg-surface p-4 lg:mx-0">
         <p className="mb-3 text-[12.5px] text-text-tertiary">
-          Modo piloto: isso só CONFERE, nunca grava nada ainda. Cole o JSON gerado pelo script de scraping (rodado no seu
-          próprio navegador, já logado na casa) e veja o que teria sido marcado.
+          Cole o JSON gerado pelo script de scraping (rodado no seu próprio navegador, já logado na casa). "Conferir"
+          nunca grava nada — só depois de ver o resultado é que aparece a opção de gravar de verdade.
         </p>
 
         <label className="mb-3 block">
@@ -113,8 +140,18 @@ export function ImportBookmakerBetsPage() {
         <div className="mx-5 mt-4 flex flex-col gap-4 lg:mx-0">
           <p className="text-[12.5px] text-text-tertiary">
             {result.matched.length} bateram · {result.ambiguous.length} ambíguas · {result.unmatched.length} sem match
-            {result.dryRun ? " — nada foi gravado (dry run)." : ""}
+            {result.dryRun ? " — nada foi gravado ainda." : " — gravado."}
           </p>
+
+          {result.dryRun && result.matched.length > 0 && (
+            <button
+              onClick={handleCommit}
+              disabled={committing}
+              className="w-full rounded-lg bg-live py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+            >
+              {committing ? "Gravando…" : `Gravar de verdade (${result.matched.length} tip(s))`}
+            </button>
+          )}
 
           {result.matched.length > 0 && (
             <div className="rounded-2xl border border-border bg-surface">
