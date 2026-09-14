@@ -688,14 +688,38 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         });
         if (divergentTip) {
           const take = divergentTip.takes[0]!;
-          result.divergent.push({
-            bet,
-            tipId: divergentTip.id,
-            match: divergentTip.match,
-            selection: divergentTip.selection,
-            recordedUnit: take.unit !== null ? Number(take.unit) : null,
-            impliedUnit: unitValueReais !== null ? Math.round((bet.stakeReais / unitValueReais) * 100) / 100 : null,
-          });
+          const recordedUnit = take.unit !== null ? Number(take.unit) : null;
+          const impliedUnit = unitValueReais !== null ? Math.round((bet.stakeReais / unitValueReais) * 100) / 100 : null;
+          // Só é divergência de verdade quando os dois números realmente
+          // diferem — quando batem, o casamento normal só não achou por
+          // causa do texto (ex.: combo recolhida na tela), não por erro
+          // nenhum. Tolerância pequena (R$1 no valor da unidade) pra não
+          // acusar arredondamento como se fosse erro.
+          const unitTolerance = unitValueReais !== null ? 1 / unitValueReais : 0.05;
+          const reallyDiverges =
+            recordedUnit === null || impliedUnit === null || Math.abs(recordedUnit - impliedUnit) > unitTolerance;
+
+          if (reallyDiverges) {
+            result.divergent.push({ bet, tipId: divergentTip.id, match: divergentTip.match, selection: divergentTip.selection, recordedUnit, impliedUnit });
+          } else {
+            result.matched.push({
+              bet,
+              tipId: divergentTip.id,
+              match: divergentTip.match,
+              selection: divergentTip.selection,
+              unit: recordedUnit,
+              odd: bet.odd,
+              result: null,
+              current: dryRun
+                ? {
+                    takenStatus: (take.takenStatus as TelegramTip["mine"]["takenStatus"]) ?? "pending",
+                    unit: recordedUnit,
+                    odd: Number(take.odd),
+                    result: divergentTip.result as TelegramTip["result"],
+                  }
+                : null,
+            });
+          }
         } else {
           result.unmatched.push(bet);
         }
