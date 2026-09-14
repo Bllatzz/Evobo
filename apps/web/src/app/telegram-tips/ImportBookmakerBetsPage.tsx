@@ -141,8 +141,8 @@ export function ImportBookmakerBetsPage() {
       {result && (
         <div className="mt-4 flex flex-col gap-4 px-5 lg:px-0">
           <p className="text-[12.5px] text-text-tertiary">
-            {result.matched.length} bateram · {result.ambiguous.length} ambíguas · {result.divergent.length} divergentes ·{" "}
-            {result.unmatched.length} sem match
+            {result.divergent.length} divergentes · {result.ambiguous.length} ambíguas · {result.unmatched.length} sem match ·{" "}
+            {result.matched.length} deram match
             {result.dryRun ? " — nada foi gravado ainda." : " — gravado."}
           </p>
 
@@ -154,32 +154,6 @@ export function ImportBookmakerBetsPage() {
             >
               {committing ? "Gravando…" : `Gravar de verdade (${result.matched.length} tip(s))`}
             </button>
-          )}
-
-          {result.matched.length > 0 && (
-            <div className="rounded-2xl border border-border bg-surface">
-              <div className="border-b border-border-subtle px-4 py-2.5 text-[13px] font-bold">Bateram</div>
-              {result.matched.map((m) => (
-                <div key={m.tipId} className="border-b border-border-subtle px-4 py-3 last:border-b-0">
-                  <p className="text-[13px] font-semibold">{m.match ?? "—"}</p>
-                  <p className="mb-1.5 truncate text-[12px] text-text-tertiary">{m.selection ?? "—"}</p>
-                  <div className="grid grid-cols-2 gap-2 text-[12px]">
-                    <div className="rounded-lg bg-surface-chip p-2">
-                      <p className="text-text-tertiary">Hoje</p>
-                      <p className="font-mono">
-                        {formatUnit(m.current?.unit ?? null)} · odd {m.current?.odd ?? "—"} · {m.current?.result ?? "—"}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-accent-soft p-2 text-accent">
-                      <p className="text-text-tertiary">Import calcularia</p>
-                      <p className="font-mono">
-                        {formatUnit(m.unit)} · odd {m.odd} · {m.result ?? "(sem mudança)"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
           )}
 
           {result.divergent.length > 0 && (
@@ -228,6 +202,32 @@ export function ImportBookmakerBetsPage() {
               {result.unmatched.map((b, i) => (
                 <div key={i} className="border-b border-border-subtle px-4 py-2.5 text-[12.5px] text-text-tertiary last:border-b-0">
                   {b.game ?? "—"} · {b.selection} · odd {b.odd}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {result.matched.length > 0 && (
+            <div className="rounded-2xl border border-border bg-surface">
+              <div className="border-b border-border-subtle px-4 py-2.5 text-[13px] font-bold">Deu match</div>
+              {result.matched.map((m) => (
+                <div key={m.tipId} className="border-b border-border-subtle px-4 py-3 last:border-b-0">
+                  <p className="text-[13px] font-semibold">{m.match ?? "—"}</p>
+                  <p className="mb-1.5 truncate text-[12px] text-text-tertiary">{m.selection ?? "—"}</p>
+                  <div className="grid grid-cols-2 gap-2 text-[12px]">
+                    <div className="rounded-lg bg-surface-chip p-2">
+                      <p className="text-text-tertiary">Hoje</p>
+                      <p className="font-mono">
+                        {formatUnit(m.current?.unit ?? null)} · odd {m.current?.odd ?? "—"} · {m.current?.result ?? "—"}
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-accent-soft p-2 text-accent">
+                      <p className="text-text-tertiary">Import calcularia</p>
+                      <p className="font-mono">
+                        {formatUnit(m.unit)} · odd {m.odd} · {m.result ?? "(sem mudança)"}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
