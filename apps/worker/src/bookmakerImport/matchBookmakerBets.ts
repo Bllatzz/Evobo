@@ -9,7 +9,7 @@ import { textSimilarity, ODD_TOLERANCE, TIME_WINDOW_MS, TEXT_SIMILARITY_THRESHOL
  * curto demais pra competir na similaridade combinada contra a descrição
  * do mercado de OUTRA tip que coincidia em `escanteios`/`cartões`/etc por
  * acaso — misturar os dois textos deixava o jogo errado ganhar. */
-const GAME_SIMILARITY_THRESHOLD = 0.5;
+export const GAME_SIMILARITY_THRESHOLD = 0.5;
 
 export type CandidateTip = {
   id: string;

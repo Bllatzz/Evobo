@@ -14,7 +14,7 @@ import {
   type TelegramBookmakerBalance,
   type ImportBookmakerBetsResult,
 } from "@evobo/shared-types";
-import { matchBookmakerBet, type CandidateTip, ODD_TOLERANCE } from "@evobo/worker";
+import { matchBookmakerBet, type CandidateTip, ODD_TOLERANCE, textSimilarity, GAME_SIMILARITY_THRESHOLD } from "@evobo/worker";
 import { authGuard } from "../../middleware/authGuard.js";
 import { roleGuard } from "../../middleware/roleGuard.js";
 import { prisma } from "../../db/prisma.js";
@@ -704,7 +704,18 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         const divergentTip = candidateTips.find((t) => {
           if (claimedTipIds.has(t.id)) return false;
           const take = t.takes[0];
-          return take?.bookmaker === bookmaker && take.odd !== null && Math.abs(Number(take.odd) - bet.odd) <= ODD_TOLERANCE;
+          if (take?.bookmaker !== bookmaker || take.odd === null || Math.abs(Number(take.odd) - bet.odd) > ODD_TOLERANCE) return false;
+          // Mesmo critério forte de jogo do casamento normal — sem isso,
+          // odds comuns (ex.: 1.91) casavam QUALQUER aposta real não
+          // reivindicada com QUALQUER tip não reivindicada só por
+          // coincidência de odd, ignorando o jogo por completo (confirmado
+          // em produção: uma combinada de Galatasaray/Benfica/Bayern
+          // "corrigiu" errado a tip de Crystal Palace x Ipswich Town). Só
+          // dispensa a comparação quando falta jogo de um dos lados (ex.:
+          // combo recolhida na tela sem nome de time) — aí mantém o
+          // comportamento original.
+          if (bet.game !== null && t.match !== null) return textSimilarity(bet.game, t.match) >= GAME_SIMILARITY_THRESHOLD;
+          return true;
         });
         if (divergentTip) {
           claimedTipIds.add(divergentTip.id);
