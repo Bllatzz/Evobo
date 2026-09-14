@@ -125,6 +125,23 @@
       }
     }
 
+    // A Betano tem um bug de renderização na lista virtual: às vezes o
+    // campo "Aposta" do cabeçalho fica com o valor de OUTRA aposta depois
+    // de reciclar o card, de forma estável (não é um problema de tempo —
+    // ler de novo dá o mesmo valor errado). Quando ganhou, "Ganhos" sempre
+    // bateu certo nos casos reais conferidos, e Ganhos = odd × aposta (sem
+    // bônus, que é somado numa linha separada) — usa isso pra corrigir a
+    // aposta quando ela não bater com essa conta.
+    let stakeReais = brlToNumber(stakeText);
+    if (status === "ganha" && odd > 0) {
+      const winningsSpan = footerSection?.querySelector('[data-qa="bethistory-winnings"] > span');
+      const winnings = winningsSpan ? brlToNumber(winningsSpan.textContent) : null;
+      if (winnings) {
+        const derivedStake = Math.round((winnings / odd) * 100) / 100;
+        if (Math.abs(derivedStake - stakeReais) > 0.5) stakeReais = derivedStake;
+      }
+    }
+
     const [, dd, mm, yyyy, hh, min] = dm;
     const pad = (n) => String(n).padStart(2, "0");
 
@@ -135,7 +152,7 @@
       selection,
       game,
       odd,
-      stakeReais: brlToNumber(stakeText),
+      stakeReais,
       ...(bonusReais > 0 ? { bonusReais: Math.round(bonusReais * 100) / 100 } : {}),
     };
   }
