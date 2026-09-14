@@ -506,6 +506,11 @@ export const TelegramBancaSummary = z.object({
   totals: z.object({ geral: TelegramBancaRow.nullable(), peguei: TelegramBancaRow.nullable() }),
   /** Chronological cumulative profit (units) — feeds the report page's "Evolução da banca" chart. */
   series: z.object({ geral: z.array(TelegramBancaSeriesPoint), peguei: z.array(TelegramBancaSeriesPoint) }),
+  /** Tips já marcadas "peguei" mas cujo resultado oficial ainda é "pending" —
+   * dinheiro travado em apostas em aberto, que nunca entra em `totals`/`series`
+   * (profit de tip pendente é null, não zero) e por isso nunca aparece em
+   * lugar nenhum sem isso. Feeds the "Em Aberto" card on the profile. */
+  aberto: z.object({ count: z.number(), units: z.number(), unitsBRL: z.number().nullable() }),
 });
 export type TelegramBancaSummary = z.infer<typeof TelegramBancaSummary>;
 

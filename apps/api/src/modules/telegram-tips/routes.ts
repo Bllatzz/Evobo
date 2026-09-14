@@ -577,16 +577,37 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         ? { ...input, ...(await applyStakeLimit(tipId, userId, input.unit)) }
         : input;
 
-    await prisma.telegramTipTake.upsert({
-      where: { tipId_userId: { tipId, userId } },
-      create: { tipId, userId, ...data },
-      update: data,
-    });
-
     const tip = await prisma.telegramTip.findUniqueOrThrow({
       where: { id: tipId },
       include: { group: { select: { name: true } } },
     });
+
+    // Quando a casa não veio explícita neste PATCH (ex.: só editando odd/
+    // unidade) e a tip tem só UM candidato possível — casa única ou
+    // bookmakerOptions com 1 item só —, preenche sozinho. Sem isso, uma take
+    // "taken" ficava com bookmaker null pra sempre (visível como "—" no
+    // saldo por casa) só porque ninguém tocou no seletor depois do 👍
+    // automático — dinheiro que sumia de qualquer saldo por casa.
+    let finalData = data;
+    if (data.bookmaker === undefined) {
+      const existingTake = await prisma.telegramTipTake.findUnique({
+        where: { tipId_userId: { tipId, userId } },
+        select: { bookmaker: true, takenStatus: true },
+      });
+      const willBeTaken = data.takenStatus === "taken" || (data.takenStatus === undefined && existingTake?.takenStatus === "taken");
+      if (willBeTaken && !existingTake?.bookmaker) {
+        const options = tip.bookmakerOptions as { bookmaker: string }[] | null;
+        const single = options && options.length === 1 ? options[0]!.bookmaker : !options && tip.bookmaker ? tip.bookmaker : null;
+        if (single) finalData = { ...data, bookmaker: single };
+      }
+    }
+
+    await prisma.telegramTipTake.upsert({
+      where: { tipId_userId: { tipId, userId } },
+      create: { tipId, userId, ...finalData },
+      update: finalData,
+    });
+
     const [photoUrls, myTakes] = await Promise.all([resolvePhotoUrls([tip.photoPath]), fetchMyTakes([tipId], userId)]);
     return serializeTip(tip, photoUrls, myTakes.get(tipId));
   });
@@ -890,7 +911,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     // totals, breakdowns) to tips received in that window.
     const days = request.query.days ? Number(request.query.days) : null;
     const since = days && Number.isFinite(days) && days > 0 ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : null;
-    const [rows, settings] = await Promise.all([
+    const [rows, openTakes, settings] = await Promise.all([
       prisma.telegramTip.findMany({
         where: {
           result: { not: "pending" },
@@ -905,6 +926,14 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
           group: { select: { name: true } },
           takes: { where: { userId }, select: { takenStatus: true, unit: true, odd: true, bookmaker: true } },
         },
+      }),
+      // Tips já marcadas "peguei" cujo resultado oficial ainda não saiu —
+      // dinheiro travado que `rows` (result != pending) nunca enxerga. Sem
+      // filtro de `since`: uma aposta em aberto conta agora, não quando a
+      // tip chegou.
+      prisma.telegramTipTake.findMany({
+        where: { userId, takenStatus: "taken", tip: { is: { result: "pending" } } },
+        select: { unit: true, bookmaker: true, tip: { select: { unit: true, bookmaker: true } } },
       }),
       prisma.telegramBancaSettings.findUnique({ where: { userId } }),
     ]);
@@ -939,6 +968,10 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     // unidades das tips que o usuário realmente pegou.
     const totalRow = (rows: BancaSourceRow[]) => aggregateBy(rows, () => "total", unitValue)[0] ?? null;
 
+    const openUnits = openTakes
+      .filter((t) => !bookmaker || (t.bookmaker ?? t.tip.bookmaker) === bookmaker)
+      .reduce((sum, t) => sum + Number(t.unit ?? t.tip.unit ?? 0), 0);
+
     return {
       geral: {
         byGroup: aggregateBy(source, (r) => r.groupName, unitValue),
@@ -950,6 +983,11 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       },
       totals: { geral: totalRow(source), peguei: totalRow(taken) },
       series: { geral: series(source), peguei: series(taken) },
+      aberto: {
+        count: openTakes.filter((t) => !bookmaker || (t.bookmaker ?? t.tip.bookmaker) === bookmaker).length,
+        units: Math.round(openUnits * 100) / 100,
+        unitsBRL: unitValue !== null ? Math.round(openUnits * unitValue * 100) / 100 : null,
+      },
     };
   });
 

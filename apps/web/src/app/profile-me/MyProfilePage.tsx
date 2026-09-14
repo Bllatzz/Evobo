@@ -241,6 +241,10 @@ type TelegramFold = {
   staked: number;
   green: number;
   red: number;
+  // Peguei mas o resultado oficial ainda não saiu — dinheiro travado em
+  // apostas em aberto, que nunca entra em profitUnits/staked (ver /banca).
+  abertoUnits: number;
+  abertoCount: number;
 };
 const NO_TELEGRAM_FOLD: TelegramFold = {
   bancaInicialUnits: null,
@@ -249,11 +253,20 @@ const NO_TELEGRAM_FOLD: TelegramFold = {
   staked: 0,
   green: 0,
   red: 0,
+  abertoUnits: 0,
+  abertoCount: 0,
 };
 
-/** Compact ranked list — bookmakers or groups sorted by profit (best first),
- * filling the vertical space below the bankroll chart with something
- * actually useful instead of empty padding. */
+const PROFIT_TABLE_SORTS = [
+  { key: "profit", label: "Lucro" },
+  { key: "total", label: "Apostas" },
+  { key: "roi", label: "ROI" },
+] as const;
+type ProfitTableSortKey = (typeof PROFIT_TABLE_SORTS)[number]["key"];
+
+/** Standalone card — bookmakers or groups ranked by profit, apostas or ROI
+ * (user-switchable), giving each breakdown its own visual weight instead of
+ * being squeezed as a footnote under the bankroll chart. */
 function ProfitTable({
   title,
   nameHeader,
@@ -271,14 +284,42 @@ function ProfitTable({
   labelFor?: (key: string) => string;
   dotFor?: (key: string) => string;
 }) {
+  const [sortKey, setSortKey] = useState<ProfitTableSortKey>("profit");
+
+  const sortedRows = useMemo(() => {
+    const copy = [...rows];
+    if (sortKey === "total") copy.sort((a, b) => b.total - a.total);
+    else if (sortKey === "roi") copy.sort((a, b) => (b.roiPct ?? -Infinity) - (a.roiPct ?? -Infinity));
+    else copy.sort((a, b) => b.profit - a.profit);
+    return copy;
+  }, [rows, sortKey]);
+
   function formatProfit(v: number): string {
     if (displayUnit === "brl" && unitValue != null) return `${v >= 0 ? "+" : ""}${brl(v * unitValue)}`;
     return `${v >= 0 ? "+" : ""}${v.toFixed(1)}u`;
   }
 
   return (
-    <div>
-      <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">{title}</div>
+    <div className="rounded-2xl border border-border bg-surface p-[22px]">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[14px] font-bold">{title}</span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] tracking-[0.05em] text-text-tertiary">ORDENAR POR</span>
+          <div className="flex gap-1.5 rounded-[10px] bg-surface-alt p-1">
+            {PROFIT_TABLE_SORTS.map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setSortKey(opt.key)}
+                className={`rounded-[8px] px-2.5 py-1 font-mono text-[11px] font-semibold ${
+                  sortKey === opt.key ? "bg-accent text-[#08090A]" : "text-text-secondary"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
       {rows.length === 0 ? (
         <p className="text-[12px] text-text-tertiary">Sem dados ainda.</p>
       ) : (
@@ -293,7 +334,7 @@ function ProfitTable({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {sortedRows.map((row) => (
                 <tr key={row.key} className="border-b border-border-subtle last:border-0">
                   <td className="py-2.5 pr-3">
                     <div className="flex min-w-0 items-center gap-2">
@@ -390,6 +431,8 @@ export function MyProfilePage() {
           staked: peguei?.staked ?? 0,
           green: peguei?.green ?? 0,
           red: peguei?.red ?? 0,
+          abertoUnits: banca.aberto.units,
+          abertoCount: banca.aberto.count,
         });
         setUnitValueRaw(unitValue != null ? String(unitValue) : "");
         setBalances(bals);
@@ -453,6 +496,8 @@ export function MyProfilePage() {
       bancaInicial,
       bankroll: bancaInicial + combinedPnl,
       unitValue: tg.unitValue,
+      abertoUnits: tg.abertoUnits,
+      abertoCount: tg.abertoCount,
     };
   }, [settled, tg, bets, tgTipsCount]);
 
@@ -561,7 +606,7 @@ export function MyProfilePage() {
   const hasTelegram = canAccess("telegram_banca");
 
   return (
-    <div className="pb-6 lg:max-w-[1180px] lg:pl-6 lg:pr-6 lg:pt-6">
+    <div className="pb-6 lg:max-w-[1600px] lg:pl-6 lg:pr-6 lg:pt-6">
       {/* ---------- Desktop ---------- */}
       <div className="hidden lg:block">
         <div className="mb-6 flex items-center gap-3">
@@ -598,7 +643,7 @@ export function MyProfilePage() {
 
         {stats && (
           <>
-            <div className="mb-6 grid grid-cols-6 gap-4">
+            <div className="mb-6 grid grid-cols-7 gap-4">
               <div className="rounded-2xl border border-border bg-surface p-4.5">
                 <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">BANCA INICIAL</div>
                 <div className="font-mono text-[26px] font-bold">{stats.bancaInicial.toFixed(1)}u</div>
@@ -645,6 +690,13 @@ export function MyProfilePage() {
                 <div className={`font-mono text-[26px] font-bold ${stats.combinedRoi >= 0 ? "text-accent" : "text-live"}`}>
                   {stats.combinedRoi >= 0 ? "+" : ""}
                   {stats.combinedRoi.toFixed(1)}%
+                </div>
+              </div>
+              <div className="rounded-2xl border border-border bg-surface p-4.5">
+                <div className="mb-2.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">EM ABERTO</div>
+                <div className="font-mono text-[26px] font-bold">{stats.abertoUnits.toFixed(1)}u</div>
+                <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
+                  {stats.unitValue != null ? brl(stats.abertoUnits * stats.unitValue) : `${stats.abertoCount} aposta${stats.abertoCount !== 1 ? "s" : ""}`}
                 </div>
               </div>
             </div>
@@ -700,27 +752,6 @@ export function MyProfilePage() {
                   unitValue={stats.unitValue}
                   displayUnit={stats.unitValue != null ? chartUnit : "u"}
                 />
-
-                {hasTelegram && (bookmakerRows.length > 0 || groupRows.length > 0) && (
-                  <div className="mt-6 flex flex-col gap-6 border-t border-border pt-5">
-                    <ProfitTable
-                      title="CASAS DE APOSTAS"
-                      nameHeader="CASA"
-                      rows={bookmakerRows}
-                      unitValue={stats.unitValue}
-                      displayUnit={stats.unitValue != null ? chartUnit : "u"}
-                      labelFor={bookmakerLabel}
-                      dotFor={bookmakerColor}
-                    />
-                    <ProfitTable
-                      title="GRUPOS"
-                      nameHeader="GRUPO"
-                      rows={groupRows}
-                      unitValue={stats.unitValue}
-                      displayUnit={stats.unitValue != null ? chartUnit : "u"}
-                    />
-                  </div>
-                )}
               </div>
 
               {hasTelegram && (
@@ -899,6 +930,26 @@ export function MyProfilePage() {
               )}
             </div>
 
+            {hasTelegram && (bookmakerRows.length > 0 || groupRows.length > 0) && (
+              <div className="mt-6 flex flex-col gap-6">
+                <ProfitTable
+                  title="Casas de apostas"
+                  nameHeader="CASA"
+                  rows={bookmakerRows}
+                  unitValue={stats.unitValue}
+                  displayUnit={stats.unitValue != null ? chartUnit : "u"}
+                  labelFor={bookmakerLabel}
+                  dotFor={bookmakerColor}
+                />
+                <ProfitTable
+                  title="Grupos"
+                  nameHeader="GRUPO"
+                  rows={groupRows}
+                  unitValue={stats.unitValue}
+                  displayUnit={stats.unitValue != null ? chartUnit : "u"}
+                />
+              </div>
+            )}
           </>
         )}
       </div>
