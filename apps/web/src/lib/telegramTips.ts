@@ -156,6 +156,16 @@ export const importBookmakerBets = (
     body: JSON.stringify(dryRun !== undefined ? { bookmaker, bets, dryRun } : { bookmaker, bets }),
   });
 
+/** Admin only — mesmo formato de importBookmakerBets, mas do lado oposto:
+ * só grada o `result` OFICIAL (nunca mexe em peguei/odd/unidade de
+ * ninguém). Não precisa dizer qual casa é (o resultado é o mesmo pra
+ * qualquer casa) — só o JSON do histórico de apostas de qualquer conta. */
+export const importResults = (bets: ImportedBookmakerBet[], dryRun?: boolean): Promise<ImportBookmakerBetsResult> =>
+  apiFetch("/telegram-tips/admin/import-results", {
+    method: "POST",
+    body: JSON.stringify(dryRun !== undefined ? { bookmaker: "—", bets, dryRun } : { bookmaker: "—", bets }),
+  });
+
 /** Admin only — igual a rebuildTelegramTips, mas NUNCA apaga tips já
  * existentes na janela, só preenche o que ficou faltando (ex.: mensagem
  * que chegou bem na hora de um deploy). Não-destrutivo. */

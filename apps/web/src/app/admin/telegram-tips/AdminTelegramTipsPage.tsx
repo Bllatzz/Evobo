@@ -10,9 +10,12 @@ import {
   runBetAnalytixGrading,
   backfillResultFromEmoji,
   backfillReactionTake,
+  importResults,
   TELEGRAM_TIP_MARKET_TYPES,
   type TelegramTip,
   type TelegramGroup,
+  type ImportedBookmakerBet,
+  type ImportBookmakerBetsResult,
 } from "../../../lib/telegramTips";
 import { groupTipsByMessage, groupColor, relativeTime, type MessageGroup } from "../../telegram-tips/TelegramTipsPage";
 import { Dropdown } from "../../../components/Dropdown";
@@ -59,6 +62,131 @@ function parseNumber(raw: string): number | null {
   if (trimmed === "") return null;
   const n = Number(trimmed);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+const RESULT_LABEL: Record<string, string> = { pending: "pending", green: "GREEN", red: "RED", reembolso: "REEMB." };
+
+/** Cola o mesmo JSON do script de scraping (qualquer casa — o resultado é
+ * um fato objetivo, não depende de quem apostou) e só grada `result`
+ * oficial, nunca peguei/odd/unidade de ninguém (isso é pessoal, ver a tela
+ * "Importar apostas" de cada usuário). Sempre confere antes de gravar. */
+function ImportResultsCard() {
+  const [open, setOpen] = useState(false);
+  const [raw, setRaw] = useState("");
+  const [running, setRunning] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ImportBookmakerBetsResult | null>(null);
+  const [bets, setBets] = useState<ImportedBookmakerBet[] | null>(null);
+
+  function parseBets(): ImportedBookmakerBet[] | null {
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error();
+      return parsed;
+    } catch {
+      setError("JSON inválido — cole exatamente o que o script gerou.");
+      return null;
+    }
+  }
+
+  async function handleCheck() {
+    setError(null);
+    setResult(null);
+    const parsed = parseBets();
+    if (!parsed) return;
+    setBets(parsed);
+    setRunning(true);
+    try {
+      setResult(await importResults(parsed, true));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao conferir.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function handleCommit() {
+    if (!bets) return;
+    const gradable = result?.matched.filter((m) => m.result !== null).length ?? 0;
+    if (!confirm(`Gravar o resultado oficial de ${gradable} tip(s)? Isso vale pra todo mundo, não só sua conta.`)) return;
+    setError(null);
+    setCommitting(true);
+    try {
+      setResult(await importResults(bets, false));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao gravar.");
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  return (
+    <div className="mb-4 rounded-2xl border border-border bg-surface">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between px-4 py-3 text-left">
+        <span className="text-[13.5px] font-bold">Importar resultados (green/red) de um histórico de apostas</span>
+        <IconChevronDown size={16} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="border-t border-border-subtle p-4">
+          <p className="mb-3 text-[12px] text-text-tertiary">
+            Cola o JSON do script de scraping (ver scripts/bookmaker-scrapers/) de qualquer conta/casa — aqui só o
+            resultado oficial é gravado, nunca peguei/odd/unidade de ninguém.
+          </p>
+          <textarea
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            placeholder='[{"betNumber": "...", "status": "ganha", ...}]'
+            rows={6}
+            className="mb-3 w-full rounded-lg border border-border-strong bg-surface-alt px-3 py-2 font-mono text-[12px] text-text outline-none"
+          />
+          <button
+            onClick={handleCheck}
+            disabled={running}
+            className="w-full rounded-lg bg-accent py-2.5 text-[13px] font-bold text-[#08090A] disabled:opacity-50"
+          >
+            {running ? "Conferindo…" : "Conferir"}
+          </button>
+          {error && <p className="mt-2 text-[12.5px] text-live">{error}</p>}
+
+          {result && (
+            <div className="mt-3 flex flex-col gap-3">
+              <p className="text-[12.5px] text-text-tertiary">
+                {result.matched.length} bateram ({result.matched.filter((m) => m.result !== null).length} com resultado
+                novo pra gravar) · {result.ambiguous.length} ambíguas · {result.unmatched.length} sem match
+                {result.dryRun ? " — nada foi gravado ainda." : " — gravado."}
+              </p>
+
+              {result.dryRun && result.matched.some((m) => m.result !== null) && (
+                <button
+                  onClick={handleCommit}
+                  disabled={committing}
+                  className="w-full rounded-lg bg-live py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+                >
+                  {committing ? "Gravando…" : "Gravar resultado oficial de verdade"}
+                </button>
+              )}
+
+              {result.matched.filter((m) => m.result !== null).length > 0 && (
+                <div className="rounded-xl bg-surface-chip p-2.5">
+                  {result.matched
+                    .filter((m) => m.result !== null)
+                    .map((m) => (
+                      <p key={m.tipId} className="py-1 text-[12px]">
+                        <span className="font-semibold">{m.match ?? "—"}</span>{" "}
+                        <span className="text-text-tertiary">{m.selection || "—"}</span> —{" "}
+                        <span className="font-mono text-text-tertiary">{m.current?.result ?? "pending"} → </span>
+                        <span className="font-mono font-bold text-accent">{RESULT_LABEL[m.result!] ?? m.result}</span>
+                      </p>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Uma tip no registro OFICIAL — cada campo comita direto (blur/seleção),
@@ -609,6 +737,8 @@ export function AdminTelegramTipsPage() {
           </div>
         )}
       </div>
+
+      <ImportResultsCard />
 
       {tips === null && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}
       {tips?.length === 0 && <p className="py-10 text-center text-sm text-text-tertiary">Nenhuma tip encontrada.</p>}

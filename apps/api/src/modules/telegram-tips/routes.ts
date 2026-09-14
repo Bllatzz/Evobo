@@ -577,13 +577,14 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   // Importa o histórico de apostas de uma casa (extraído pelo próprio
   // usuário no navegador — ver scripts/bookmaker-scrapers/, nunca um
   // scraping nosso nem senha guardada) e casa cada aposta contra as tips
-  // que ELE ainda não decidiu, de qualquer grupo (a odd+jogo da aposta real
-  // é quem resolve, não precisa saber o tipster de antemão — ver
-  // matchBookmakerBet em @evobo/worker). Sem gate de admin: é o histórico
-  // PESSOAL de quem está importando, mesma regra do PATCH /:id/take.
-  // `dryRun` (default true) calcula tudo sem gravar nada — usado enquanto o
-  // piloto (Esportes da Sorte) ainda está sendo validado contra tips já
-  // 100% conferidas manualmente.
+  // que ELE ainda não decidiu (ou já decidiu na MESMA casa — dá pra
+  // corrigir/refinar), de qualquer grupo (a odd+jogo da aposta real é quem
+  // resolve, não precisa saber o tipster de antemão — ver matchBookmakerBet
+  // em @evobo/worker). Sem gate de admin: é o histórico PESSOAL de quem
+  // está importando, mesma regra do PATCH /:id/take — só mexe em
+  // peguei/odd/unidade, NUNCA no `result` oficial (isso é admin-only, ver
+  // POST /admin/import-results abaixo). `dryRun` (default true) calcula
+  // tudo sem gravar nada.
   app.post("/import-bets", async (request, reply): Promise<ImportBookmakerBetsResult> => {
     const parsed = ImportBookmakerBetsInput.safeParse(request.body);
     if (!parsed.success) {
@@ -595,7 +596,14 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const [settings, candidateTips] = await Promise.all([
       prisma.telegramBancaSettings.findUnique({ where: { userId }, select: { unitValue: true } }),
       prisma.telegramTip.findMany({
-        where: { takes: { none: { userId } } },
+        // Candidata quando ainda não foi decidida OU já foi decidida mas na
+        // MESMA casa que está sendo importada agora (permite corrigir/
+        // refinar odd/unidade quando o valor manual foi só uma aproximação
+        // — validado contra a Esportes da Sorte). Nunca mexe numa tip já
+        // atribuída a OUTRA casa, pra não misturar dados de contas diferentes.
+        where: {
+          OR: [{ takes: { none: { userId } } }, { takes: { some: { userId, OR: [{ bookmaker }, { bookmaker: null }] } } }],
+        },
         select: {
           id: true,
           match: true,
@@ -606,6 +614,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
           limit: true,
           result: true,
           receivedAt: true,
+          takes: { where: { userId }, select: { takenStatus: true, unit: true, odd: true } },
         },
       }),
     ]);
@@ -622,6 +631,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       currentResult: t.result as TelegramTip["result"],
       receivedAt: t.receivedAt,
     }));
+    const takeByTipId = new Map(candidateTips.map((t) => [t.id, t.takes[0] ?? null]));
 
     const result: ImportBookmakerBetsResult = { dryRun, matched: [], ambiguous: [], unmatched: [] };
 
@@ -645,11 +655,21 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       // mesma tip (mesmo dry run: o que se mostraria já reflete isso).
       const idx = remaining.findIndex((c) => c.id === value.tipId);
       const original = idx !== -1 ? remaining.splice(idx, 1)[0]! : undefined;
+      const existingTake = takeByTipId.get(value.tipId) ?? null;
 
       result.matched.push({
         bet,
         ...value,
-        current: dryRun && original ? { takenStatus: "pending", unit: original.unit, odd: original.odd, result: original.currentResult } : null,
+        result: null, // resultado oficial nunca sai daqui — ver /admin/import-results
+        current:
+          dryRun && original
+            ? {
+                takenStatus: (existingTake?.takenStatus as TelegramTip["mine"]["takenStatus"]) ?? "pending",
+                unit: existingTake ? Number(existingTake.unit) : null,
+                odd: existingTake ? Number(existingTake.odd) : null,
+                result: original.currentResult,
+              }
+            : null,
       });
 
       if (!dryRun) {
@@ -658,9 +678,6 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
           create: { tipId: value.tipId, userId, takenStatus: "taken", unit: value.unit, odd: value.odd, bookmaker },
           update: { takenStatus: "taken", unit: value.unit, odd: value.odd, bookmaker },
         });
-        if (value.result !== null) {
-          await prisma.telegramTip.update({ where: { id: value.tipId }, data: { result: value.result, needsReview: false } });
-        }
       }
     }
 
@@ -735,6 +752,90 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
     const { runDailyGrading } = await import("@evobo/worker");
     const result = await runDailyGrading();
+    return result;
+  });
+
+  // Mesmo import de histórico de apostas de POST /import-bets, mas do lado
+  // OPOSTO: só grada o `result` OFICIAL (green/red/reembolso) — nunca mexe
+  // em peguei/odd/unidade de ninguém (isso é pessoal, ver /import-bets
+  // acima). Faz sentido ser admin-only: resultado é um fato objetivo, igual
+  // pra todo mundo, não uma escolha de cada usuário. Nunca sobrescreve uma
+  // tip que já tem result !== "pending", mesma regra de todo outro grader
+  // (bet-analytix, reação ✅/❌). Admin only.
+  app.post("/admin/import-results", async (request, reply): Promise<ImportBookmakerBetsResult> => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const parsed = ImportBookmakerBetsInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() }) as never;
+    }
+    const { bets, dryRun = true } = parsed.data;
+
+    const candidateTips = await prisma.telegramTip.findMany({
+      select: {
+        id: true,
+        match: true,
+        selection: true,
+        unit: true,
+        odd: true,
+        originalOdd: true,
+        limit: true,
+        result: true,
+        receivedAt: true,
+      },
+    });
+    const remaining: CandidateTip[] = candidateTips.map((t) => ({
+      id: t.id,
+      match: t.match,
+      selection: t.selection,
+      unit: t.unit !== null ? Number(t.unit) : null,
+      odd: t.odd !== null ? Number(t.odd) : null,
+      originalOdd: t.originalOdd !== null ? Number(t.originalOdd) : null,
+      limit: t.limit !== null ? Number(t.limit) : null,
+      currentResult: t.result as TelegramTip["result"],
+      receivedAt: t.receivedAt,
+    }));
+
+    const result: ImportBookmakerBetsResult = { dryRun, matched: [], ambiguous: [], unmatched: [] };
+
+    for (const bet of bets) {
+      // unitValueReais null de propósito: aqui não interessa a unidade
+      // pessoal de ninguém, só o resultado — sem ele, o desempate por
+      // "unidade implícita" não roda, então 2+ candidatas na mesma odd/jogo
+      // viram "ambíguo" em vez de arriscar gradar a tip errada.
+      const outcome = matchBookmakerBet(bet, remaining, null);
+
+      if (outcome.kind === "unmatched") {
+        result.unmatched.push(bet);
+        continue;
+      }
+      if (outcome.kind === "ambiguous") {
+        result.ambiguous.push({
+          bet,
+          candidates: outcome.candidates.map((c) => ({ tipId: c.id, match: c.match, selection: c.selection, unit: c.unit })),
+        });
+        continue;
+      }
+
+      const { value } = outcome;
+      const idx = remaining.findIndex((c) => c.id === value.tipId);
+      const original = idx !== -1 ? remaining.splice(idx, 1)[0]! : undefined;
+
+      result.matched.push({
+        bet,
+        tipId: value.tipId,
+        match: value.match,
+        selection: value.selection,
+        unit: null,
+        odd: value.odd,
+        result: value.result,
+        current: dryRun && original ? { takenStatus: "pending", unit: null, odd: original.odd, result: original.currentResult } : null,
+      });
+
+      if (!dryRun && value.result !== null) {
+        await prisma.telegramTip.update({ where: { id: value.tipId }, data: { result: value.result, needsReview: false } });
+      }
+    }
+
     return result;
   });
 
