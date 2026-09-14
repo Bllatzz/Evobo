@@ -673,6 +673,13 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
 
     const result: ImportBookmakerBetsResult = { dryRun, matched: [], ambiguous: [], divergent: [], unmatched: [] };
 
+    // Cada tip só pode "explicar" UMA aposta real por importação — sem isso,
+    // uma tip já corretamente registrada (odd batendo) ficava sendo
+    // reaproveitada pra toda outra aposta real que coincidisse na mesma odd,
+    // acusando divergência numa tip que já está certa (a divergência de
+    // verdade era só uma segunda aposta real sem tip correspondente).
+    const claimedTipIds = new Set<string>();
+
     for (const bet of bets) {
       const outcome = matchBookmakerBet(bet, remaining, unitValueReais);
 
@@ -683,10 +690,12 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         // estava recolhido na tela quando o script rodou). Nunca grava
         // sozinho, só reporta pra revisão manual.
         const divergentTip = candidateTips.find((t) => {
+          if (claimedTipIds.has(t.id)) return false;
           const take = t.takes[0];
           return take?.bookmaker === bookmaker && take.odd !== null && Math.abs(Number(take.odd) - bet.odd) <= ODD_TOLERANCE;
         });
         if (divergentTip) {
+          claimedTipIds.add(divergentTip.id);
           const take = divergentTip.takes[0]!;
           const recordedUnit = take.unit !== null ? Number(take.unit) : null;
           const impliedUnit = unitValueReais !== null ? Math.round((bet.stakeReais / unitValueReais) * 100) / 100 : null;
@@ -739,6 +748,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       const idx = remaining.findIndex((c) => c.id === value.tipId);
       const original = idx !== -1 ? remaining.splice(idx, 1)[0]! : undefined;
       const existingTake = takeByTipId.get(value.tipId) ?? null;
+      claimedTipIds.add(value.tipId);
 
       result.matched.push({
         bet,
