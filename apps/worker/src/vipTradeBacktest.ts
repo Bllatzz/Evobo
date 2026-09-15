@@ -32,6 +32,10 @@ export type VipBacktestResult = {
   profitReais: number;
   roi: number | null;
   skippedNoStakeOrOdd: number;
+  /** Amostra do texto de mensagens puladas (sem STAKE/ODD reconhecíveis) —
+   * só pra conferir que não é um formato de tip válido escapando do regex,
+   * nunca usado no cálculo. */
+  skippedSamples: string[];
   tips: VipBacktestTip[];
 };
 
@@ -61,6 +65,7 @@ export async function runVipTradeBacktest(
   const messages = await fetchMessagesSince(client, dialog.id.toString(), sinceUnix, untilUnix);
 
   const tips: VipBacktestTip[] = [];
+  const skippedSamples: string[] = [];
   let skipped = 0;
 
   for (const msg of messages) {
@@ -70,6 +75,7 @@ export async function runVipTradeBacktest(
     const oddMatch = text.match(ODD_RE);
     if (!stakeMatch || !oddMatch) {
       skipped++;
+      if (skippedSamples.length < 20) skippedSamples.push(text);
       continue;
     }
 
@@ -106,6 +112,7 @@ export async function runVipTradeBacktest(
     profitReais,
     roi: stakedReais > 0 ? profitReais / stakedReais : null,
     skippedNoStakeOrOdd: skipped,
+    skippedSamples,
     tips,
   };
 }
