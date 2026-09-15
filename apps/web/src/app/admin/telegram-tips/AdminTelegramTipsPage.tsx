@@ -4,9 +4,7 @@ import {
   fetchTelegramTips,
   fetchTelegramGroups,
   fetchBookmakerNames,
-  fetchTelegramSettings,
   patchTelegramTip,
-  patchTelegramTipTake,
   deleteTelegramTip,
   retryMissingOcr,
   runBetAnalytixGrading,
@@ -19,7 +17,7 @@ import {
   type ImportedBookmakerBet,
   type ImportBookmakerBetsResult,
 } from "../../../lib/telegramTips";
-import { groupTipsByMessage, groupColor, relativeTime, formatBRL, type MessageGroup } from "../../telegram-tips/TelegramTipsPage";
+import { groupTipsByMessage, groupColor, relativeTime, type MessageGroup } from "../../telegram-tips/TelegramTipsPage";
 import { Dropdown } from "../../../components/Dropdown";
 import { BookmakerCombobox } from "../../../components/BookmakerCombobox";
 import { Modal } from "../../../components/Modal";
@@ -64,27 +62,6 @@ function parseNumber(raw: string): number | null {
   if (trimmed === "") return null;
   const n = Number(trimmed);
   return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-/** Bônus/turbinada calculado sobre o LUCRO (unidade × valor-da-unidade ×
- * (odd − 1)), nunca sobre a odd/stake — mesma regra do scraper da Betano
- * (ver scripts/bookmaker-scrapers/betano.js). Usa a odd/unidade PESSOAIS
- * (o que foi de fato apostado), com fallback pro registro oficial quando
- * ninguém ainda registrou um take pessoal. */
-function computeBonusReais(unit: number | null, odd: number | null, unitValue: number | null, pct: number | null): number | null {
-  if (unit == null || odd == null || unitValue == null || pct == null) return null;
-  const profit = unit * unitValue * (odd - 1);
-  return Math.round(profit * (pct / 100) * 100) / 100;
-}
-
-/** Melhor esforço pra pré-preencher o campo "%" a partir de um bonusReais já
- * gravado (ex.: vindo do import automático do scraper) — só exibição, nunca
- * gravado de volta sozinho. */
-function reverseBonusPct(unit: number | null, odd: number | null, unitValue: number | null, bonusReais: number | null): number | null {
-  if (unit == null || odd == null || unitValue == null || bonusReais == null) return null;
-  const profit = unit * unitValue * (odd - 1);
-  if (profit <= 0) return null;
-  return Math.round((bonusReais / profit) * 100 * 100) / 100;
 }
 
 const RESULT_LABEL: Record<string, string> = { pending: "pending", green: "GREEN", red: "RED", reembolso: "REEMB." };
@@ -219,14 +196,12 @@ function AdminTipRow({
   tip,
   index,
   bookmakers,
-  unitValue,
   onUpdate,
   onDelete,
 }: {
   tip: TelegramTip;
   index: number;
   bookmakers: string[];
-  unitValue: number | null;
   onUpdate: (tip: TelegramTip) => void;
   onDelete: (tip: TelegramTip) => void;
 }) {
@@ -238,17 +213,6 @@ function AdminTipRow({
   const [limitText, setLimitText] = useState(tip.limit != null ? String(tip.limit) : "");
   const [betUrl, setBetUrl] = useState(tip.betUrl ?? "");
   const [saving, setSaving] = useState(false);
-  const [savingBonus, setSavingBonus] = useState(false);
-
-  // Odd/unidade de fato apostados (o take pessoal de quem está logado como
-  // admin), caindo pro registro oficial só enquanto ninguém ainda registrou
-  // um take — mesmo fallback usado na tela pessoal (VIP Telegram).
-  const bonusUnit = tip.mine.unit ?? tip.unit;
-  const bonusOdd = tip.mine.odd ?? tip.odd;
-  const [bonusPctText, setBonusPctText] = useState(() => {
-    const pct = reverseBonusPct(bonusUnit, bonusOdd, unitValue, tip.mine.bonusReais);
-    return pct != null ? String(pct) : "";
-  });
 
   const chip = STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!;
   const betActive = !!tip.betUrl;
@@ -259,18 +223,6 @@ function AdminTipRow({
       onUpdate(await patchTelegramTip(tip.id, patch));
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function commitBonusPct(raw: string) {
-    const pct = parseNumber(raw);
-    const bonusReais = pct != null ? computeBonusReais(bonusUnit, bonusOdd, unitValue, pct) : null;
-    if (pct != null && bonusReais == null) return; // falta unidade/odd/valor-da-unidade pra calcular ainda
-    setSavingBonus(true);
-    try {
-      onUpdate(await patchTelegramTipTake(tip.id, { bonusReais }));
-    } finally {
-      setSavingBonus(false);
     }
   }
 
@@ -361,7 +313,7 @@ function AdminTipRow({
         />
       </div>
 
-      <div className="mb-2.5 grid grid-cols-2 gap-2 lg:grid-cols-6">
+      <div className="mb-2.5 grid grid-cols-2 gap-2 lg:grid-cols-5">
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-accent-border bg-accent-soft p-2.5">
           <span className="text-[10px] text-text-secondary">Unidade</span>
           <input
@@ -415,30 +367,6 @@ function AdminTipRow({
             className="w-full rounded bg-transparent font-mono text-[14px] font-bold outline-none"
           />
         </div>
-        <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
-          <span className="text-[10px] text-text-secondary">Bônus turbinada</span>
-          <div className="flex items-center gap-1">
-            <input
-              inputMode="decimal"
-              value={bonusPctText}
-              onFocus={(e) => e.currentTarget.select()}
-              onChange={(e) => setBonusPctText(e.target.value)}
-              onBlur={() => commitBonusPct(bonusPctText)}
-              placeholder="—"
-              className="w-full rounded bg-transparent font-mono text-[14px] font-bold outline-none"
-            />
-            <span className="flex-none font-mono text-[11px] text-text-tertiary">%</span>
-          </div>
-          <span className="truncate text-[10px] leading-tight text-accent">
-            {savingBonus
-              ? "salvando…"
-              : tip.mine.bonusReais != null
-                ? formatBRL(tip.mine.bonusReais)
-                : bonusUnit == null || bonusOdd == null || unitValue == null
-                  ? "falta unidade/odd/valor-da-unidade"
-                  : "sem bônus"}
-          </span>
-        </div>
       </div>
 
       <div className="mb-2.5 flex gap-1.5">
@@ -483,7 +411,6 @@ function AdminTipRow({
 function AdminMessageGroupCard({
   group,
   bookmakers,
-  unitValue,
   photoVisible,
   onTogglePhoto,
   onOpenPhoto,
@@ -492,7 +419,6 @@ function AdminMessageGroupCard({
 }: {
   group: MessageGroup;
   bookmakers: string[];
-  unitValue: number | null;
   photoVisible: boolean;
   onTogglePhoto: (key: string, visible: boolean) => void;
   onOpenPhoto: (url: string) => void;
@@ -550,7 +476,7 @@ function AdminMessageGroupCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-col">
             {group.tips.map((tip, i) => (
-              <AdminTipRow key={tip.id} tip={tip} index={i + 1} bookmakers={bookmakers} unitValue={unitValue} onUpdate={onUpdate} onDelete={onDelete} />
+              <AdminTipRow key={tip.id} tip={tip} index={i + 1} bookmakers={bookmakers} onUpdate={onUpdate} onDelete={onDelete} />
             ))}
           </div>
         </div>
@@ -563,7 +489,6 @@ export function AdminTelegramTipsPage() {
   const navigate = useNavigate();
   const [groups, setGroups] = useState<TelegramGroup[]>([]);
   const [bookmakers, setBookmakers] = useState<string[]>([]);
-  const [unitValue, setUnitValue] = useState<number | null>(null);
   const [groupId, setGroupId] = useState("");
   const [bookmaker, setBookmaker] = useState("");
   const [marketType, setMarketType] = useState("");
@@ -595,7 +520,6 @@ export function AdminTelegramTipsPage() {
   useEffect(() => {
     fetchTelegramGroups().then(setGroups).catch(() => {});
     fetchBookmakerNames().then(setBookmakers).catch(() => {});
-    fetchTelegramSettings().then((s) => setUnitValue(s.unitValue)).catch(() => {});
   }, []);
 
   function load() {
@@ -824,7 +748,6 @@ export function AdminTelegramTipsPage() {
           key={group.key}
           group={group}
           bookmakers={bookmakers}
-          unitValue={unitValue}
           photoVisible={photoOverrides[group.key] ?? true}
           onTogglePhoto={togglePhoto}
           onOpenPhoto={setPhotoModal}

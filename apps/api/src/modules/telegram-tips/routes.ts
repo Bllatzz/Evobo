@@ -68,7 +68,7 @@ async function resolvePhotoUrls(paths: (string | null)[]): Promise<Map<string, s
 
 type TipWithGroup = Prisma.TelegramTipGetPayload<{ include: { group: { select: { name: true } } } }>;
 type TipTakeRow = Prisma.TelegramTipTakeGetPayload<{
-  select: { takenStatus: true; unit: true; odd: true; bookmaker: true; betUrl: true; limitApplied: true; bonusReais: true };
+  select: { takenStatus: true; unit: true; odd: true; bookmaker: true; betUrl: true; limitApplied: true };
 }>;
 
 /** Batch-fetches the current user's own TelegramTipTake for each tip id,
@@ -78,7 +78,7 @@ async function fetchMyTakes(tipIds: string[], userId: string): Promise<Map<strin
   if (tipIds.length === 0) return new Map();
   const rows = await prisma.telegramTipTake.findMany({
     where: { tipId: { in: tipIds }, userId },
-    select: { tipId: true, takenStatus: true, unit: true, odd: true, bookmaker: true, betUrl: true, limitApplied: true, bonusReais: true },
+    select: { tipId: true, takenStatus: true, unit: true, odd: true, bookmaker: true, betUrl: true, limitApplied: true },
   });
   return new Map(rows.map((r) => [r.tipId, r]));
 }
@@ -130,7 +130,6 @@ function serializeTip(tip: TipWithGroup, photoUrls: Map<string, string>, myTake:
       bookmaker: myTake?.bookmaker ?? null,
       betUrl: myTake?.betUrl ?? null,
       limitApplied: myTake?.limitApplied ?? false,
-      bonusReais: myTake?.bonusReais != null ? Number(myTake.bonusReais) : null,
     },
     parsePattern: tip.parsePattern,
     receivedAt: tip.receivedAt.toISOString(),

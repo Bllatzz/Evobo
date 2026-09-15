@@ -371,8 +371,6 @@ export const TelegramTipSchema = z.object({
      * passava do `limit` (R$) da tip — o valor gravado já é o efetivo
      * (limite ÷ unitValue), não o que a pessoa pediu originalmente. */
     limitApplied: z.boolean(),
-    /** Bônus/turbinada em R$ pago por fora da odd (ver UpdateTelegramTipTakeInput) — null quando nunca foi setado. */
-    bonusReais: z.number().nullable(),
   }),
   /** Which worker parser matcher recognized the message — null means nothing
    * matched and every extractable field still needs a manual look. */
