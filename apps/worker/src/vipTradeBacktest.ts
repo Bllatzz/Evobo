@@ -48,6 +48,44 @@ export type VipBacktestResult = {
   tips: VipBacktestTip[];
 };
 
+export type RawGroupMessage = { id: number; date: string; replyToMsgId: number | null; text: string };
+
+/**
+ * Puro dump de texto bruto, sem nenhuma tentativa de reconhecer stake/odd/
+ * resultado — usado só pra entender o formato de um grupo novo antes de
+ * decidir como parseá-lo (grupos diferentes usam convenções bem diferentes,
+ * ver runVipTradeBacktest vs esse aqui). Nunca grava nada, mesma regra de
+ * reuso do client já conectado.
+ */
+export async function dumpGroupMessages(
+  client: TelegramClient,
+  groupNameOrChatId: string,
+  sinceUnix: number,
+  untilUnix: number,
+  limit: number,
+): Promise<RawGroupMessage[]> {
+  const dialogs = await client.getDialogs({});
+  const dialog = dialogs.find(
+    (d) => d.id?.toString() === groupNameOrChatId || d.title?.trim().toLowerCase() === groupNameOrChatId.trim().toLowerCase(),
+  );
+  if (!dialog?.id) {
+    const needle = groupNameOrChatId.trim().toLowerCase();
+    const suggestions = dialogs
+      .map((d) => d.title)
+      .filter((t): t is string => !!t && (t.toLowerCase().includes(needle.split(" ")[0] ?? needle) || needle.includes(t.toLowerCase())))
+      .slice(0, 15);
+    throw new Error(
+      `grupo "${groupNameOrChatId}" não encontrado nos diálogos da conta conectada. Sugestões: ${suggestions.join(" | ") || "(nenhuma parecida)"}`,
+    );
+  }
+
+  const messages = await fetchMessagesSince(client, dialog.id.toString(), sinceUnix, untilUnix);
+  return messages
+    .filter((m) => !!m.message)
+    .slice(0, limit)
+    .map((m) => ({ id: m.id, date: new Date(m.date * 1000).toISOString(), replyToMsgId: m.replyToMsgId ?? null, text: m.message! }));
+}
+
 /**
  * Backtest de ROI só-leitura pra um grupo que NUNCA passou pelo pipeline
  * normal de TelegramTip — nunca grava no banco, nunca chama OCR. Toda
