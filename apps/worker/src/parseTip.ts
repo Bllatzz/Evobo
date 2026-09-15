@@ -68,6 +68,15 @@ const UNIT_COMBO_WITH_ODD_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+na\s+(.+?)\s*@\s*(\d+(?
 const SELECTION_AT_ODD_UNIT_RE = /^(.+?)\s*@\s*(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s*u$/i;
 const UNIT_INLINE_RE = /^(.*\S)\s+(\d+(?:[.,]\d+)?)\s*u$/i;
 const ODD_LINE_RE = /\bodd\b\s*:?\s*(\d+(?:[.,]\d+)?)/i;
+// "+0,50u aq na odd 3.96, fechando 1u" — a REPLY to an already-known tip
+// adding more stake to it (odd moved since the original call), never a tip
+// of its own: no market/link/photo here, everything (match, bookmaker,
+// selection) is inherited from the tip the message replies to. The leading
+// "+" is the signal (a tipster would never open a fresh tip that way) —
+// safe to key off text alone because the caller (processMessage.ts) only
+// even tries this parser when the message is a Telegram reply; a
+// coincidental "+0.5u" in a non-reply message never reaches it.
+const STAKE_TOPUP_RE = /^\+\s*(\d+(?:[.,]\d+)?)\s*u\b/i;
 const LIMIT_LINE_RE = /\blimite\b(?:\s+de\s+aposta)?\s*:?\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*\$?/i;
 // Anchored to the whole line (after stripping a leading emoji and an
 // optional "Porcentagem:" label) — a loose "contains a %" match used to
@@ -143,6 +152,11 @@ export const KNOWN_PATTERNS: Record<string, { description: string; example: stri
     description:
       "'<n>u em cada' + '<n>u na <Rótulo>', sem nenhuma perna descrita em texto — as N seleções e a múltipla vêm todas da foto/link do bilhete; vira N tips simples (uma por perna que a OCR achar, com sua própria odd) mais 1 tip múltipla (odd total do bilhete).",
     example: "1u em cada\n\n0,5u na múltipla\n\nLink Pronto",
+  },
+  stake_topup: {
+    description:
+      "Reply a uma tip já existente adicionando mais stake nela ('+<n>u' [+ 'odd <odd>']) — vira uma TelegramTip irmã (match/bookmaker/link herdados da tip respondida), nunca altera a original; sem odd nova no texto, herda a odd atual dela. Ver parseStakeTopUp, não faz parte do parseTip principal (precisa da tip pai, que só processMessage.ts consegue buscar).",
+    example: "+0,50u aq na odd 3.96, fechando 1u",
   },
   legs_plus_combo: {
     description:
@@ -438,6 +452,28 @@ function extractLink(
   }
 
   return { bookmaker: null, betUrl: null, plainUrlLine: null };
+}
+
+export type StakeTopUp = { addedUnit: number; odd: number | null };
+
+/**
+ * "+0,50u aq na odd 3.96, fechando 1u" — só chamado por processMessage.ts, e
+ * só quando a mensagem é uma reply (ver STAKE_TOPUP_RE acima pro porquê é
+ * seguro sem esse contexto de reply). `odd: null` quando o texto não fala
+ * uma odd nova — quem chama decide o que fazer (herdar a odd da tip pai).
+ */
+export function parseStakeTopUp(rawText: string | null | undefined): StakeTopUp | null {
+  if (!rawText || !rawText.trim()) return null;
+
+  const lines = rawText
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  const addedMatch = lines.map((l) => l.match(STAKE_TOPUP_RE)).find((m): m is RegExpMatchArray => m !== null);
+  if (!addedMatch) return null;
+
+  const oddMatch = lines.map((l) => l.match(ODD_LINE_RE)).find((m): m is RegExpMatchArray => m !== null);
+  return { addedUnit: toNumber(addedMatch[1]!), odd: oddMatch ? toNumber(oddMatch[1]!) : null };
 }
 
 /**

@@ -1,7 +1,7 @@
 import { Api } from "telegram/tl/index.js";
 import type { TelegramGroup } from "@prisma/client";
 import { prisma, supabaseAdmin, PHOTO_BUCKET } from "./db.js";
-import { parseTip, type TextEntity } from "./parseTip.js";
+import { parseTip, parseStakeTopUp, type TextEntity } from "./parseTip.js";
 import { extractDetailsQueue } from "./queues/extractDetailsWorker.js";
 
 function messageEntities(message: Api.Message): TextEntity[] {
@@ -26,6 +26,54 @@ async function downloadPhoto(message: Api.Message, group: TelegramGroup): Promis
   return photoPath;
 }
 
+/**
+ * "+0,50u aq na odd 3.96, fechando 1u" replying to an already-known tip —
+ * adds stake to it as a SIBLING TelegramTip (own id, so a later 👍/👎 on
+ * this reply marks its own TelegramTipTake independently — the user may
+ * have taken the top-up without taking the original, or vice versa), never
+ * by mutating the original (which would need a blended odd to stay
+ * accurate). Bails (returns null) whenever the reply target isn't exactly
+ * one already-tracked tip — ambiguous (e.g. replying to a message that
+ * became several legs) or untracked, never guess which one it's topping up.
+ */
+async function createStakeTopUpTip(message: Api.Message, group: TelegramGroup): Promise<boolean> {
+  const replyToMsgId = message.replyToMsgId;
+  if (replyToMsgId === undefined) return false;
+
+  const topUp = parseStakeTopUp(message.message);
+  if (!topUp) return false;
+
+  const parents = await prisma.telegramTip.findMany({
+    where: { groupId: group.id, telegramMessageId: BigInt(replyToMsgId) },
+  });
+  if (parents.length !== 1) return false;
+
+  const parent = parents[0]!;
+  const odd = topUp.odd ?? parent.odd;
+  await prisma.telegramTip.create({
+    data: {
+      groupId: group.id,
+      telegramMessageId: BigInt(message.id),
+      receivedAt: new Date(message.date * 1000),
+      match: parent.match,
+      selection: parent.selection,
+      marketType: parent.marketType,
+      unit: topUp.addedUnit,
+      odd,
+      oddSource: topUp.odd !== null ? "text" : parent.oddSource,
+      originalOdd: odd,
+      bookmaker: parent.bookmaker,
+      betUrl: parent.betUrl,
+      bookmakerOptions: parent.bookmakerOptions ?? undefined,
+      limit: parent.limit,
+      photoPath: parent.photoPath,
+      parsePattern: "stake_topup",
+      rawMessage: message.message || null,
+    },
+  });
+  return true;
+}
+
 /** Usado tanto pelo listener ao vivo (index.ts) quanto pelo backfill de teste
  * (scripts/backfill.ts) — parseia a mensagem, cria o(s) TelegramTip e
  * enfileira a OCR do que faltar. Pula mensagens já processadas (mesmo
@@ -36,6 +84,8 @@ export async function processMessage(message: Api.Message, group: TelegramGroup)
     select: { id: true },
   });
   if (already) return "skipped_duplicate";
+
+  if (await createStakeTopUpTip(message, group)) return "created";
 
   const parsed = parseTip(message.message, messageEntities(message));
   if (!parsed) return "skipped_no_signal";
