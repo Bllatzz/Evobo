@@ -75,7 +75,7 @@ export async function runVipTradeBacktest(
     const oddMatch = text.match(ODD_RE);
     if (!stakeMatch || !oddMatch) {
       skipped++;
-      if (skippedSamples.length < 20) skippedSamples.push(text);
+      if (skippedSamples.length < 20) skippedSamples.push(`[replyTo=${msg.replyToMsgId ?? "none"}] ${text}`);
       continue;
     }
 
