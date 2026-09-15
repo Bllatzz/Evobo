@@ -7,7 +7,6 @@ import input from "input";
 import { prisma, requireEnv } from "./db.js";
 import { processMessage } from "./processMessage.js";
 import { startExtractDetailsWorker } from "./queues/extractDetailsWorker.js";
-import { startVipBacktestWorker } from "./queues/vipBacktestWorker.js";
 import { purgeOldTips } from "./purgeOldTips.js";
 import { backfillSince, fillGapsSince } from "./backfillRange.js";
 import { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
@@ -107,7 +106,6 @@ export async function startTelegramWorker() {
   liveClient = client;
 
   startExtractDetailsWorker();
-  startVipBacktestWorker(client);
 
   purgeOldTips().catch((err) => console.error("[purge] falha:", err));
   setInterval(() => purgeOldTips().catch((err) => console.error("[purge] falha:", err)), PURGE_INTERVAL_MS);
