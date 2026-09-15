@@ -80,13 +80,16 @@ sejam só 2 ou 3 pernas curtas, NUNCA junte o texto de duas pernas diferentes nu
 (nunca use "E", vírgula ou hífen pra concatenar mais de uma seleção dentro do mesmo campo).
 Para cada item: ${marketGameNote}
 ${marketTypeNote}
+Também "odd": a odd individual dessa perna, SE o bilhete mostrar uma odd própria ao lado dela
+(comum mesmo dentro de uma múltipla, cada jogo listado com sua odd separada) — null se só a
+odd combinada total aparecer, sem nenhuma por perna.
 Identifique também "totalOdd": a odd total do bilhete inteiro como apostado (se for só 1
 seleção, é a odd dela; se for combinada, é a odd combinada final, não a soma das odds
 individuais). Se a imagem mostrar a odd riscada/antiga ao lado de um valor novo — separados por seta
 ("1,43 » 2,00"), "x" ("1.51x » 1.91x") OU um ícone de raio/boost (ex.: "2.65 ⚡ 3.39"), sempre
 use o valor DEPOIS do separador (o novo/turbinado), nunca o riscado/antigo.
 Responda APENAS com um JSON no formato
-{"selections": [{"market":"...","game":"...","marketType":"..."}], "totalOdd": <odd real, nunca copie este número>}
+{"selections": [{"market":"...","game":"...","marketType":"...","odd":<odd da perna ou null>}], "totalOdd": <odd real, nunca copie este número>}
 (totalOdd null se não identificável). Os valores entre aspas/<> acima são só formato de
 exemplo — NUNCA copie um número de exemplo, sempre calcule a partir do que está de fato na
 imagem. Não inclua texto além do JSON.`;

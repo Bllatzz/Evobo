@@ -95,11 +95,25 @@ export async function processMessage(message: Api.Message, group: TelegramGroup)
   // vale tentar de novo antes de deixar pra edição manual.
   const retryOpts = { attempts: 3, backoff: { type: "exponential" as const, delay: 5_000 } };
 
-  if (parsed.pattern === "combo" || tipsToFill.length === 1) {
+  if (parsed.pattern === "combo" || parsed.pattern === "unit_each_plus_combo" || tipsToFill.length === 1) {
     const tip = tipsToFill[0]!;
+    const legs =
+      parsed.legsUnit !== undefined
+        ? {
+            unit: parsed.legsUnit,
+            groupId: group.id,
+            telegramMessageId: String(message.id),
+            receivedAt: new Date(message.date * 1000).toISOString(),
+            match: parsed.match ?? null,
+            bookmaker: parsed.bookmaker,
+            betUrl: parsed.betUrl,
+            limit: parsed.fields.limit ?? null,
+            rawMessage: message.message || null,
+          }
+        : undefined;
     await extractDetailsQueue.add(
       "extract",
-      { photoPath, kind: parsed.pattern === "combo" ? "combo" : "rows", tips: [tip] },
+      { photoPath, kind: parsed.pattern === "combo" || parsed.pattern === "unit_each_plus_combo" ? "combo" : "rows", tips: [tip], legs },
       retryOpts,
     );
     return "created";

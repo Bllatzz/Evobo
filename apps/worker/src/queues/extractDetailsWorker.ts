@@ -1,11 +1,28 @@
 import { Queue, Worker } from "bullmq";
 import { prisma, supabaseAdmin, PHOTO_BUCKET } from "../db.js";
 import { extractTipDetails } from "../visionProvider.js";
-import type { MarketType, MarketTypeCategory } from "../ocrShared.js";
+import type { MarketType, MarketTypeCategory, OcrResult, OcrSelection } from "../ocrShared.js";
 
 const QUEUE_NAME = "extract-details";
 
 type TipToFill = { id: string; needMarket: boolean; needGame: boolean; needOdd: boolean; needMarketType: boolean };
+
+/** Only set for parseTip's `unit_each_plus_combo` pattern ("<n>u em cada" +
+ * "<n>u na <Rótulo>", no leg described in text) — after the combo tip
+ * (`tips[0]`) is filled the normal way, one NEW TelegramTip is created per
+ * leg the OCR found in the same photo, since neither the count nor any
+ * individual leg only exists in the photo, never in the message text. */
+type LegsSpec = {
+  unit: number;
+  groupId: string;
+  telegramMessageId: string;
+  receivedAt: string;
+  match: string | null;
+  bookmaker: string | null;
+  betUrl: string | null;
+  limit: number | null;
+  rawMessage: string | null;
+};
 
 /**
  * "rows" with >1 tip: each maps 1:1 to one OCR selection, in bet-slip order
@@ -15,7 +32,7 @@ type TipToFill = { id: string; needMarket: boolean; needGame: boolean; needOdd: 
  * the same way (applyMultiLegResult), since there's no way to tell which
  * from the text alone.
  */
-export type ExtractDetailsJob = { photoPath: string; kind: "rows" | "combo"; tips: TipToFill[] };
+export type ExtractDetailsJob = { photoPath: string; kind: "rows" | "combo"; tips: TipToFill[]; legs?: LegsSpec };
 
 // Plain options object, not a constructed IORedis instance: bullmq bundles
 // its own nested `ioredis` copy, and a `Redis` instance from the workspace's
@@ -42,9 +59,10 @@ async function applyMultiLegResult(
   buffer: Buffer,
   photoPath: string,
   expectedCount: number | null,
-) {
-  const { selections, totalOdd } = await extractTipDetails(buffer, photoPath, expectedCount);
-  if (selections.length === 0 && totalOdd === null) return;
+): Promise<OcrResult> {
+  const result = await extractTipDetails(buffer, photoPath, expectedCount);
+  const { selections, totalOdd } = result;
+  if (selections.length === 0 && totalOdd === null) return result;
 
   const market = selections
     .map((s) => s.market)
@@ -67,6 +85,38 @@ async function applyMultiLegResult(
       ...(tip.needMarketType && marketType ? { marketType } : {}),
     },
   });
+  return result;
+}
+
+/** Materializa uma TelegramTip nova por perna que a OCR achou — só chamado
+ * pra parseTip's `unit_each_plus_combo` (ver LegsSpec acima). Pernas sem
+ * mercado legível (OCR não conseguiu ler aquela linha) são puladas: melhor
+ * faltar uma perna pra edição manual do que criar uma linha totalmente
+ * vazia. */
+async function createLegTips(legs: LegsSpec, selections: OcrResult["selections"], photoPath: string) {
+  const rows = selections.filter((s): s is OcrSelection & { market: string } => s.market !== null);
+  if (rows.length === 0) return;
+
+  await prisma.telegramTip.createMany({
+    data: rows.map((s) => ({
+      groupId: legs.groupId,
+      telegramMessageId: BigInt(legs.telegramMessageId),
+      receivedAt: new Date(legs.receivedAt),
+      match: s.game ?? legs.match,
+      selection: s.market,
+      marketType: s.marketType,
+      unit: legs.unit,
+      odd: s.odd,
+      oddSource: s.odd !== null ? "ocr" : null,
+      originalOdd: s.odd,
+      bookmaker: legs.bookmaker,
+      betUrl: legs.betUrl,
+      limit: legs.limit,
+      photoPath,
+      parsePattern: "unit_each_plus_combo",
+      rawMessage: legs.rawMessage,
+    })),
+  });
 }
 
 async function processJob(data: ExtractDetailsJob) {
@@ -83,7 +133,8 @@ async function processJob(data: ExtractDetailsJob) {
   if (data.kind === "combo" || data.tips.length === 1) {
     const tip = data.tips[0];
     if (!tip) return;
-    await applyMultiLegResult(tip.id, tip, buffer, data.photoPath, data.kind === "combo" ? null : 1);
+    const { selections } = await applyMultiLegResult(tip.id, tip, buffer, data.photoPath, data.kind === "combo" ? null : 1);
+    if (data.legs) await createLegTips(data.legs, selections, data.photoPath);
     return;
   }
 

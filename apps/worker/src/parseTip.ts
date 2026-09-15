@@ -52,6 +52,13 @@ export type TextEntity = { url?: string };
 const URL_IN_TEXT_RE = /https?:\/\/\S+/i;
 const UNIT_ONLY_RE = /^(\d+(?:[.,]\d+)?)\s*u$/i;
 const UNIT_COMBO_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+na\s+(.+)$/i;
+// "<n>u em cada" — sizes every independent leg of a bet-slip photo/link at
+// the same stake (paired with UNIT_COMBO_RE's "<n>u na <Rótulo>" for the
+// combo of those same legs); the legs themselves never appear as text here
+// (no market lines, no photo-less link) — their count and each one's own
+// odd only exist inside the bet-slip photo, discovered later by OCR (see
+// unit_each_plus_combo below and its handling in processMessage.ts).
+const UNIT_EACH_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+em\s+cada$/i;
 // "<n>u na <Rótulo> @<odd>" — like UNIT_COMBO_RE, but the combo's own odd is
 // spelled out in the text too (no photo needed to fill it in later).
 const UNIT_COMBO_WITH_ODD_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+na\s+(.+?)\s*@\s*(\d+(?:[.,]\d+)?)$/i;
@@ -132,6 +139,11 @@ export const KNOWN_PATTERNS: Record<string, { description: string; example: stri
     description: "Uma linha '<n>u na <Rótulo>' — aposta múltipla; 1 tip só com os mercados concatenados vindos da foto.",
     example: "0,25u na Tripla\nhttps://www.bet365.bet.br/s/r/...",
   },
+  unit_each_plus_combo: {
+    description:
+      "'<n>u em cada' + '<n>u na <Rótulo>', sem nenhuma perna descrita em texto — as N seleções e a múltipla vêm todas da foto/link do bilhete; vira N tips simples (uma por perna que a OCR achar, com sua própria odd) mais 1 tip múltipla (odd total do bilhete).",
+    example: "1u em cada\n\n0,5u na múltipla\n\nLink Pronto",
+  },
   legs_plus_combo: {
     description:
       "N linhas '<Seleção> @<odd> <n>u' (uma por perna simples) mais uma linha '<n>u na <Rótulo> @<odd>' — vira N tips simples mais 1 tip múltipla, tudo com mercado/odd/unidade já no texto (sem foto).",
@@ -184,6 +196,11 @@ export type ParsedTip = {
   betUrl: string | null;
   fields: { odd?: number; percentage?: number; limit?: number };
   comboLabel?: string;
+  /** Só presente no padrão unit_each_plus_combo — unidade de cada perna
+   * independente (a múltipla usa a unidade normal em `selections[0].unit`).
+   * As pernas em si não existem aqui: a contagem e os dados de cada uma só
+   * aparecem depois, quando a OCR lê a foto (ver processMessage.ts). */
+  legsUnit?: number;
   /** Confronto ("Time A x Time B"), quando a linha solta do texto é isso em
    * vez de uma descrição de mercado — ver MATCH_LINE_RE. */
   match?: string;
@@ -520,18 +537,33 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
   const hasLink = betUrl !== null;
 
   if (hasLink) {
-    for (const line of remaining) {
-      const combo = line.match(UNIT_COMBO_RE);
-      if (combo) {
-        return {
-          pattern: "combo",
-          bookmaker,
-          betUrl,
-          fields,
-          comboLabel: combo[2]!.trim(),
-          selections: [{ text: null, unit: toNumber(combo[1]!) }],
-        };
-      }
+    const eachMatch = remaining.map((l) => l.match(UNIT_EACH_RE)).find((m): m is RegExpMatchArray => m !== null);
+    const comboMatch = remaining.map((l) => l.match(UNIT_COMBO_RE)).find((m): m is RegExpMatchArray => m !== null);
+    // Checado ANTES do "combo" genérico abaixo: "0,5u na múltipla" bate nos
+    // dois, mas aqui há também uma linha "<n>u em cada" — sem esse check
+    // primeiro, o combo genérico "vencia" e criava só a múltipla, jogando
+    // fora a instrução de apostar em cada perna individualmente (era
+    // exatamente o formato que causou 1 tip em vez de 4 em produção).
+    if (eachMatch && comboMatch) {
+      return {
+        pattern: "unit_each_plus_combo",
+        bookmaker,
+        betUrl,
+        fields,
+        comboLabel: comboMatch[2]!.trim(),
+        legsUnit: toNumber(eachMatch[1]!),
+        selections: [{ text: null, unit: toNumber(comboMatch[1]!) }],
+      };
+    }
+    if (comboMatch) {
+      return {
+        pattern: "combo",
+        bookmaker,
+        betUrl,
+        fields,
+        comboLabel: comboMatch[2]!.trim(),
+        selections: [{ text: null, unit: toNumber(comboMatch[1]!) }],
+      };
     }
   }
 
