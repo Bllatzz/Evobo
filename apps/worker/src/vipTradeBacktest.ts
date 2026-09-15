@@ -69,7 +69,19 @@ export async function runVipTradeBacktest(
   const dialog = dialogs.find(
     (d) => d.id?.toString() === groupNameOrChatId || d.title?.trim().toLowerCase() === groupNameOrChatId.trim().toLowerCase(),
   );
-  if (!dialog?.id) throw new Error(`grupo "${groupNameOrChatId}" não encontrado nos diálogos da conta conectada`);
+  if (!dialog?.id) {
+    // Nome exato não bateu — sugere os títulos mais parecidos (substring em
+    // qualquer direção) em vez de só falhar, pra não precisar de uma 2ª
+    // rodada de tentativa e erro só pra descobrir a grafia certa.
+    const needle = groupNameOrChatId.trim().toLowerCase();
+    const suggestions = dialogs
+      .map((d) => d.title)
+      .filter((t): t is string => !!t && (t.toLowerCase().includes(needle.split(" ")[0] ?? needle) || needle.includes(t.toLowerCase())))
+      .slice(0, 15);
+    throw new Error(
+      `grupo "${groupNameOrChatId}" não encontrado nos diálogos da conta conectada. Sugestões: ${suggestions.join(" | ") || "(nenhuma parecida)"}`,
+    );
+  }
 
   const messages = await fetchMessagesSince(client, dialog.id.toString(), sinceUnix, untilUnix);
 
