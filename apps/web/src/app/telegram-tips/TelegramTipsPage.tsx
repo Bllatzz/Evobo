@@ -75,7 +75,7 @@ export function relativeTime(iso: string): string {
   return `há ${Math.round(h / 24)}d`;
 }
 
-function formatBRL(v: number): string {
+export function formatBRL(v: number): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
