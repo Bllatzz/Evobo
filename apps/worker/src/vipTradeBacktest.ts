@@ -4,6 +4,11 @@ import { fetchMessagesSince } from "./backfillRange.js";
 const STAKE_RE = /stake\s*:?\s*(\d+(?:[.,]\d+)?)\s*%/i;
 const ODD_RE = /odd\s*:?\s*(\d+(?:[.,]\d+)?)/i;
 const GREEN_MARK_RE = /✅/;
+// Green às vezes não vem como edição da própria mensagem, e sim como uma
+// REPLY separada consistindo só em ✅ (nada mais) — precisa ser "pura" pra
+// não confundir com um recap do dia tipo "8 ✅ 1 💔", que também tem ✅ mas
+// não é uma confirmação da tip específica.
+const PURE_CHECKMARK_RE = /^[✅\s]+$/;
 
 function toNumber(raw: string): number {
   return parseFloat(raw.replace(",", "."));
@@ -36,6 +41,10 @@ export type VipBacktestResult = {
    * só pra conferir que não é um formato de tip válido escapando do regex,
    * nunca usado no cálculo. */
   skippedSamples: string[];
+  /** Quantas tips só foram identificadas como green por causa da reply
+   * separada de puro ✅ (a própria mensagem nunca foi editada) — indica o
+   * quanto essa correção importou, nunca usado no cálculo em si. */
+  greenOnlyViaReply: number;
   tips: VipBacktestTip[];
 };
 
@@ -64,9 +73,19 @@ export async function runVipTradeBacktest(
 
   const messages = await fetchMessagesSince(client, dialog.id.toString(), sinceUnix, untilUnix);
 
+  // Replies de puro ✅ apontando pra uma tip específica — a outra forma de
+  // confirmar green além de editar a própria mensagem (ver PURE_CHECKMARK_RE).
+  const pureCheckmarkRepliesTo = new Set<number>();
+  for (const msg of messages) {
+    if (msg.replyToMsgId !== undefined && msg.message && PURE_CHECKMARK_RE.test(msg.message)) {
+      pureCheckmarkRepliesTo.add(msg.replyToMsgId);
+    }
+  }
+
   const tips: VipBacktestTip[] = [];
   const skippedSamples: string[] = [];
   let skipped = 0;
+  let greenOnlyViaReply = 0;
 
   for (const msg of messages) {
     const text = msg.message;
@@ -82,7 +101,10 @@ export async function runVipTradeBacktest(
     const stakePercent = toNumber(stakeMatch[1]!);
     const odd = toNumber(oddMatch[1]!);
     const stakeReais = stakePercent * reaisPerPercent;
-    const isGreen = GREEN_MARK_RE.test(text);
+    const greenViaEdit = GREEN_MARK_RE.test(text);
+    const greenViaReply = pureCheckmarkRepliesTo.has(msg.id);
+    if (greenViaReply && !greenViaEdit) greenOnlyViaReply++;
+    const isGreen = greenViaEdit || greenViaReply;
     const profitReais = isGreen ? stakeReais * (odd - 1) : -stakeReais;
 
     tips.push({
@@ -113,6 +135,7 @@ export async function runVipTradeBacktest(
     roi: stakedReais > 0 ? profitReais / stakedReais : null,
     skippedNoStakeOrOdd: skipped,
     skippedSamples,
+    greenOnlyViaReply,
     tips,
   };
 }
