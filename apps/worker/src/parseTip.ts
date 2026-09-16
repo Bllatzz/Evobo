@@ -51,6 +51,12 @@ export type TextEntity = { url?: string };
 
 const URL_IN_TEXT_RE = /https?:\/\/\S+/i;
 const UNIT_ONLY_RE = /^(\d+(?:[.,]\d+)?)\s*u$/i;
+// "1u com o aumento" — stake line noting the bet uses a bookmaker odds-boost
+// ("Aposta Turbinada"); the boosted odd is never spelled out in text (comes
+// from the booking code link/photo instead), so the note itself carries no
+// market info — stripped down to a plain "<n>u" so every downstream check
+// (UNIT_ONLY_RE first among them) treats it exactly like a normal stake line.
+const UNIT_WITH_BOOST_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+com\s+(?:o\s+)?aumento\b.*$/i;
 const UNIT_COMBO_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+na\s+(.+)$/i;
 // "<n>u em cada" — sizes every independent leg of a bet-slip photo/link at
 // the same stake (paired with UNIT_COMBO_RE's "<n>u na <Rótulo>" for the
@@ -165,7 +171,8 @@ export const KNOWN_PATTERNS: Record<string, { description: string; example: stri
       "Tripla NFL #1\n\nBreece Hall +2.5 Recepções @1.9 1,5u\n\nJalen McMillan Touchdown @4.25 1,25u\n\nSamaje Perine -1.5 Recepções @1.58 1,50u\n\n0,5u na Tripla @12.4",
   },
   inline_market: {
-    description: "Mercado descrito por extenso no texto (mesma linha da unidade ou linha separada); odd e jogo vêm da foto.",
+    description:
+      "Mercado descrito por extenso no texto (mesma linha da unidade, linha separada, ou jogo E mercado em duas linhas separadas); odd vem da foto/link (e o jogo também, quando não escrito). Aceita '<n>u com o aumento' (aposta turbinada) como linha de unidade.",
     example: "Bernard 2+ Chutes + Bunker Cassierra\n\n1u\n\nhttps://www.bet365.bet.br/s/r/...",
   },
   padovan_single: {
@@ -489,7 +496,11 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
   const allLines = rawText
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+    .filter((l) => l.length > 0)
+    .map((l) => {
+      const boost = l.match(UNIT_WITH_BOOST_RE);
+      return boost ? `${boost[1]}u` : l;
+    });
   const lines = allLines.filter(
     (l) =>
       !SIGNATURE_LINE_RE.test(l) &&
@@ -644,15 +655,21 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
 
   if (hasLink && unitOnlyLines.length === 1) {
     const unit = toNumber(unitOnlyLines[0]!.match(UNIT_ONLY_RE)![1]!);
-    const freeLine = remaining.find((l) => l !== unitOnlyLines[0]) ?? null;
-    const isMatch = freeLine !== null && MATCH_LINE_RE.test(freeLine);
+    // Normally just one leftover line (either the match, with the market
+    // coming from the photo, or the market, with the game coming from the
+    // photo) — but a tipster sometimes writes BOTH on their own lines (e.g.
+    // "Time A x Time B" + "Empate e -2.5 Gols"), so the match line alone
+    // must not swallow the slot and drop the market line.
+    const freeLines = remaining.filter((l) => l !== unitOnlyLines[0]);
+    const matchLine = freeLines.find((l) => MATCH_LINE_RE.test(l)) ?? null;
+    const marketLine = freeLines.find((l) => l !== matchLine) ?? null;
     return {
       pattern: "inline_market",
       bookmaker,
       betUrl,
       fields,
-      ...(isMatch ? { match: freeLine! } : {}),
-      selections: [{ text: isMatch ? null : freeLine, unit }],
+      ...(matchLine ? { match: matchLine } : {}),
+      selections: [{ text: marketLine, unit }],
     };
   }
 
