@@ -111,6 +111,13 @@ const PERCENTAGE_LINE_RE = /^(?:porcentagem\s*:?\s*)?(\d+(?:[.,]\d+)?)\s*%$/i;
 // 5.20%)" — the "nova" value is the one that actually counts.
 const NOVA_ODD_RE = /\bnova\s+odd\b\s*:?\s*(\d+(?:[.,]\d+)?)/i;
 const NOVA_PERCENTAGE_RE = /\bnova\s+porcentagem\b\s*:?\s*(\d+(?:[.,]\d+)?)\s*%/i;
+// "ODD: 2.00 > 2.25" — same "boosted odd" idea as NOVA_ODD_RE above, but
+// spelled with an arrow instead of "( nova ODD X)"; the value AFTER ">" is
+// the one that actually applies (the ATIVAR AUMENTO line right below it is
+// just the tipster confirming the boost was turned on, never a separate
+// signal — it doesn't match PERCENTAGE_LINE_RE so it's harmless leftover
+// text for this pattern, which never reads free text into `selection`).
+const ODD_ARROW_BOOST_RE = /\bodd\b\s*:?\s*\d+(?:[.,]\d+)?\s*>\s*(\d+(?:[.,]\d+)?)/i;
 
 // Ruído específico do formato Padovan — nunca é conteúdo de tip, é
 // removido logo de cara pra não atrapalhar nem o parser Padovan nem o
@@ -545,7 +552,8 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
     const oddMatch = line.match(ODD_LINE_RE);
     if (oddMatch) {
       const novaOdd = line.match(NOVA_ODD_RE);
-      fields.odd = toNumber((novaOdd ?? oddMatch)[1]!);
+      const arrowOdd = line.match(ODD_ARROW_BOOST_RE);
+      fields.odd = toNumber((novaOdd ?? arrowOdd ?? oddMatch)[1]!);
       continue;
     }
     const limitMatch = line.match(LIMIT_LINE_RE);

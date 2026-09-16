@@ -47,20 +47,29 @@ export function detectResultFromEmojis(text: string | null | undefined): "green"
   return null;
 }
 
-// "🏁 Resultado: 🟢 Green · +0,62u" / "🏁 Resultado: 🔴 Red · −1,00u" — âncora
-// no rótulo literal "Resultado:" (nunca usado por esse tipster pra outra
-// coisa) seguido da palavra Green/Red em inglês; o círculo colorido antes é
-// opcional no match pra tolerar variação de formatação sem quebrar.
-const RESULT_MARKER_RE = /🏁\s*Resultado:\s*(?:🟢|🔴)?\s*(Green|Red)\b/i;
+// "🏁 Resultado: 🟢 Green · +0,62u" / "🏁 Resultado: 🔴 Red · −1,00u" / "🏁
+// Resultado: ⚪ Anulada · +0,00u" — âncora no rótulo literal "Resultado:"
+// (nunca usado por esse tipster pra outra coisa) seguido da palavra em
+// português/inglês; o círculo colorido antes é opcional no match pra
+// tolerar variação de formatação sem quebrar. NÃO cobre "🔴½ Meio-red" /
+// "🟢½ Meio-green" (resultado parcial, ex. handicap/gol-linha "meio")  de
+// propósito — não existe valor de `result` pra vitória/derrota parcial no
+// schema hoje (só green/red/reembolso/pending, todos "tudo ou nada"),
+// arredondar pra green/red inteiro erraria o profit; fica pra revisão
+// manual até decidirmos como representar isso.
+const RESULT_MARKER_RE = /🏁\s*Resultado:\s*(?:🟢|🔴|⚪)?\s*(Green|Red|Anulada)\b/i;
 
-export function detectResultFromMarker(text: string | null | undefined): "green" | "red" | null {
+export function detectResultFromMarker(text: string | null | undefined): "green" | "red" | "reembolso" | null {
   if (!text) return null;
   const match = text.match(RESULT_MARKER_RE);
   if (!match) return null;
-  return match[1]!.toLowerCase() === "green" ? "green" : "red";
+  const word = match[1]!.toLowerCase();
+  if (word === "green") return "green";
+  if (word === "red") return "red";
+  return "reembolso"; // Anulada
 }
 
-function detectResult(text: string | null | undefined, groupName: string): "green" | "red" | null {
+function detectResult(text: string | null | undefined, groupName: string): "green" | "red" | "reembolso" | null {
   if (RESULT_EMOJI_GROUP_NAMES.has(groupName)) return detectResultFromEmojis(text);
   if (RESULT_MARKER_GROUP_NAMES.has(groupName)) return detectResultFromMarker(text);
   return null;
