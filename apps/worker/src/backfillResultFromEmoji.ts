@@ -4,6 +4,7 @@ import { prisma } from "./db.js";
 import {
   applyEditedMessageResult,
   countResultEmojis,
+  detectResult,
   RESULT_EMOJI_GROUP_NAMES,
   RESULT_MARKER_GROUP_NAMES,
   RESULT_SIGNAL_GROUP_NAMES,
@@ -58,11 +59,21 @@ export async function backfillResultFromEmoji(
       const messages = await client.getMessages(bigInt(group.telegramChatId), { ids: batch });
       for (const message of messages) {
         if (!message) continue; // mensagem apagada — undefined no lugar dela
+        // Detecta ANTES de aplicar pra distinguir "não achei sinal nenhum" de
+        // "achei um sinal, mas não escrevi" (mensagem com >1 tip, ou
+        // `result` que já não estava "pending" — ver applyEditedMessageResult).
+        const detected = detectResult(message.message, group.name);
         const count = await applyEditedMessageResult(message.id, message.message, group);
         applied += count;
 
         if (count === 0 && unmatched.length < MAX_UNMATCHED_SAMPLES) {
-          if (RESULT_EMOJI_GROUP_NAMES.has(group.name)) {
+          if (detected !== null) {
+            unmatched.push({
+              messageId: message.id,
+              reason: `detectei "${detected}" mas não apliquei (mensagem com mais de 1 tip, ou resultado que já não estava "pending")`,
+              text: message.message ?? "",
+            });
+          } else if (RESULT_EMOJI_GROUP_NAMES.has(group.name)) {
             const { greenCount, redCount } = countResultEmojis(message.message);
             if (greenCount > 0 || redCount > 0) {
               unmatched.push({ messageId: message.id, reason: `✅=${greenCount} ❌=${redCount}`, text: message.message ?? "" });

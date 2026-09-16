@@ -183,11 +183,16 @@ function buildTakenFilter(takenStatus: string | undefined, userId: string): Pris
   return {};
 }
 
-/** green: stake × (odd − 1); red: −stake; reembolso: 0 — same convention robot-signals/routes.ts uses. */
+/** green: stake × (odd − 1); red: −stake; reembolso: 0 — same convention
+ * robot-signals/routes.ts uses. meio-green/meio-red: exactly half of the
+ * full green/red profit — the Padovan "resultado parcial" convention (ex.
+ * handicap/gol-linha "meio"), see resultFromEmoji.ts's RESULT_MARKER_RE. */
 function tipProfit(unit: number, odd: number | null, result: string): number | null {
   if (result === "green") return odd ? unit * (odd - 1) : null;
   if (result === "red") return -unit;
   if (result === "reembolso") return 0;
+  if (result === "meio-green") return odd ? (unit * (odd - 1)) / 2 : null;
+  if (result === "meio-red") return -unit / 2;
   return null;
 }
 
@@ -237,8 +242,10 @@ function aggregateBy(rows: BancaSourceRow[], keyFn: (r: BancaSourceRow) => strin
       map.set(key, g);
     }
     g.total++;
-    if (r.result === "green") g.green++;
-    else if (r.result === "red") g.red++;
+    // meio-green/meio-red count toward green/red for winrate purposes —
+    // directionally still a win/loss, just half-sized (see tipProfit).
+    if (r.result === "green" || r.result === "meio-green") g.green++;
+    else if (r.result === "red" || r.result === "meio-red") g.red++;
     else if (r.result === "reembolso") g.reembolso++;
 
     const unit = r.unit !== null ? Number(r.unit) : 0;

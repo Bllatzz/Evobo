@@ -54,6 +54,11 @@ const STATUS_CHIPS: Record<string, { text: string; className: string }> = {
   green: { text: "GREEN", className: "bg-accent-soft text-accent" },
   red: { text: "RED", className: "bg-live/10 text-live" },
   reembolso: { text: "REEMB.", className: "bg-surface-alt text-text-secondary" },
+  // Padovan "resultado parcial" (handicap/gol-linha "meio") — aplicado só
+  // automaticamente via edição da mensagem (ver resultFromEmoji.ts), sem
+  // botão manual pra escolher aqui.
+  "meio-green": { text: "MEIO GREEN", className: "bg-accent-soft text-accent" },
+  "meio-red": { text: "MEIO RED", className: "bg-live/10 text-live" },
 };
 const NAO_PEGA_CHIP = { text: "NÃO PEGA", className: "bg-surface-alt text-text-tertiary" };
 

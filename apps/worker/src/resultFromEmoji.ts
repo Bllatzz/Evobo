@@ -47,29 +47,34 @@ export function detectResultFromEmojis(text: string | null | undefined): "green"
   return null;
 }
 
-// "🏁 Resultado: 🟢 Green · +0,62u" / "🏁 Resultado: 🔴 Red · −1,00u" / "🏁
-// Resultado: ⚪ Anulada · +0,00u" — âncora no rótulo literal "Resultado:"
-// (nunca usado por esse tipster pra outra coisa) seguido da palavra em
-// português/inglês; o círculo colorido antes é opcional no match pra
-// tolerar variação de formatação sem quebrar. NÃO cobre "🔴½ Meio-red" /
-// "🟢½ Meio-green" (resultado parcial, ex. handicap/gol-linha "meio")  de
-// propósito — não existe valor de `result` pra vitória/derrota parcial no
-// schema hoje (só green/red/reembolso/pending, todos "tudo ou nada"),
-// arredondar pra green/red inteiro erraria o profit; fica pra revisão
-// manual até decidirmos como representar isso.
-const RESULT_MARKER_RE = /🏁\s*Resultado:\s*(?:🟢|🔴|⚪)?\s*(Green|Red|Anulada)\b/i;
+export type ResultSignal = "green" | "red" | "reembolso" | "meio-green" | "meio-red";
 
-export function detectResultFromMarker(text: string | null | undefined): "green" | "red" | "reembolso" | null {
+// "🏁 Resultado: 🟢 Green · +0,62u" / "🏁 Resultado: 🔴 Red · −1,00u" / "🏁
+// Resultado: ⚪ Anulada · +0,00u" / "🏁 Resultado: 🔴½ Meio-red · −0,75u" / "🏁
+// Resultado: 🟢½ Meio-green · +0,31u" — âncora no rótulo literal
+// "Resultado:" (nunca usado por esse tipster pra outra coisa); o círculo
+// colorido e o "½" antes da palavra são opcionais no match pra tolerar
+// variação de formatação sem quebrar. "Meio-*" vem ANTES de "Green"/"Red"
+// na alternativa pra nunca casar só a metade errada da palavra composta.
+const RESULT_MARKER_RE = /🏁\s*Resultado:\s*(?:🟢|🔴|⚪)?½?\s*(Meio-Green|Meio-Red|Green|Red|Anulada)\b/i;
+
+export function detectResultFromMarker(text: string | null | undefined): ResultSignal | null {
   if (!text) return null;
   const match = text.match(RESULT_MARKER_RE);
   if (!match) return null;
   const word = match[1]!.toLowerCase();
   if (word === "green") return "green";
   if (word === "red") return "red";
+  if (word === "meio-green") return "meio-green";
+  if (word === "meio-red") return "meio-red";
   return "reembolso"; // Anulada
 }
 
-function detectResult(text: string | null | undefined, groupName: string): "green" | "red" | "reembolso" | null {
+/** Exportado à parte de applyEditedMessageResult pra diagnóstico (ver
+ * backfillResultFromEmoji.ts) — permite distinguir "não achei sinal nenhum"
+ * de "achei um sinal, mas não apliquei" (mensagem com mais de 1 tip, ou
+ * `result` que já não estava "pending"). */
+export function detectResult(text: string | null | undefined, groupName: string): ResultSignal | null {
   if (RESULT_EMOJI_GROUP_NAMES.has(groupName)) return detectResultFromEmojis(text);
   if (RESULT_MARKER_GROUP_NAMES.has(groupName)) return detectResultFromMarker(text);
   return null;
@@ -77,10 +82,20 @@ function detectResult(text: string | null | undefined, groupName: string): "gree
 
 /** Chamado pelo listener de mensagens editadas (ver index.ts) — só age nos
  * grupos cadastrados em RESULT_EMOJI_GROUP_NAMES/RESULT_MARKER_GROUP_NAMES.
- * Atualiza TODAS as TelegramTip da mensagem editada de uma vez (uma
- * múltipla com N seleções ainda é 1 mensagem só). O sinal do próprio
- * tipster é tratado como definitivo — sempre sobrescreve `result`, mesmo
- * que já tenha um (uma correção do tipster também chega editando de novo). */
+ * Atualiza TODAS as TelegramTip da mensagem editada de uma vez — MAS só
+ * quando a mensagem mapeia pra exatamente 1 tip. Nos grupos de
+ * RESULT_MARKER_GROUP_NAMES, o formato ESCADA do Padovan junta pernas
+ * INDEPENDENTES (odd/stake próprios cada uma, podem ganhar/perder cada
+ * uma pro seu lado) na mesma mensagem — sem um exemplo real de como o
+ * tipster marca resultado numa ESCADA editada (uma linha "Resultado" por
+ * perna, ou só uma pra mensagem toda), aplicar um resultado só a todas de
+ * uma vez arriscaria errar quem não teve o mesmo desfecho; por ora fica
+ * pra revisão manual sempre que a mensagem tiver mais de 1 tip.
+ *
+ * Nunca sobrescreve um `result` que já saiu de "pending" (proteção pra
+ * marcação manual anterior) — como trade-off, isso também significa que
+ * uma CORREÇÃO do tipster (editar de novo depois de já ter marcado errado)
+ * não é reaplicada automaticamente; precisaria de reprocessamento manual. */
 export async function applyEditedMessageResult(
   messageId: number,
   messageText: string | null | undefined,
@@ -89,8 +104,15 @@ export async function applyEditedMessageResult(
   const result = detectResult(messageText, group.name);
   if (!result) return 0;
 
+  if (RESULT_MARKER_GROUP_NAMES.has(group.name)) {
+    const tipCount = await prisma.telegramTip.count({
+      where: { groupId: group.id, telegramMessageId: BigInt(messageId) },
+    });
+    if (tipCount > 1) return 0;
+  }
+
   const { count } = await prisma.telegramTip.updateMany({
-    where: { groupId: group.id, telegramMessageId: BigInt(messageId) },
+    where: { groupId: group.id, telegramMessageId: BigInt(messageId), result: "pending" },
     data: { result, needsReview: false },
   });
   if (count > 0) {
