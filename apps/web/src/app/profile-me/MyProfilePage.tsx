@@ -56,12 +56,15 @@ type TimelineEvent = { date: number; profit: number };
 type SeriesPoint = TelegramBancaSummary["series"]["peguei"][number];
 
 const RANGE_OPTIONS = [
+  { key: "1", label: "24h" },
   { key: "7", label: "7d" },
   { key: "30", label: "30d" },
   { key: "90", label: "90d" },
   { key: "all", label: "Tudo" },
 ] as const;
 type RangeKey = (typeof RANGE_OPTIONS)[number]["key"];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Real cumulative bankroll evolution (starting banca inicial + running pnl),
  * native bets and Telegram taken tips merged into one chronological line —
@@ -134,94 +137,129 @@ function BankrollChart({
   const tooltipLeftPct = (hoverX / width) * 100;
   const tooltipAlign = tooltipLeftPct > 60 ? "right" : tooltipLeftPct < 40 ? "left" : "center";
 
+  // Robot chart (WalletChart) reveals the date only on hover; here the window can
+  // span months, so once it covers more than a day we print a permanent day axis
+  // below the plot instead, picked at evenly spaced indices (same index→x mapping
+  // the polyline itself uses, so each label lines up under its point).
+  const spanMs = chronological[chronological.length - 1]!.date - chronological[0]!.date;
+  const showDayAxis = spanMs > DAY_MS;
+  const dayLabelCount = Math.min(6, values.length);
+  const dayLabels = showDayAxis
+    ? Array.from(
+        new Set(
+          Array.from({ length: dayLabelCount }, (_, k) =>
+            Math.round((k / (dayLabelCount - 1)) * (values.length - 1)),
+          ),
+        ),
+      ).map((index) => ({ index, date: chronological[index]!.date }))
+    : [];
+
   return (
-    <div className="relative">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        width="100%"
-        height={height}
-        preserveAspectRatio="none"
-        onMouseMove={handleMove}
-        onMouseLeave={() => setHoverIndex(null)}
-        className="cursor-crosshair"
-      >
-        <defs>
-          <linearGradient id="bankrollFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="currentColor" stopOpacity="0.4" className="text-accent" />
-            <stop offset="1" stopColor="currentColor" stopOpacity="0" className="text-accent" />
-          </linearGradient>
-        </defs>
-        <polygon points={areaPoints} fill="url(#bankrollFill)" />
-        <line
-          x1={0}
-          y1={refY}
-          x2={width}
-          y2={refY}
-          stroke="currentColor"
-          strokeWidth="1"
-          strokeDasharray="5 4"
-          className="text-text-quaternary"
-          vectorEffect="non-scaling-stroke"
-        />
-        <polyline points={points.join(" ")} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" className="text-accent" />
-        {hovered && (
-          <>
-            <line
-              x1={hoverX}
-              y1={0}
-              x2={hoverX}
-              y2={height}
-              stroke="currentColor"
-              strokeWidth="1"
-              strokeDasharray="4 3"
-              className="text-border-strong"
-              vectorEffect="non-scaling-stroke"
-            />
-            <circle
-              cx={hoverX}
-              cy={hoverY}
-              r="4"
-              className="text-accent"
-              fill="currentColor"
-              stroke="var(--color-surface-chip, #fff)"
-              strokeWidth="2"
-              vectorEffect="non-scaling-stroke"
-            />
-          </>
-        )}
-      </svg>
+    <div>
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          width="100%"
+          height={height}
+          preserveAspectRatio="none"
+          onMouseMove={handleMove}
+          onMouseLeave={() => setHoverIndex(null)}
+          className="cursor-crosshair"
+        >
+          <defs>
+            <linearGradient id="bankrollFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="currentColor" stopOpacity="0.4" className="text-accent" />
+              <stop offset="1" stopColor="currentColor" stopOpacity="0" className="text-accent" />
+            </linearGradient>
+          </defs>
+          <polygon points={areaPoints} fill="url(#bankrollFill)" />
+          <line
+            x1={0}
+            y1={refY}
+            x2={width}
+            y2={refY}
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeDasharray="5 4"
+            className="text-text-quaternary"
+            vectorEffect="non-scaling-stroke"
+          />
+          <polyline points={points.join(" ")} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" className="text-accent" />
+          {hovered && (
+            <>
+              <line
+                x1={hoverX}
+                y1={0}
+                x2={hoverX}
+                y2={height}
+                stroke="currentColor"
+                strokeWidth="1"
+                strokeDasharray="4 3"
+                className="text-border-strong"
+                vectorEffect="non-scaling-stroke"
+              />
+              <circle
+                cx={hoverX}
+                cy={hoverY}
+                r="4"
+                className="text-accent"
+                fill="currentColor"
+                stroke="var(--color-surface-chip, #fff)"
+                strokeWidth="2"
+                vectorEffect="non-scaling-stroke"
+              />
+            </>
+          )}
+        </svg>
 
-      <div className="pointer-events-none absolute inset-0">
-        {yLabels.map((v, i) => (
+        <div className="pointer-events-none absolute inset-0">
+          {yLabels.map((v, i) => (
+            <span
+              key={i}
+              className="absolute left-1 -translate-y-1/2 rounded bg-surface/80 px-1 font-mono text-[10px] text-text-tertiary"
+              style={{ top: `${(((height - ((v - min) / span) * height) / height) * 100).toFixed(2)}%` }}
+            >
+              {formatValue(v)}
+            </span>
+          ))}
           <span
-            key={i}
-            className="absolute left-1 -translate-y-1/2 rounded bg-surface/80 px-1 font-mono text-[10px] text-text-tertiary"
-            style={{ top: `${(((height - ((v - min) / span) * height) / height) * 100).toFixed(2)}%` }}
+            className="absolute right-1 -translate-y-full rounded bg-surface/80 px-1 font-mono text-[10px] text-text-tertiary"
+            style={{ top: `${((refY / height) * 100).toFixed(2)}%` }}
           >
-            {formatValue(v)}
+            banca inicial {formatValue(referenceValue)}
           </span>
-        ))}
-        <span
-          className="absolute right-1 -translate-y-full rounded bg-surface/80 px-1 font-mono text-[10px] text-text-tertiary"
-          style={{ top: `${((refY / height) * 100).toFixed(2)}%` }}
-        >
-          banca inicial {formatValue(referenceValue)}
-        </span>
-      </div>
+        </div>
 
-      {hovered && hoveredValue !== null && (
-        <div
-          className="pointer-events-none absolute top-1 z-10 rounded-lg border border-border bg-surface-alt px-2.5 py-1.5 font-mono text-[11px] shadow-lg"
-          style={{
-            left: tooltipAlign === "center" ? `${tooltipLeftPct}%` : tooltipAlign === "left" ? "0%" : undefined,
-            right: tooltipAlign === "right" ? "0%" : undefined,
-            transform: tooltipAlign === "center" ? "translateX(-50%)" : undefined,
-          }}
-        >
-          <div className="text-text-tertiary">{new Date(hovered.date).toLocaleDateString("pt-BR")}</div>
-          <div className={`font-bold ${hoveredValue >= referenceValue ? "text-accent" : "text-live"}`}>
-            {formatValue(hoveredValue)}
+        {hovered && hoveredValue !== null && (
+          <div
+            className="pointer-events-none absolute top-1 z-10 rounded-lg border border-border bg-surface-alt px-2.5 py-1.5 font-mono text-[11px] shadow-lg"
+            style={{
+              left: tooltipAlign === "center" ? `${tooltipLeftPct}%` : tooltipAlign === "left" ? "0%" : undefined,
+              right: tooltipAlign === "right" ? "0%" : undefined,
+              transform: tooltipAlign === "center" ? "translateX(-50%)" : undefined,
+            }}
+          >
+            <div className="text-text-tertiary">{new Date(hovered.date).toLocaleDateString("pt-BR")}</div>
+            <div className={`font-bold ${hoveredValue >= referenceValue ? "text-accent" : "text-live"}`}>
+              {formatValue(hoveredValue)}
+            </div>
           </div>
+        )}
+      </div>
+      {showDayAxis && (
+        <div className="relative mt-1.5 h-3.5">
+          {dayLabels.map(({ index, date }, k) => (
+            <span
+              key={index}
+              className="absolute font-mono text-[10px] text-text-tertiary"
+              style={{
+                left: `${(index / (values.length - 1)) * 100}%`,
+                transform: k === 0 ? "translateX(0)" : k === dayLabels.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
+              }}
+            >
+              {new Date(date).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+            </span>
+          ))}
         </div>
       )}
     </div>
