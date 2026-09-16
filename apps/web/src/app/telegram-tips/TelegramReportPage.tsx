@@ -495,7 +495,15 @@ export function TelegramReportPage() {
             value={bookmaker}
             onChange={setBookmaker}
             placeholder="Todas as casas"
-            options={bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) }))}
+            options={[
+              // Sentinela pro backend (routes.ts's /banca) — cobre tips
+              // "peguei" cuja casa pessoal nunca foi escolhida no formulário
+              // (aparecem como "—" na tabela de lucro por casa, mas nunca
+              // apareciam aqui porque essa lista só lista casas OFICIAIS,
+              // nunca o valor bruto do registro pessoal).
+              { value: "__none__", label: "Sem casa" },
+              ...bookmakers.map((b) => ({ value: b, label: bookmakerLabel(b) })),
+            ]}
             className="w-auto flex-none"
           />
 

@@ -1023,7 +1023,13 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   // do oficial (stake menor, casa diferente etc.). result sempre é oficial
   // nos dois (é um fato objetivo, não uma escolha pessoal).
   app.get<{ Querystring: { bookmaker?: string; days?: string } }>("/banca", async (request) => {
-    const bookmaker = request.query.bookmaker?.trim();
+    const bookmakerRaw = request.query.bookmaker?.trim();
+    // "__none__" filtra por SEM casa registrada (bookmaker null) — distinto
+    // de omitir o filtro (undefined = todas as casas). Sentinela nunca
+    // colide com uma casa de verdade: normalizeBookmakerSlug só produz
+    // [a-z0-9], nunca underscore.
+    const bookmaker: string | null | undefined = bookmakerRaw === "__none__" ? null : bookmakerRaw || undefined;
+    const matchesBookmaker = (value: string | null) => bookmaker === undefined || value === bookmaker;
     const userId = request.authUser!.id;
     // "7" | "30" | "90" | absent/"all" — scopes the whole summary (chart,
     // totals, breakdowns) to tips received in that window.
@@ -1058,7 +1064,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const unitValue = settings?.unitValue !== null && settings?.unitValue !== undefined ? Number(settings.unitValue) : null;
 
     const source: BancaSourceRow[] = rows
-      .filter((r) => !bookmaker || r.bookmaker === bookmaker)
+      .filter((r) => matchesBookmaker(r.bookmaker))
       .map((r) => ({
         unit: r.unit,
         odd: r.odd,
@@ -1069,7 +1075,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         bonusReais: 0,
       }));
     const taken: BancaSourceRow[] = rows
-      .filter((r) => r.takes[0]?.takenStatus === "taken" && (!bookmaker || r.takes[0].bookmaker === bookmaker))
+      .filter((r) => r.takes[0]?.takenStatus === "taken" && matchesBookmaker(r.takes[0].bookmaker))
       .map((r) => {
         const mine = r.takes[0]!;
         return {
@@ -1089,7 +1095,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const totalRow = (rows: BancaSourceRow[]) => aggregateBy(rows, () => "total", unitValue)[0] ?? null;
 
     const openUnits = openTakes
-      .filter((t) => !bookmaker || (t.bookmaker ?? t.tip.bookmaker) === bookmaker)
+      .filter((t) => matchesBookmaker(t.bookmaker ?? t.tip.bookmaker))
       .reduce((sum, t) => sum + Number(t.unit ?? t.tip.unit ?? 0), 0);
 
     return {
@@ -1104,7 +1110,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       totals: { geral: totalRow(source), peguei: totalRow(taken) },
       series: { geral: series(source, unitValue), peguei: series(taken, unitValue) },
       aberto: {
-        count: openTakes.filter((t) => !bookmaker || (t.bookmaker ?? t.tip.bookmaker) === bookmaker).length,
+        count: openTakes.filter((t) => matchesBookmaker(t.bookmaker ?? t.tip.bookmaker)).length,
         units: Math.round(openUnits * 100) / 100,
         unitsBRL: unitValue !== null ? Math.round(openUnits * unitValue * 100) / 100 : null,
       },
