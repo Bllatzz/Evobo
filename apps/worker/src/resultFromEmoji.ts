@@ -7,6 +7,20 @@ import { prisma } from "./db.js";
  * betAnalytix/config.ts (adicionar um grupo novo = adicionar uma linha aqui). */
 export const RESULT_EMOJI_GROUP_NAMES = new Set(["ST - Super Odds de Valor"]);
 
+/** Grupos onde o tipster marca o resultado editando a mensagem com uma linha
+ * própria ("🏁 Resultado: 🟢 Green · +0,62u" / "🏁 Resultado: 🔴 Red ·
+ * −1,00u") em vez do padrão 3x✅/3x❌ acima — hoje só o Padovan All Sports
+ * (a "🏁 Resultado" da mensagem, não confundir com a linha "📊 Planilhada"
+ * que parseTip.ts já ignora na hora de ler a tip original). Mesma convenção
+ * de RESULT_EMOJI_GROUP_NAMES: adicionar um grupo novo = adicionar uma
+ * linha aqui. */
+export const RESULT_MARKER_GROUP_NAMES = new Set(["Padovan All Sports"]);
+
+/** União dos dois — todo grupo onde alguma forma de edição sinaliza o
+ * resultado (usado por quem precisa varrer/backfillar os dois de uma vez,
+ * ver backfillResultFromEmoji.ts). */
+export const RESULT_SIGNAL_GROUP_NAMES = new Set([...RESULT_EMOJI_GROUP_NAMES, ...RESULT_MARKER_GROUP_NAMES]);
+
 const MIN_EMOJI_COUNT = 3;
 
 function countOccurrences(text: string, char: string): number {
@@ -33,20 +47,37 @@ export function detectResultFromEmojis(text: string | null | undefined): "green"
   return null;
 }
 
+// "🏁 Resultado: 🟢 Green · +0,62u" / "🏁 Resultado: 🔴 Red · −1,00u" — âncora
+// no rótulo literal "Resultado:" (nunca usado por esse tipster pra outra
+// coisa) seguido da palavra Green/Red em inglês; o círculo colorido antes é
+// opcional no match pra tolerar variação de formatação sem quebrar.
+const RESULT_MARKER_RE = /🏁\s*Resultado:\s*(?:🟢|🔴)?\s*(Green|Red)\b/i;
+
+export function detectResultFromMarker(text: string | null | undefined): "green" | "red" | null {
+  if (!text) return null;
+  const match = text.match(RESULT_MARKER_RE);
+  if (!match) return null;
+  return match[1]!.toLowerCase() === "green" ? "green" : "red";
+}
+
+function detectResult(text: string | null | undefined, groupName: string): "green" | "red" | null {
+  if (RESULT_EMOJI_GROUP_NAMES.has(groupName)) return detectResultFromEmojis(text);
+  if (RESULT_MARKER_GROUP_NAMES.has(groupName)) return detectResultFromMarker(text);
+  return null;
+}
+
 /** Chamado pelo listener de mensagens editadas (ver index.ts) — só age nos
- * grupos cadastrados em RESULT_EMOJI_GROUP_NAMES. Atualiza TODAS as
- * TelegramTip da mensagem editada de uma vez (uma múltipla com N seleções
- * ainda é 1 mensagem só). O sinal do próprio tipster é tratado como
- * definitivo — sempre sobrescreve `result`, mesmo que já tenha um (uma
- * correção do tipster também chega editando de novo). */
+ * grupos cadastrados em RESULT_EMOJI_GROUP_NAMES/RESULT_MARKER_GROUP_NAMES.
+ * Atualiza TODAS as TelegramTip da mensagem editada de uma vez (uma
+ * múltipla com N seleções ainda é 1 mensagem só). O sinal do próprio
+ * tipster é tratado como definitivo — sempre sobrescreve `result`, mesmo
+ * que já tenha um (uma correção do tipster também chega editando de novo). */
 export async function applyEditedMessageResult(
   messageId: number,
   messageText: string | null | undefined,
   group: TelegramGroup,
 ): Promise<number> {
-  if (!RESULT_EMOJI_GROUP_NAMES.has(group.name)) return 0;
-
-  const result = detectResultFromEmojis(messageText);
+  const result = detectResult(messageText, group.name);
   if (!result) return 0;
 
   const { count } = await prisma.telegramTip.updateMany({
