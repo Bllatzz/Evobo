@@ -50,13 +50,14 @@ export function extractBookmaker(url: string | null): string | null {
 export type TextEntity = { url?: string };
 
 const URL_IN_TEXT_RE = /https?:\/\/\S+/i;
-// A tipster sometimes bakes the result mark right onto an existing line
-// instead of adding it as its own line ("1,75u✅") — this only ever shows up
-// after the tip already resolved (the message got edited to append it, same
-// "green = ✅ added" convention as elsewhere in this file), so it's pure
-// noise for parsing purposes. Stripped from every line up front, same
+// A tipster sometimes bakes a status mark right onto an existing line
+// instead of adding it as its own line ("1,75u✅", "1,5u🔄") — this only ever
+// shows up after the tip already resolved or changed (the message got
+// edited to append it: ✅/❌ for green/red, 🔄 for "odd moved, leg
+// ignored" — same conventions used elsewhere for edited messages), so it's
+// pure noise for parsing purposes. Stripped from every line up front, same
 // treatment as the boost note below.
-const TRAILING_RESULT_MARK_RE = /(?:\s*[✅❌])+\s*$/u;
+const TRAILING_RESULT_MARK_RE = /(?:\s*[✅❌🔄])+\s*$/u;
 const UNIT_ONLY_RE = /^(\d+(?:[.,]\d+)?)\s*u$/i;
 // "1u com o aumento" — stake line noting the bet uses a bookmaker odds-boost
 // ("Aposta Turbinada"); the boosted odd is never spelled out in text (comes
@@ -163,6 +164,11 @@ export const KNOWN_PATTERNS: Record<string, { description: string; example: stri
   unit_lines: {
     description: "Várias linhas '<n>u' sozinhas — cada uma é uma seleção separada; mercado, jogo e odd vêm da foto.",
     example: "0,75u\n0,25u\n0,25u\n\nhttps://www.betano.bet.br/bookingcode/...",
+  },
+  unit_lines_plus_combo: {
+    description:
+      "unit_lines + uma linha '<n>u na <Rótulo>' — vira N tips simples (uma por linha '<n>u') mais 1 tip múltipla; mercado, jogo e odd de todas vêm da foto. Aceita '🔄' colado numa linha (edição marcando 'odd mudou, ignorada') como ruído, igual ✅/❌.",
+    example: "2u\n1,5u🔄\n1,25u\n\n0,5u na Tripla🔄",
   },
   combo: {
     description: "Uma linha '<n>u na <Rótulo>' — aposta múltipla; 1 tip só com os mercados concatenados vindos da foto.",
@@ -597,6 +603,8 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
   // do grupo), não uma tip de verdade.
   const hasLink = betUrl !== null;
 
+  const unitOnlyLines = remaining.filter((l) => UNIT_ONLY_RE.test(l));
+
   if (hasLink) {
     const eachMatch = remaining.map((l) => l.match(UNIT_EACH_RE)).find((m): m is RegExpMatchArray => m !== null);
     const comboMatch = remaining.map((l) => l.match(UNIT_COMBO_RE)).find((m): m is RegExpMatchArray => m !== null);
@@ -616,6 +624,26 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
         selections: [{ text: null, unit: toNumber(comboMatch[1]!) }],
       };
     }
+    // N linhas "<n>u" soltas, cada uma com SEU PRÓPRIO stake (ao contrário de
+    // "em cada" acima, que é um stake uniforme pra uma contagem só
+    // descoberta na foto) — MAIS uma linha "<n>u na <Rótulo>" pra múltipla
+    // dessas mesmas pernas. Mesmo raciocínio do check acima: sem isso ANTES
+    // do "combo" genérico logo abaixo, o combo "vence" sozinho e as pernas
+    // soltas somem (era exatamente o formato — 2u/1,5u/1,25u + "0,5u na
+    // Tripla" — que fez 3 tips virarem 0 em produção).
+    if (comboMatch && unitOnlyLines.length > 1) {
+      return {
+        pattern: "unit_lines_plus_combo",
+        bookmaker,
+        betUrl,
+        fields,
+        comboLabel: comboMatch[2]!.trim(),
+        selections: [
+          ...unitOnlyLines.map((l) => ({ text: null, unit: toNumber(l.match(UNIT_ONLY_RE)![1]!) })),
+          { text: null, unit: toNumber(comboMatch[1]!) },
+        ],
+      };
+    }
     if (comboMatch) {
       return {
         pattern: "combo",
@@ -628,7 +656,6 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
     }
   }
 
-  const unitOnlyLines = remaining.filter((l) => UNIT_ONLY_RE.test(l));
   if (hasLink && unitOnlyLines.length > 1) {
     return {
       pattern: "unit_lines",
