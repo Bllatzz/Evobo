@@ -548,6 +548,31 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     }
     const input = parsed.data;
 
+    // Corrigir a casa oficial (ex.: "bdeal" -> "betfair", um hostname mal
+    // reconhecido) só trocava a coluna `bookmaker` — o mesmo nome errado
+    // sobrevivia dentro de `bookmakerOptions` (as casas alternativas que o
+    // parser achou na mensagem original) e continuava vazando pro dropdown
+    // "+casa" via GET /bookmakers, que varre as duas fontes. Sempre que a
+    // casa muda de um valor definido pra outro, propaga o mesmo rename pras
+    // opções desta tip — nunca mexe nas opções quando `bookmaker` estava
+    // null (tip genuinamente ambígua entre casas, ver parseTip.ts), pra não
+    // apagar alternativas válidas que outra pessoa ainda pode escolher.
+    let nextBookmakerOptions: Prisma.InputJsonValue | undefined;
+    if (input.bookmaker !== undefined && input.bookmaker !== null) {
+      const current = await prisma.telegramTip.findUnique({
+        where: { id: request.params.id },
+        select: { bookmaker: true, bookmakerOptions: true },
+      });
+      if (current?.bookmaker && current.bookmaker !== input.bookmaker && Array.isArray(current.bookmakerOptions)) {
+        const options = current.bookmakerOptions as { bookmaker: string | null; betUrl: string | null }[];
+        if (options.some((o) => o.bookmaker === current.bookmaker)) {
+          nextBookmakerOptions = options.map((o) =>
+            o.bookmaker === current.bookmaker ? { ...o, bookmaker: input.bookmaker } : o,
+          ) as Prisma.InputJsonValue;
+        }
+      }
+    }
+
     const tip = await prisma.telegramTip.update({
       where: { id: request.params.id },
       data: {
@@ -559,6 +584,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         ...(input.marketType !== undefined ? { marketType: input.marketType } : {}),
         ...(input.match !== undefined ? { match: input.match } : {}),
         ...(input.bookmaker !== undefined ? { bookmaker: input.bookmaker } : {}),
+        ...(nextBookmakerOptions !== undefined ? { bookmakerOptions: nextBookmakerOptions } : {}),
         ...(input.betUrl !== undefined ? { betUrl: input.betUrl } : {}),
         ...(input.odd !== undefined ? { odd: input.odd, oddSource: input.odd !== null ? "manual" : null } : {}),
         ...(input.limit !== undefined ? { limit: input.limit } : {}),
