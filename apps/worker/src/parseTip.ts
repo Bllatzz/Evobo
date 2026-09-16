@@ -50,6 +50,13 @@ export function extractBookmaker(url: string | null): string | null {
 export type TextEntity = { url?: string };
 
 const URL_IN_TEXT_RE = /https?:\/\/\S+/i;
+// A tipster sometimes bakes the result mark right onto an existing line
+// instead of adding it as its own line ("1,75u✅") — this only ever shows up
+// after the tip already resolved (the message got edited to append it, same
+// "green = ✅ added" convention as elsewhere in this file), so it's pure
+// noise for parsing purposes. Stripped from every line up front, same
+// treatment as the boost note below.
+const TRAILING_RESULT_MARK_RE = /(?:\s*[✅❌])+\s*$/u;
 const UNIT_ONLY_RE = /^(\d+(?:[.,]\d+)?)\s*u$/i;
 // "1u com o aumento" — stake line noting the bet uses a bookmaker odds-boost
 // ("Aposta Turbinada"); the boosted odd is never spelled out in text (comes
@@ -72,6 +79,13 @@ const UNIT_COMBO_WITH_ODD_RE = /^(\d+(?:[.,]\d+)?)\s*u\s+na\s+(.+?)\s*@\s*(\d+(?
 // (market, odd and stake all in the text, e.g. a NFL/"Tripla" style message
 // with N standalone legs plus a combo line built from UNIT_COMBO_WITH_ODD_RE).
 const SELECTION_AT_ODD_UNIT_RE = /^(.+?)\s*@\s*(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)\s*u$/i;
+// "<Seleção> @<odd>" alone on its line, with the stake on its OWN separate
+// "<n>u" line instead of trailing the same one (unlike
+// SELECTION_AT_ODD_UNIT_RE above) — e.g. "-2.5 Cantos Sabah @2.65" +
+// "1,75u" as two lines. Only tried where a lone unit-only line is already
+// expected (see the inline_market fallback below), so it never competes
+// with the combo/legs branches that require the unit inline.
+const SELECTION_AT_ODD_ONLY_RE = /^(.+?)\s*@\s*(\d+(?:[.,]\d+)?)$/i;
 const UNIT_INLINE_RE = /^(.*\S)\s+(\d+(?:[.,]\d+)?)\s*u$/i;
 const ODD_LINE_RE = /\bodd\b\s*:?\s*(\d+(?:[.,]\d+)?)/i;
 // "+0,50u aq na odd 3.96, fechando 1u" — a REPLY to an already-known tip
@@ -495,7 +509,7 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
 
   const allLines = rawText
     .split("\n")
-    .map((l) => l.trim())
+    .map((l) => l.trim().replace(TRAILING_RESULT_MARK_RE, ""))
     .filter((l) => l.length > 0)
     .map((l) => {
       const boost = l.match(UNIT_WITH_BOOST_RE);
@@ -663,13 +677,21 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
     const freeLines = remaining.filter((l) => l !== unitOnlyLines[0]);
     const matchLine = freeLines.find((l) => MATCH_LINE_RE.test(l)) ?? null;
     const marketLine = freeLines.find((l) => l !== matchLine) ?? null;
+    // "<Seleção> @<odd>" on its own line (stake lives on the separate "<n>u"
+    // line handled above) — pull the odd out instead of leaving "@2.65"
+    // baked into the selection text as unstructured noise.
+    const marketWithOdd = marketLine?.match(SELECTION_AT_ODD_ONLY_RE);
     return {
       pattern: "inline_market",
       bookmaker,
       betUrl,
       fields,
       ...(matchLine ? { match: matchLine } : {}),
-      selections: [{ text: marketLine, unit }],
+      selections: [
+        marketWithOdd
+          ? { text: marketWithOdd[1]!.trim(), unit, odd: toNumber(marketWithOdd[2]!) }
+          : { text: marketLine, unit },
+      ],
     };
   }
 
