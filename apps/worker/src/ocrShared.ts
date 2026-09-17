@@ -50,8 +50,10 @@ export function buildOcrPrompt(expectedCount: number | null): string {
   const marketGameNote = `"market" é o mercado/seleção apostada por extenso, como está escrito
 no bilhete — se o mercado inclui o nome de um time/jogador como parte da própria seleção (ex.:
 "Club Cienciano - Resultado do 1° Tempo", "Bodo/Glimt Escanteios"), inclua isso TODO dentro de
-"market". "game" é só o confronto geral do jogo, os 2 times (ex.: "Flamengo x Vasco"), null se
-não identificável — nunca repita ali o que já foi descrito em "market".`;
+"market". "game" é o confronto geral desse jogo, os 2 times (ex.: "Flamengo x Vasco") — preencha
+"game" SEMPRE que o confronto for identificável na imagem, mesmo que os nomes dos times já
+apareçam dentro de "market" também (são dois campos separados, um não substitui o outro); use
+null só quando o confronto não for identificável de jeito nenhum.`;
 
   const marketTypeNote = `Também "marketType": a categoria desse mercado — escolha EXATAMENTE
 uma destas opções, copiando o texto tal como está aqui, sem inventar uma nova categoria: ${MARKET_TYPE_CATEGORIES.map((c) => `"${c}"`).join(", ")}.
