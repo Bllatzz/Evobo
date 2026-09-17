@@ -68,7 +68,13 @@ async function applyMultiLegResult(
     .map((s) => s.market)
     .filter((m): m is string => !!m)
     .join("\n");
+  // Combo de múltiplos jogos (ex.: um jogo por perna) — junta os distintos
+  // com "//" em vez de só aceitar quando todas as pernas são do mesmo jogo;
+  // antes disso, `match` ficava vazio de propósito sempre que a combo
+  // cruzava mais de um confronto (ver marketTypes logo abaixo pro mesmo
+  // padrão já usado pra "Combinada").
   const games = [...new Set(selections.map((s) => s.game).filter((g): g is string => !!g))];
+  const game = games.length > 0 ? games.join(" // ") : null;
   const odd = totalOdd ?? (selections.length === 1 ? selections[0]!.odd : null);
   // Uma linha de tip pode juntar várias pernas (combo/múltipla) — se todas
   // caíram na mesma categoria, usa ela; se divergem, marca "Combinada" em vez
@@ -80,7 +86,7 @@ async function applyMultiLegResult(
     where: { id: tipId },
     data: {
       ...(tip.needMarket && market ? { selection: market } : {}),
-      ...(tip.needGame && games.length === 1 ? { match: games[0] } : {}),
+      ...(tip.needGame && game ? { match: game } : {}),
       ...(tip.needOdd && odd !== null ? { odd, oddSource: "ocr" } : {}),
       ...(tip.needMarketType && marketType ? { marketType } : {}),
     },
