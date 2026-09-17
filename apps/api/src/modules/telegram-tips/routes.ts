@@ -343,6 +343,12 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
 
     const { count } = await prisma.telegramTip.updateMany({ where: { bookmaker: oldName }, data: { bookmaker: newName } });
     await rewriteBookmakerOptions(oldName, newName);
+    // Sem isso, a aposta pessoal de quem já tinha marcado "Peguei" antes do
+    // rename continua com o nome antigo/errado pra sempre (ex.: "bdeal"
+    // sobrevivendo na banca do usuário depois de renomear a tip pra
+    // "betfair") — a tabela "Casas de apostas" do perfil lê daqui, não de
+    // TelegramTip.bookmaker.
+    await prisma.telegramTipTake.updateMany({ where: { bookmaker: oldName }, data: { bookmaker: newName } });
 
     const settings = await prisma.telegramBancaSettings.findUnique({ where: { userId: request.authUser!.id } });
     const colors = settings?.bookmakerColors as Record<string, string> | null;
@@ -367,6 +373,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
 
     const { count } = await prisma.telegramTip.updateMany({ where: { bookmaker: name }, data: { bookmaker: null } });
     await rewriteBookmakerOptions(name, null);
+    await prisma.telegramTipTake.updateMany({ where: { bookmaker: name }, data: { bookmaker: null } });
 
     return { cleared: count };
   });
