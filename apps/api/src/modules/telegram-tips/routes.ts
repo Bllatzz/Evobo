@@ -1082,13 +1082,20 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         bonusReais: 0,
       }));
     const taken: BancaSourceRow[] = rows
-      .filter((r) => r.takes[0]?.takenStatus === "taken" && matchesBookmaker(r.takes[0].bookmaker))
+      .filter((r) => r.takes[0]?.takenStatus === "taken" && matchesBookmaker(r.takes[0].bookmaker ?? r.bookmaker))
       .map((r) => {
         const mine = r.takes[0]!;
+        // Mesmo fallback pro valor oficial da tip quando o take não tem o
+        // próprio (unit/odd/bookmaker nulos) já usado no card de
+        // apps/web/src/app/telegram-tips/TelegramTipsPage.tsx:204 ("tip.mine.unit
+        // ?? tip.unit") e nos openTakes logo acima — sem isso, uma aposta tomada
+        // sem edição manual (unit/casa herdados da tip oficial) sumia da tabela
+        // "Casas de apostas" do perfil (ROI "-", grupo errado) mesmo aparecendo
+        // certinha em toda outra tela.
         return {
-          unit: mine.unit,
-          odd: mine.odd,
-          bookmaker: mine.bookmaker,
+          unit: mine.unit ?? r.unit,
+          odd: mine.odd ?? r.odd,
+          bookmaker: mine.bookmaker ?? r.bookmaker,
           result: r.result,
           groupName: r.group.name,
           receivedAt: r.receivedAt,
