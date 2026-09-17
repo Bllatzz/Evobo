@@ -267,12 +267,13 @@ function AdminTipRow({
     <div className="border-t border-border-subtle py-3 first:border-t-0">
       <div className="mb-2.5 flex items-center gap-2.5">
         <span className="w-3.5 flex-none text-center font-mono text-[11px] text-text-tertiary">{index}</span>
-        <input
+        <textarea
           value={selection}
           onChange={(e) => setSelection(e.target.value)}
           onBlur={() => selection.trim() !== (tip.selection ?? "") && commit({ selection: selection.trim() })}
           placeholder="Mercado/seleção"
-          className="min-w-0 flex-1 truncate rounded bg-transparent text-[13px] font-semibold text-text outline-none"
+          rows={Math.max(1, selection.split("\n").length)}
+          className="min-w-0 flex-1 resize-none rounded bg-transparent text-[13px] font-semibold leading-snug text-text outline-none"
         />
         <span className="flex-none font-mono text-[12px] font-bold">{tip.odd != null ? tip.odd.toFixed(2) : "—"}</span>
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
