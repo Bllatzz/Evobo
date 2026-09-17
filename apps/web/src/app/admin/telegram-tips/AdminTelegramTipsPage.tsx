@@ -631,6 +631,8 @@ export function AdminTelegramTipsPage() {
           >
             Precisa revisar
           </button>
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <button
             onClick={async () => {
               setRetrying(true);
@@ -643,7 +645,7 @@ export function AdminTelegramTipsPage() {
               }
             }}
             disabled={retrying}
-            className="ml-auto flex-none rounded-full bg-accent-soft px-3.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.02em] text-accent disabled:opacity-50"
+            className="flex-none rounded-full bg-accent-soft px-3.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.02em] text-accent disabled:opacity-50"
           >
             {retrying ? "Reenfileirando…" : "Reprocessar OCR (faltando)"}
           </button>
