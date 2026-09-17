@@ -731,12 +731,19 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
   }
 
   if (fields.odd !== undefined || fields.percentage !== undefined || fields.limit !== undefined) {
+    // A linha solta que sobrou em `remaining` (quando existe) é a descrição
+    // do mercado por extenso — ex. "Harry kane marcar" antes de "⚠️ ODD:
+    // 2.00" — perdida até aqui porque esse fallback nunca olhava pra
+    // `remaining`, só pra `fields`; sem foto pra fazer OCR nisso (formato do
+    // Lemos/ST raramente tem), isso deixava o mercado permanentemente vazio
+    // mesmo quando já estava escrito claro no texto.
+    const marketLine = remaining[0] ?? null;
     return {
       pattern: fields.odd !== undefined ? "odd_pct_limit" : "pct_limit_only",
       bookmaker,
       betUrl,
       fields,
-      selections: [{ text: null, unit: fields.percentage ?? null, odd: fields.odd }],
+      selections: [{ text: marketLine, unit: fields.percentage ?? null, odd: fields.odd }],
     };
   }
 
