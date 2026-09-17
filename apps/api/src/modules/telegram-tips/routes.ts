@@ -414,9 +414,9 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       search?: string;
       dateFrom?: string;
       dateTo?: string;
-      /** Comma list of "odd"|"unit"|"match"|"bookmaker" — tips missing ANY of
-       * these (OR'd together) — the Admin "Tips oficiais" screen's audit
-       * filters (odd/jogo/casa/unidade faltando). */
+      /** Comma list of "odd"|"unit"|"match"|"selection"|"bookmaker" — tips
+       * missing ANY of these (OR'd together) — the Admin "Tips oficiais"
+       * screen's audit filters (odd/jogo/mercado/casa/unidade faltando). */
       missing?: string;
       /** "true" — só tips que o auto-grader diário do bet-analytix marcou
        * como ambíguas (needsReview), pra revisão manual no Admin. */
@@ -435,8 +435,14 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       missingFields.length > 0
         ? {
             OR: missingFields
-              .map((f) => (f === "odd" || f === "unit" || f === "match" || f === "bookmaker" ? { [f]: null } : null))
-              .filter((f): f is { [key: string]: null } => f !== null),
+              .map((f): Prisma.TelegramTipWhereInput | null => {
+                if (f === "odd" || f === "unit" || f === "match" || f === "bookmaker") return { [f]: null };
+                // `selection` fica "" (não null) quando processMessage.ts cria a tip
+                // sem mercado no texto — as duas formas contam como "faltando".
+                if (f === "selection") return { OR: [{ selection: null }, { selection: "" }] };
+                return null;
+              })
+              .filter((f): f is Prisma.TelegramTipWhereInput => f !== null),
           }
         : {};
 

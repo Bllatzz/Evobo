@@ -59,6 +59,7 @@ const MISSING_FILTERS = [
   { key: "odd", label: "Odd faltando" },
   { key: "unit", label: "Unidade faltando" },
   { key: "match", label: "Jogo faltando" },
+  { key: "selection", label: "Mercado faltando" },
   { key: "bookmaker", label: "Casa faltando" },
 ] as const;
 

@@ -8,7 +8,10 @@ import { extractDetailsQueue } from "./queues/extractDetailsWorker.js";
  * take pessoal de qualquer usuário etc. continuam intactos. */
 export async function retryMissingOcr(): Promise<{ groupsEnqueued: number; tipsEnqueued: number }> {
   const candidates = await prisma.telegramTip.findMany({
-    where: { photoPath: { not: null }, OR: [{ odd: null }, { match: null }, { selection: null }] },
+    // `selection` fica "" (não null) quando a tip é criada sem mercado no
+    // texto — as duas formas contam como "faltando" (ver o mesmo tratamento
+    // no filtro "Mercado faltando" do admin, routes.ts).
+    where: { photoPath: { not: null }, OR: [{ odd: null }, { match: null }, { selection: null }, { selection: "" }] },
     select: { id: true, photoPath: true, odd: true, match: true, selection: true, marketType: true },
   });
 
@@ -26,7 +29,7 @@ export async function retryMissingOcr(): Promise<{ groupsEnqueued: number; tipsE
   for (const [photoPath, tips] of byPhoto) {
     const tipsToFill = tips.map((t) => ({
       id: t.id,
-      needMarket: t.selection === null,
+      needMarket: t.selection === null || t.selection === "",
       needGame: t.match === null,
       needOdd: t.odd === null,
       // Não entra no critério de seleção acima (não vale reprocessar o
