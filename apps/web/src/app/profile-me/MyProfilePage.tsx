@@ -478,15 +478,11 @@ export function MyProfilePage() {
         const map: Record<string, number | null> = {};
         for (const row of banca.peguei.byBookmaker) map[row.key] = row.profitBRL;
         setProfitByBookmaker(map);
-        setBookmakerRows([...banca.peguei.byBookmaker].sort((a, b) => b.profit - a.profit));
-        setGroupRows([...banca.peguei.byGroup].sort((a, b) => b.profit - a.profit));
       })
       .catch(() => {
         setTg(NO_TELEGRAM_FOLD);
         setBalances([]);
         setProfitByBookmaker({});
-        setBookmakerRows([]);
-        setGroupRows([]);
       });
     fetchTelegramTips({ takenStatus: "taken", limit: 1 })
       .then((res) => setTgTipsCount(res.total))
@@ -496,12 +492,22 @@ export function MyProfilePage() {
   useEffect(() => {
     if (!canAccess("telegram_banca")) {
       setTelegramSeries([]);
+      setBookmakerRows([]);
+      setGroupRows([]);
       return;
     }
     const days = chartRange === "all" ? undefined : Number(chartRange);
     fetchTelegramBanca(undefined, days)
-      .then((res) => setTelegramSeries(res.series.peguei))
-      .catch(() => setTelegramSeries([]));
+      .then((res) => {
+        setTelegramSeries(res.series.peguei);
+        setBookmakerRows([...res.peguei.byBookmaker].sort((a, b) => b.profit - a.profit));
+        setGroupRows([...res.peguei.byGroup].sort((a, b) => b.profit - a.profit));
+      })
+      .catch(() => {
+        setTelegramSeries([]);
+        setBookmakerRows([]);
+        setGroupRows([]);
+      });
   }, [chartRange, canAccess]);
 
   const settled = useMemo(
