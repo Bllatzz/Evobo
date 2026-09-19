@@ -14,6 +14,7 @@ import { applyEditedMessageResult } from "./resultFromEmoji.js";
 import { backfillResultFromEmoji } from "./backfillResultFromEmoji.js";
 import { applyMyReactionTake } from "./reactionTake.js";
 import { backfillReactionTake } from "./backfillReactionTake.js";
+import { syncRecentSignals } from "./syncRecentSignals.js";
 
 export { retryMissingOcr } from "./retryOcr.js";
 export { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
@@ -113,9 +114,12 @@ export async function startTelegramWorker() {
   // já importada é no-op.
   // fillGapsSince, NÃO backfillSince: este último apaga e recria toda tip da
   // janela (perde OCR, 👍/👎 e resultado), e rodava a cada deploy.
-  fillGapsSince(client, Math.floor(Date.now() / 1000) - 3 * 3600).catch((err) =>
-    console.error("[worker] falha no backfill de boot:", err),
-  );
+  // Depois de preencher as tips que faltam, devolve 👍/👎 e resultado por
+  // emoji das últimas 12h (cobre o que os backfills apagando tips levaram hoje).
+  fillGapsSince(client, Math.floor(Date.now() / 1000) - 3 * 3600)
+    .then(() => syncRecentSignals(client, 12))
+    .then((r) => console.log(`[worker] sync de boot: ${r.takes} peguei/não peguei e ${r.results} resultado(s) restaurados.`))
+    .catch((err) => console.error("[worker] falha no backfill de boot:", err));
 
   startExtractDetailsWorker();
 
@@ -198,6 +202,8 @@ export async function startTelegramWorker() {
       const results = await fillGapsSince(client, Math.floor(Date.now() / 1000) - POLL_WINDOW_S);
       const created = results.reduce((sum, r) => sum + r.created, 0);
       if (created > 0) console.log(`[worker] poll recuperou ${created} tip(s) que o push não entregou.`);
+      const sync = await syncRecentSignals(client, 2);
+      if (sync.takes > 0 || sync.results > 0) console.log(`[worker] sync recuperou ${sync.takes} reação(ões) e ${sync.results} resultado(s) que o push não entregou.`);
     } catch (err) {
       console.error("[worker] falha no poll de mensagens:", err);
     } finally {

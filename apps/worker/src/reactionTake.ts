@@ -72,6 +72,9 @@ export async function applyMyReactionTake(
   groupId: string,
   telegramMessageId: bigint,
   reactions: Api.TypeMessageReactions | undefined,
+  /** Só cria take pra tip que ainda não tem uma — usado pela sincronização
+   * periódica, que nunca pode desfazer uma correção manual feita na tela. */
+  createOnly = false,
 ): Promise<number> {
   const emoji = extractMyReactionEmoji(reactions);
   const takenStatus = emoji ? REACTION_TO_TAKEN_STATUS[emoji] : undefined;
@@ -79,7 +82,11 @@ export async function applyMyReactionTake(
 
   const [tips, settings] = await Promise.all([
     prisma.telegramTip.findMany({
-      where: { groupId, telegramMessageId },
+      where: {
+        groupId,
+        telegramMessageId,
+        ...(createOnly ? { takes: { none: { userId: REACTION_TAKEN_USER_ID } } } : {}),
+      },
       select: { id: true, unit: true, odd: true, bookmaker: true, betUrl: true, limit: true },
     }),
     prisma.telegramBancaSettings.findUnique({ where: { userId: REACTION_TAKEN_USER_ID }, select: { unitValue: true } }),
