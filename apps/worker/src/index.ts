@@ -104,6 +104,17 @@ export async function startTelegramWorker() {
   console.log("[worker] conectado.");
   liveClient = client;
 
+  // Recupera tips perdidas num incidente real de "listener vivo mas surdo"
+  // (mesmo bug do robotip, ver telegram.js — client.connected fica true
+  // enquanto os updates param de chegar; sem isso a mensagem nunca é
+  // reprocessada, mesmo depois do watchdog abaixo reconectar). Roda 1x no
+  // boot cobrindo uma janela generosa (3h) — processMessage já deduplica
+  // por (groupId, telegramMessageId), então rodar de novo sobre mensagem
+  // já importada é no-op.
+  backfillSince(client, Math.floor(Date.now() / 1000) - 3 * 3600).catch((err) =>
+    console.error("[worker] falha no backfill de boot:", err),
+  );
+
   startExtractDetailsWorker();
 
   purgeOldTips().catch((err) => console.error("[purge] falha:", err));
@@ -181,12 +192,23 @@ export async function startTelegramWorker() {
     const silentForMs = Date.now() - lastUpdateAt;
     if (silentForMs <= WORKER_STALE_THRESHOLD_MS) return;
 
+    // sinceUnix a partir de quando ficou mudo (com folga de 5min pra trás,
+    // margem contra imprecisão do próprio lastUpdateAt) — reconectar sozinho
+    // não reprocessa as mensagens perdidas durante o silêncio, só volta a
+    // receber as novas a partir de agora; sem isso a tip fica perdida pra
+    // sempre mesmo com o listener saudável de novo.
+    const goneQuietAt = lastUpdateAt;
     console.error(`[worker] listener mudo há ${Math.round(silentForMs / 60_000)}min — forçando reconexão.`);
     try {
       await client.disconnect();
       await client.connect();
       lastUpdateAt = Date.now();
       console.log("[worker] reconectado após ficar mudo.");
+
+      const sinceUnix = Math.floor(goneQuietAt / 1000) - 5 * 60;
+      const results = await backfillSince(client, sinceUnix);
+      const created = results.reduce((sum, r) => sum + r.created, 0);
+      console.log(`[worker] backfill pós-reconexão: ${created} tip(s) recuperada(s).`);
     } catch (err) {
       console.error("[worker] falha ao forçar reconexão:", err);
     }
