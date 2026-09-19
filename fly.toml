@@ -3,7 +3,7 @@
 # runs apps/worker's Telegram listener in-process (see server.ts) — one
 # machine instead of two, since this is a single-user hobby deployment.
 #
-# Memory: bumped 512mb -> 1536mb (2026-09-19). Three real-time Telegram
+# Memory: bumped 512mb -> 1024mb (2026-09-19). Three real-time Telegram
 # listeners now share this one box (API + apps/worker's OCR tip listener +
 # packages/robotip-legacy's listener, migrated in today) — 512mb caused
 # minutes-long delivery lag on tip messages, not total silence (the earlier
@@ -36,5 +36,5 @@ primary_region = 'gru'
   strategy = 'immediate'
 
 [[vm]]
-  memory = '1536mb'
+  memory = '1024mb'
   cpus = 1
