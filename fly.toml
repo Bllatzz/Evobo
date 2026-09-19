@@ -27,5 +27,5 @@ primary_region = 'gru'
   strategy = 'immediate'
 
 [[vm]]
-  memory = '1024mb'
+  memory = '512mb'
   cpus = 1
