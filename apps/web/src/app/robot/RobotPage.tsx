@@ -102,8 +102,9 @@ function StatValue({ pair, format }: { pair: StatPair; format?: (p: StatPair) =>
 }
 
 /** Desktop (D4) shows a fixed 4-cell grid — Escanteios is always the first cell regardless of
- * market, unlike the mobile card's dynamic highlightStat treatment — and drops the full stat list,
- * the pennant icon, and the date from the competition row. */
+ * market, unlike the mobile card's dynamic highlightStat treatment — and drops the full stat list
+ * and the pennant icon. Competition row keeps the same "competição · data/hora" format as mobile
+ * (this used to just show the competition name — the hora da tip was missing on desktop only). */
 function DesktopRobotCard({ signal }: { signal: RobotSignal }) {
   const corners = signal.stats.corners ?? { home: null, away: null };
   const dangerous = signal.stats.dangerousAttacks;
@@ -136,7 +137,16 @@ function DesktopRobotCard({ signal }: { signal: RobotSignal }) {
         )}
       </div>
 
-      <div className="mb-3.5 font-mono text-[10px] text-text-tertiary">{signal.competition}</div>
+      <div className="mb-3.5 font-mono text-[10px] text-text-tertiary">
+        {signal.competition} ·{" "}
+        {new Date(signal.receivedAt).toLocaleString("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+      </div>
 
       <div className="mb-3.5 grid grid-cols-2 gap-2">
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-accent-border bg-accent-soft p-2.5">
