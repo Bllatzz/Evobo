@@ -111,7 +111,9 @@ export async function startTelegramWorker() {
   // boot cobrindo uma janela generosa (3h) — processMessage já deduplica
   // por (groupId, telegramMessageId), então rodar de novo sobre mensagem
   // já importada é no-op.
-  backfillSince(client, Math.floor(Date.now() / 1000) - 3 * 3600).catch((err) =>
+  // fillGapsSince, NÃO backfillSince: este último apaga e recria toda tip da
+  // janela (perde OCR, 👍/👎 e resultado), e rodava a cada deploy.
+  fillGapsSince(client, Math.floor(Date.now() / 1000) - 3 * 3600).catch((err) =>
     console.error("[worker] falha no backfill de boot:", err),
   );
 
@@ -143,6 +145,7 @@ export async function startTelegramWorker() {
     const group = chatId ? groupByChatId.get(chatId) : undefined;
     if (!group) return;
 
+    console.log(`[worker] msg ${event.message.id} (${group.name}) via push, atraso ${Math.round(Date.now() / 1000 - event.message.date)}s`);
     try {
       await processMessage(event.message, group);
     } catch (err) {
@@ -180,6 +183,28 @@ export async function startTelegramWorker() {
     }
   }, new Raw({ types: [Api.UpdateMessageReactions] }));
 
+  // O GramJS não faz catch-up de updates (catchUp() é TODO) e o Telegram pode
+  // atrasar o push de canais pra sessão de usuário por minutos sem cair a
+  // conexão — o watchdog abaixo não vê isso. Então buscamos ativamente as
+  // últimas mensagens de cada grupo; processMessage dedupe (e ignora as que o
+  // push está processando agora), então é seguro rodar junto com o listener.
+  const POLL_INTERVAL_MS = 15_000;
+  const POLL_WINDOW_S = 10 * 60;
+  let polling = false;
+  setInterval(async () => {
+    if (polling) return;
+    polling = true;
+    try {
+      const results = await fillGapsSince(client, Math.floor(Date.now() / 1000) - POLL_WINDOW_S);
+      const created = results.reduce((sum, r) => sum + r.created, 0);
+      if (created > 0) console.log(`[worker] poll recuperou ${created} tip(s) que o push não entregou.`);
+    } catch (err) {
+      console.error("[worker] falha no poll de mensagens:", err);
+    } finally {
+      polling = false;
+    }
+  }, POLL_INTERVAL_MS);
+
   // Watchdog: se ficar WORKER_STALE_THRESHOLD_MS sem nenhum update (mesmo
   // client.connected continuando true), força disconnect+connect no mesmo
   // client — reaproveita sessão/entities já carregadas, sem precisar
@@ -206,7 +231,7 @@ export async function startTelegramWorker() {
       console.log("[worker] reconectado após ficar mudo.");
 
       const sinceUnix = Math.floor(goneQuietAt / 1000) - 5 * 60;
-      const results = await backfillSince(client, sinceUnix);
+      const results = await fillGapsSince(client, sinceUnix);
       const created = results.reduce((sum, r) => sum + r.created, 0);
       console.log(`[worker] backfill pós-reconexão: ${created} tip(s) recuperada(s).`);
     } catch (err) {

@@ -78,7 +78,22 @@ async function createStakeTopUpTip(message: Api.Message, group: TelegramGroup): 
  * (scripts/backfill.ts) — parseia a mensagem, cria o(s) TelegramTip e
  * enfileira a OCR do que faltar. Pula mensagens já processadas (mesmo
  * group + telegramMessageId) pra rodar o backfill mais de uma vez sem duplicar. */
+const inFlight = new Set<string>();
+
 export async function processMessage(message: Api.Message, group: TelegramGroup): Promise<"created" | "skipped_duplicate" | "skipped_no_signal"> {
+  // Listener ao vivo e poll podem pegar a mesma mensagem ao mesmo tempo; o
+  // dedupe do banco só vale depois do create (que vem após o download da foto).
+  const key = `${group.id}:${message.id}`;
+  if (inFlight.has(key)) return "skipped_duplicate";
+  inFlight.add(key);
+  try {
+    return await processMessageOnce(message, group);
+  } finally {
+    inFlight.delete(key);
+  }
+}
+
+async function processMessageOnce(message: Api.Message, group: TelegramGroup): Promise<"created" | "skipped_duplicate" | "skipped_no_signal"> {
   const already = await prisma.telegramTip.findFirst({
     where: { groupId: group.id, telegramMessageId: BigInt(message.id) },
     select: { id: true },

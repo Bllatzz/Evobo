@@ -473,6 +473,29 @@ async function startTelegramListener() {
     });
   }
 
+  // GramJS não faz catch-up de updates e o Telegram pode atrasar o push por
+  // minutos sem derrubar a conexão (o watchdog abaixo só vê silêncio total).
+  // Por isso, além do push, buscamos ativamente as últimas mensagens a cada
+  // 15s. `claimedIds` garante que cada mensagem é processada uma única vez —
+  // importante pra resultado, que NÃO é idempotente (cada chamada de
+  // updateAlertResult fecha mais um alerta pendente do mesmo jogo).
+  const claimedIds = new Set();
+  const claim = (id) => {
+    if (claimedIds.has(id)) return false;
+    claimedIds.add(id);
+    if (claimedIds.size > 2000) claimedIds.delete(claimedIds.values().next().value);
+    return true;
+  };
+  let baselineId = 0;
+  if (botSource) {
+    try {
+      const latest = await client.getMessages(botSource, { limit: 1 });
+      baselineId = latest[0]?.id ?? 0;
+    } catch (err) {
+      console.warn('[POLL] Falha ao ler baseline:', err.message);
+    }
+  }
+
   client.addEventHandler(async (event) => {
     try {
       // Conta como "sinal de vida" mesmo pra update que a gente ignora
@@ -493,11 +516,32 @@ async function startTelegramListener() {
         }
       }
 
+      if (!claim(message.id)) return;
+      console.log(`[LAG] msg ${message.id} via push, atraso ${Math.round(Date.now() / 1000 - message.date)}s`);
       await processMessage(message.message, message.id);
     } catch (err) {
       console.error('Erro ao processar mensagem do Telegram:', err);
     }
   }, new NewMessage({}));
+
+  const pollTimer = botSource
+    ? setInterval(async () => {
+        try {
+          const batch = await client.getMessages(botSource, { limit: 20 });
+          const missed = batch
+            .filter((m) => m.message && m.id > baselineId && claim(m.id))
+            .sort((a, b) => a.id - b.id);
+          for (const m of missed) {
+            console.log(`[POLL] msg ${m.id} recuperada, push não entregou (atraso ${Math.round(Date.now() / 1000 - m.date)}s)`);
+            await processMessage(m.message, m.id).catch((err) =>
+              console.error('[POLL] Erro ao processar mensagem:', err.message)
+            );
+          }
+        } catch (err) {
+          console.warn('[POLL] Falha ao buscar mensagens:', err.message);
+        }
+      }, 15_000)
+    : null;
 
   // Reações do usuário (👍/👎) na mensagem do alerta marcam se a entrada foi
   // tomada ou não. `results[].chosenOrder` identifica reações feitas pela
@@ -551,17 +595,21 @@ async function startTelegramListener() {
   // falso positivo numa janela real de calmaria entre partidas.
   const STALE_THRESHOLD_MS = 10 * 60_000;
   const CHECK_INTERVAL_MS = 60_000;
-  while (true) {
-    await new Promise((r) => setTimeout(r, CHECK_INTERVAL_MS));
-    if (!client.connected) {
-      throw new Error('Conexão com o Telegram caiu (client.connected = false).');
+  try {
+    while (true) {
+      await new Promise((r) => setTimeout(r, CHECK_INTERVAL_MS));
+      if (!client.connected) {
+        throw new Error('Conexão com o Telegram caiu (client.connected = false).');
+      }
+      const silentForMs = Date.now() - lastUpdateAt;
+      if (silentForMs > STALE_THRESHOLD_MS) {
+        throw new Error(
+          `Listener mudo: nenhum update do Telegram em ${Math.round(silentForMs / 60_000)}min (client.connected ainda true).`,
+        );
+      }
     }
-    const silentForMs = Date.now() - lastUpdateAt;
-    if (silentForMs > STALE_THRESHOLD_MS) {
-      throw new Error(
-        `Listener mudo: nenhum update do Telegram em ${Math.round(silentForMs / 60_000)}min (client.connected ainda true).`,
-      );
-    }
+  } finally {
+    if (pollTimer) clearInterval(pollTimer);
   }
 }
 
