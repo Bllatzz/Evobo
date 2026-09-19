@@ -1,5 +1,6 @@
 import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
+import fastifyExpress from "@fastify/express";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { Prisma } from "@prisma/client";
@@ -38,7 +39,10 @@ await app.register(helmet);
 // untake tip, unfollow, admin role changes, ...) was silently CORS-blocked
 // from the browser until this was made explicit.
 await app.register(cors, {
-  origin: env.CORS_ORIGIN,
+  // This hook runs before requests reach @fastify/express, so it also gates
+  // /robotip — robotip's frontend (a different Vercel origin) needs to be
+  // allowed here too, not just the mounted app's own cors() middleware.
+  origin: [env.CORS_ORIGIN, "https://robotip-analyzer.vercel.app"],
   credentials: true,
   methods: ["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE"],
 });
@@ -85,6 +89,15 @@ await app.register(evPlusRoutes, { prefix: "/ev-plus" });
 await app.register(adminRoutes, { prefix: "/admin" });
 await app.register(searchRoutes, { prefix: "/search" });
 
+// CornerIQ (robotip-analyzer) migrado do app Fly separado — Express legado
+// montado como está via @fastify/express, isolado sob /robotip pra não
+// arriscar nada nas rotas nativas do evobo acima. Ver
+// packages/robotip-legacy — env vars com prefixo ROBOTIP_ pra não colidir
+// com os secrets de Telegram/DB do evobo (sessões distintas, mesma conta).
+await app.register(fastifyExpress);
+const robotipLegacy = await import("@evobo/robotip-legacy");
+app.use("/robotip", robotipLegacy.createApp());
+
 app
   // "::" binds dual-stack (IPv4 + IPv6) — needed because Windows, under
   // WSL2 mirrored networking, resolves "localhost" to [::1] first; a
@@ -104,4 +117,26 @@ app
 if (process.env.TELEGRAM_API_ID) {
   const { startTelegramWorker } = await import("@evobo/worker");
   startTelegramWorker().catch((err) => app.log.error({ err }, "telegram worker crashed"));
+}
+
+// Os 2 auto-checkers de fundo (corner/home-win) só leem alertas pendentes do
+// Postgres e chamam a StatsFeed pública do robotip.com.br — não tocam no
+// Telegram, então não têm o risco de colisão de sessão do listener abaixo.
+// Gate própria (ROBOTIP_DATABASE_URL) pra poder ligá-los antes da sessão do
+// Telegram estar pronta pra migrar.
+if (process.env.ROBOTIP_DATABASE_URL) {
+  robotipLegacy.startCornerAutoChecker();
+  robotipLegacy.startHomeWinAutoChecker();
+}
+
+// Listener de Telegram do robotip (sessão PRÓPRIA, distinta da usada acima
+// por @evobo/worker). Gate separada do resto: como a MESMA ROBOTIP_TELEGRAM_
+// SESSION ainda está conectada a partir do robotip-analyzer (Fly app antigo,
+// ainda rodando), ligar aqui ao mesmo tempo colidiria (AUTH_KEY_DUPLICATED) e
+// arrisca duplicar o processamento de alertas / disparo de auto-aposta. Só
+// habilitar quando o robotip-analyzer for desligado (corte deliberado).
+if (process.env.ROBOTIP_TELEGRAM_API_ID) {
+  robotipLegacy
+    .startTelegramListener()
+    .catch((err) => app.log.error({ err }, "robotip telegram listener crashed"));
 }

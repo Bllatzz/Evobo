@@ -101,8 +101,7 @@ export async function startTelegramWorker() {
     phoneCode: async () => input.text("Código recebido no Telegram: "),
     onError: (err) => console.error(err),
   });
-  console.log("[worker] conectado. Session string (salve em TELEGRAM_SESSION no .env):");
-  console.log(client.session.save());
+  console.log("[worker] conectado.");
   liveClient = client;
 
   startExtractDetailsWorker();

@@ -13,9 +13,11 @@
   },
   "dependencies": {
     "@evobo/design-tokens": "*",
+    "@evobo/robotip-legacy": "*",
     "@evobo/shared-types": "*",
     "@evobo/worker": "*",
     "@fastify/cors": "^11.2.0",
+    "@fastify/express": "^4.0.7",
     "@fastify/helmet": "^13.0.2",
     "@fastify/rate-limit": "^11.1.0",
     "@prisma/client": "^6.19.1",

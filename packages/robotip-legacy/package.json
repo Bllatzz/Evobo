@@ -1,0 +1,14 @@
+{
+  "name": "@evobo/robotip-legacy",
+  "private": true,
+  "version": "1.0.0",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "input": "^1.0.1",
+    "pg": "^8.12.0",
+    "telegram": "^2.26.4"
+  }
+}

@@ -1,0 +1,471 @@
+'use strict';
+
+// O env já é carregado pelo processo do evobo-api (`-r dotenv/config` /
+// startup do host) — não recarrega aqui como o robotip-analyzer original
+// fazia, pra não arriscar sobrescrever variáveis já resolvidas pelo host.
+
+const { TelegramClient, Api } = require('telegram');
+const { StringSession } = require('telegram/sessions');
+const { NewMessage, Raw } = require('telegram/events');
+
+// Emoji usado pra marcar, via reação na mensagem do alerta no Telegram, se a
+// entrada foi tomada ou não. Green/red continuam vindo do reply do tipster
+// (parseResult) ou de ajuste manual — a reação só controla `entered`.
+const REACAO_ENTREI    = '👍';
+const REACAO_NAO_ENTREI = '👎';
+const input = require('input');
+const pool = require('../db/pool');
+const fs = require('fs');
+const path = require('path');
+
+const { parseAlert, parseResult, entryAlternatives } = require('./parser');
+const { broadcast } = require('../routes/alerts');
+const { extractGameId, fetchStatsFeed } = require('./statsFeed');
+const CORNER_BASELINE_BOTS = require('../config/cornerBaselineBots');
+
+const ENV_PATH = path.join(__dirname, '../../.env');
+
+/**
+ * Atualiza o valor de ROBOTIP_TELEGRAM_SESSION no arquivo .env local sem
+ * sobrescrever as demais variáveis. Só útil em dev — no Fly o filesystem é
+ * efêmero, então um login interativo em produção exige atualizar o secret
+ * manualmente depois.
+ */
+function saveSessionToEnv(sessionString) {
+  let envContent = fs.readFileSync(ENV_PATH, 'utf8');
+  if (envContent.includes('ROBOTIP_TELEGRAM_SESSION=')) {
+    envContent = envContent.replace(
+      /ROBOTIP_TELEGRAM_SESSION=.*/,
+      `ROBOTIP_TELEGRAM_SESSION=${sessionString}`
+    );
+  } else {
+    envContent += `\nROBOTIP_TELEGRAM_SESSION=${sessionString}`;
+  }
+  fs.writeFileSync(ENV_PATH, envContent, 'utf8');
+  console.log('Session salva no .env com sucesso.');
+}
+
+/**
+ * Bots em CORNER_BASELINE_BOTS não mandam o total de escanteios na mensagem
+ * do alerta — sem isso o cornerAutoChecker nunca teria um baseline pra
+ * comparar com o total final. Captura esse baseline ao vivo via StatsFeed
+ * assim que o alerta chega (muta `parsed` in-place).
+ */
+async function fillCornerBaseline(parsed) {
+  if (!CORNER_BASELINE_BOTS.includes(parsed.bot_name)) return;
+  if (parsed.corners_home != null && parsed.corners_away != null) return;
+  if (!parsed.robotip_url) return;
+
+  const gameId = extractGameId(parsed.robotip_url);
+  if (!gameId) return;
+
+  try {
+    const stats = await fetchStatsFeed(gameId, { ended: false });
+    if (!stats) return;
+    const home = Number(stats.corners_home);
+    const away = Number(stats.corners_away);
+    if (!Number.isFinite(home) || !Number.isFinite(away)) return;
+    parsed.corners_home = home;
+    parsed.corners_away = away;
+  } catch (err) {
+    console.warn(
+      `[CORNER-BASELINE] Falha ao capturar baseline de escanteios para ${parsed.home_team} x ${parsed.away_team}:`,
+      err.message
+    );
+  }
+}
+
+/**
+ * Insere um alerta parseado no banco de dados.
+ */
+/**
+ * O robotip.com.br às vezes dispara o MESMO alerta duas vezes em menos de 1s
+ * (mesmo bot, mesmo jogo, texto quase idêntico — só o rodapé de casas de
+ * aposta muda). Isso cria duas linhas pendentes pro mesmo evento, mas o
+ * resultado só chega numa mensagem — updateAlertResult() sempre fecha a mais
+ * recente (ORDER BY received_at DESC LIMIT 1), e a outra fica pending pra
+ * sempre. Visto em produção: "Sevilla x Atletico Madrid" (FT - Under 2.5
+ * Cartões V3.0, telegram_message_id 83432/83433, 0.3s de diferença) — 26 dos
+ * 74 alertas desse bot ficaram assim.
+ *
+ * Guarda de 30s (bem maior que a folga entre duplicatas reais e bem menor
+ * que o intervalo entre dois disparos legítimos do mesmo bot no mesmo jogo,
+ * que só aconteceria minutos depois com as estatísticas mudadas) — se já
+ * existe um alerta do mesmo bot+jogo nesse intervalo, ignora o novo em vez
+ * de inserir uma duplicata.
+ */
+const DUPLICATE_ALERT_WINDOW_SECONDS = 30;
+
+async function findRecentDuplicateAlert({ bot_name, home_team, away_team, robotip_url }) {
+  const { rows } = await pool.query(
+    `SELECT id FROM alerts
+     WHERE bot_name = $1 AND home_team = $2 AND away_team = $3
+       AND ($4::text IS NULL OR robotip_url = $4)
+       AND received_at >= NOW() - ($5 || ' seconds')::interval
+     ORDER BY received_at DESC LIMIT 1`,
+    [bot_name, home_team, away_team, robotip_url, DUPLICATE_ALERT_WINDOW_SECONDS]
+  );
+  return rows[0] ?? null;
+}
+
+async function saveAlert(parsed, rawMessage, telegramMessageId) {
+  const {
+    bot_name, odds, bet_odds, home_team, away_team, robotip_url, bet365_url, game_minute,
+    home_odds, draw_odds, away_odds, competition, score_home, score_away,
+    last_goal_minute, last_goal_minute_away,
+    corners_home, corners_away, last_corner_minute, last_corner_minute_home, last_corner_minute_away,
+    goals_over_odds, stake_pct,
+    dangerous_home, dangerous_away, dangerous_per_min_5, dangerous_per_min_total,
+    yellow_home, yellow_away, last_yellow_minute_home, last_yellow_minute_away,
+    red_home, red_away,
+    shots_side_home, shots_side_away, last_shot_side_minute_home, last_shot_side_minute_away,
+    shots_target_home, shots_target_away, last_shot_target_minute_home, last_shot_target_minute_away,
+    possession_home, possession_away, pi1, pi2,
+  } = parsed;
+
+  const duplicate = await findRecentDuplicateAlert({ bot_name, home_team, away_team, robotip_url });
+  if (duplicate) {
+    console.log(`[DUP] Alerta ignorado (duplicata do #${duplicate.id}): ${home_team} x ${away_team} - ${bot_name}`);
+    return null;
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO alerts (
+      bot_name, odds, bet_odds, home_team, away_team, robotip_url, bet365_url, game_minute,
+      home_odds, draw_odds, away_odds, competition, score_home, score_away,
+      last_goal_minute, last_goal_minute_away,
+      corners_home, corners_away, last_corner_minute, last_corner_minute_home, last_corner_minute_away,
+      goals_over_odds, stake_pct,
+      dangerous_home, dangerous_away, dangerous_per_min_5, dangerous_per_min_total,
+      yellow_home, yellow_away, last_yellow_minute_home, last_yellow_minute_away,
+      red_home, red_away,
+      shots_side_home, shots_side_away, last_shot_side_minute_home, last_shot_side_minute_away,
+      shots_target_home, shots_target_away, last_shot_target_minute_home, last_shot_target_minute_away,
+      possession_home, possession_away, pi1, pi2, raw_message, telegram_message_id
+    ) VALUES (
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+      $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
+      $36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47
+    ) RETURNING *`,
+    [
+      bot_name, odds, bet_odds, home_team, away_team, robotip_url, bet365_url, game_minute,
+      home_odds, draw_odds, away_odds, competition, score_home, score_away,
+      last_goal_minute, last_goal_minute_away,
+      corners_home, corners_away, last_corner_minute, last_corner_minute_home, last_corner_minute_away,
+      goals_over_odds, stake_pct,
+      dangerous_home, dangerous_away, dangerous_per_min_5, dangerous_per_min_total,
+      yellow_home, yellow_away, last_yellow_minute_home, last_yellow_minute_away,
+      red_home, red_away,
+      shots_side_home, shots_side_away, last_shot_side_minute_home, last_shot_side_minute_away,
+      shots_target_home, shots_target_away, last_shot_target_minute_home, last_shot_target_minute_away,
+      possession_home, possession_away, pi1, pi2, rawMessage, telegramMessageId,
+    ]
+  );
+  broadcast('new-alert', rows[0]);
+}
+
+/**
+ * Atualiza `entered` (peguei / não peguei a entrada) a partir de uma reação
+ * do usuário na mensagem do alerta no Telegram. Não mexe em `result` —
+ * green/red/reembolso continuam vindo do reply do tipster ou de ajuste manual.
+ */
+async function updateAlertEntered(telegramMessageId, entered) {
+  const { rows } = await pool.query(
+    `UPDATE alerts SET entered = $1 WHERE telegram_message_id = $2 RETURNING *`,
+    [entered, telegramMessageId]
+  );
+  const alert = rows[0];
+  if (alert) broadcast('alert-updated', alert);
+  return alert;
+}
+
+/**
+ * Atualiza o resultado (green/red) do alerta pendente correspondente.
+ * Quando `entry` está disponível, usa-o para distinguir entre múltiplos
+ * alertas do mesmo jogo com entradas diferentes (ex: over +0.5 vs over +1.0).
+ */
+async function updateAlertResult({ home_team, away_team, result, entry }) {
+  const patterns = entry
+    ? entryAlternatives(entry).map((e) => `%${e}%`)
+    : null;
+
+  const res = await pool.query(
+    `UPDATE alerts SET result = $1
+     WHERE id = (
+       SELECT id FROM alerts
+       WHERE LOWER(home_team) = LOWER($2)
+         AND LOWER(away_team) = LOWER($3)
+         AND result = 'pending'
+         AND ($4::text[] IS NULL OR raw_message ILIKE ANY($4::text[]))
+       ORDER BY received_at DESC
+       LIMIT 1
+     )
+     RETURNING *`,
+    [result, home_team, away_team, patterns]
+  );
+  const alert = res.rows[0];
+  if (!alert) return null;
+
+  await syncGestaoBanca(alert, result);
+
+  return alert;
+}
+
+/**
+ * Reflete o resultado (green/red/reembolso) de um alerta na gestão de banca.
+ * Compartilhado entre o fluxo normal (reply do tipster) e a conferência
+ * automática de escanteios (cornerAutoChecker).
+ */
+async function syncGestaoBanca(alert, result) {
+  if (!['green', 'red', 'reembolso'].includes(result)) return;
+
+  await pool.query(
+    `INSERT INTO gestao_banca (alert_id, bot_name, home_team, away_team, competition, result, bet_odds, stake_pct, received_at)
+     VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7::numeric,$8::numeric,$9::numeric),$10,$11)
+     ON CONFLICT (alert_id) DO UPDATE SET result = EXCLUDED.result`,
+    [
+      alert.id, alert.bot_name, alert.home_team, alert.away_team, alert.competition,
+      result,
+      alert.bet_odds, alert.goals_over_odds, alert.odds,
+      alert.stake_pct ?? 1,
+      alert.received_at,
+    ]
+  );
+}
+
+/**
+ * Verifica se o bot tem auto_bet ativo e, se sim, envia o alerta bruto
+ * para o betting-userbot processar e executar a aposta.
+ * Nunca lança exceção para o chamador — todos os erros são logados aqui.
+ */
+async function dispararAutoAposta(botName, rawMessage) {
+  if (!botName) return;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT auto_bet FROM bot_configs WHERE bot_name = $1`,
+      [botName]
+    );
+
+    const autoBet = rows.length > 0 && rows[0].auto_bet === true;
+    if (!autoBet) return;
+
+    const bridgeUrl    = process.env.ROBOTIP_BETTING_BRIDGE_URL || 'http://localhost:3002';
+    const bridgeSecret = process.env.ROBOTIP_BRIDGE_SECRET || '';
+    const endpoint     = `${bridgeUrl}/apostar-from-alert`;
+
+    console.log(`[AUTO-APOSTA] Bot "${botName}" tem auto_bet ativo — enviando para ${endpoint}`);
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (bridgeSecret) headers['X-Bridge-Secret'] = bridgeSecret;
+
+    const response = await fetch(endpoint, {
+      method:  'POST',
+      headers,
+      body:    JSON.stringify({ raw_message: rawMessage, bot_name: botName }),
+    });
+
+    const json = await response.json().catch(() => ({}));
+
+    if (response.ok) {
+      console.log(`[AUTO-APOSTA] Aposta enfileirada com sucesso:`, json.payload || json);
+    } else {
+      console.warn(`[AUTO-APOSTA] Resposta de erro do betting-userbot (${response.status}):`, json.erro || json);
+    }
+  } catch (err) {
+    console.error(`[AUTO-APOSTA] Falha ao chamar betting-userbot:`, err.message);
+  }
+}
+
+/**
+ * Inicia o listener do Telegram via GramJS (MTProto user account).
+ * - Se ROBOTIP_TELEGRAM_SESSION estiver vazio, faz login interativo.
+ * - Escuta novas mensagens do ROBOTIP_TELEGRAM_BOT_SOURCE e salva alertas no banco.
+ */
+async function startTelegramListener() {
+  const apiId   = parseInt(process.env.ROBOTIP_TELEGRAM_API_ID, 10);
+  const apiHash = process.env.ROBOTIP_TELEGRAM_API_HASH;
+  const botSource = process.env.ROBOTIP_TELEGRAM_BOT_SOURCE;
+
+  if (!apiId || !apiHash) {
+    throw new Error('ROBOTIP_TELEGRAM_API_ID e ROBOTIP_TELEGRAM_API_HASH são obrigatórios');
+  }
+
+  const sessionString = process.env.ROBOTIP_TELEGRAM_SESSION || '';
+  const session = new StringSession(sessionString);
+
+  const client = new TelegramClient(session, apiId, apiHash, {
+    connectionRetries: 5,
+    retryDelay: 2000,
+    autoReconnect: false,
+  });
+
+  if (!sessionString) {
+    console.log('Nenhuma session encontrada — iniciando login interativo...');
+    await client.start({
+      phoneNumber:  async () => await input.text('Número de telefone (+55...): '),
+      password:     async () => await input.text('Senha 2FA (deixe vazio se não tiver): '),
+      phoneCode:    async () => await input.text('Código recebido no Telegram: '),
+      onError:      (err) => console.error('Erro no login:', err),
+    });
+
+    const newSession = client.session.save();
+    saveSessionToEnv(newSession);
+    console.log('Login realizado com sucesso. Session salva.');
+  } else {
+    try {
+      await client.connect();
+    } catch (err) {
+      await client.disconnect().catch(() => {});
+      throw err;
+    }
+    console.log('Conectado ao Telegram com session existente.');
+  }
+
+  // Um client novo (sessão migrada pra outro processo/máquina) começa com o
+  // cache de entidades vazio — sem isso, getEntity/getMessages por ID cru
+  // falha com "Could not find the input entity" (visto no CATCHUP logo
+  // abaixo). Carrega os diálogos uma vez pra popular esse cache antes de
+  // qualquer resolução por ID.
+  try {
+    await client.getDialogs({ limit: 100 });
+  } catch (err) {
+    console.warn('Falha ao pré-carregar diálogos:', err.message);
+  }
+
+  console.log(`Escutando mensagens de: ${botSource || '(todos os chats)'}`);
+
+  // Recupera alertas perdidos durante downtime (últimas 2h)
+  if (botSource) {
+    try {
+      // Resolve entity primeiro — sessão nova pode não ter o cache ainda
+      await client.getEntity(botSource).catch(() => null);
+      const twoHoursAgo = Math.floor(Date.now() / 1000) - 2 * 3600;
+      const history = await client.getMessages(botSource, { limit: 50 });
+      const missed = history.filter(m => m.date >= twoHoursAgo && m.message);
+      if (missed.length > 0) {
+        console.log(`[CATCHUP] Processando ${missed.length} mensagens das últimas 2h...`);
+        for (const m of missed.reverse()) {
+          const raw = m.message;
+          const parsed = parseAlert(raw);
+          if (!parsed) continue;
+
+          const { rows } = await pool.query(
+            `SELECT id FROM alerts WHERE raw_message = $1 LIMIT 1`, [raw]
+          );
+          if (rows.length > 0) continue;
+
+          await fillCornerBaseline(parsed);
+          await saveAlert(parsed, raw, m.id).catch(err =>
+            console.error('[CATCHUP] Erro ao salvar alerta:', err.message)
+          );
+          console.log(`[CATCHUP] Alerta recuperado: ${parsed.home_team} x ${parsed.away_team}`);
+        }
+      }
+    } catch (err) {
+      console.warn('[CATCHUP] Falha ao buscar histórico:', err.message);
+    }
+  }
+
+  async function processMessage(rawText, messageId) {
+    if (!rawText) return;
+    console.log('--- RAW ---\n' + JSON.stringify(rawText) + '\n---');
+
+    const parsedResult = parseResult(rawText);
+    if (parsedResult) {
+      const updated = await updateAlertResult(parsedResult);
+      if (updated) {
+        console.log(`Resultado atualizado: ${updated.home_team} x ${updated.away_team} → ${parsedResult.result.toUpperCase()}`);
+      } else {
+        console.log(`Resultado recebido mas nenhum alerta pendente encontrado: ${parsedResult.home_team} x ${parsedResult.away_team}`);
+      }
+      return;
+    }
+
+    const parsed = parseAlert(rawText);
+    if (!parsed) {
+      console.log('[IGNORADO] Mensagem não reconhecida como alerta nem resultado.');
+      return;
+    }
+
+    await fillCornerBaseline(parsed);
+    await saveAlert(parsed, rawText, messageId);
+    console.log(`Alerta salvo: ${parsed.home_team} x ${parsed.away_team} - minuto ${parsed.game_minute}`);
+
+    dispararAutoAposta(parsed.bot_name, rawText).catch((err) => {
+      console.error(`[AUTO-APOSTA] Erro inesperado ao disparar auto-aposta:`, err);
+    });
+  }
+
+  client.addEventHandler(async (event) => {
+    try {
+      const message = event.message;
+      if (!message || !message.message) return;
+
+      // Filtrar pelo remetente se ROBOTIP_TELEGRAM_BOT_SOURCE estiver configurado
+      if (botSource) {
+        const sender = await message.getSender();
+        const senderUsername = sender && (sender.username || sender.phone || String(sender.id));
+        if (senderUsername !== botSource && String(sender && sender.id) !== botSource) {
+          return;
+        }
+      }
+
+      await processMessage(message.message, message.id);
+    } catch (err) {
+      console.error('Erro ao processar mensagem do Telegram:', err);
+    }
+  }, new NewMessage({}));
+
+  // Reações do usuário (👍/👎) na mensagem do alerta marcam se a entrada foi
+  // tomada ou não. `results[].chosenOrder` identifica reações feitas pela
+  // própria conta (a única que pode reagir num chat privado com o bot).
+  client.addEventHandler(async (update) => {
+    try {
+      const results = update.reactions && update.reactions.results;
+      if (!results) return;
+
+      const myEmojis = results
+        .filter((r) => r.chosenOrder !== undefined)
+        .map((r) => r.reaction && r.reaction.emoticon)
+        .filter(Boolean);
+
+      let entered = null;
+      if (myEmojis.includes(REACAO_ENTREI)) entered = true;
+      else if (myEmojis.includes(REACAO_NAO_ENTREI)) entered = false;
+
+      const alert = await updateAlertEntered(update.msgId, entered);
+      if (alert) {
+        console.log(`[REACAO] Alerta ${alert.id} (${alert.home_team} x ${alert.away_team}) → entered=${entered}`);
+      }
+    } catch (err) {
+      console.error('Erro ao processar reação do Telegram:', err);
+    }
+  }, new Raw({ types: [Api.UpdateMessageReactions] }));
+
+  // Guarda contra desconexão silenciosa: com autoReconnect:false (necessário
+  // pra evitar o loop de AUTH_KEY_DUPLICATED do GramJS reconectando sozinho
+  // com a sessão duplicada — ver commit ae017b3), uma queda de conexão comum
+  // não lança erro nenhum aqui, e o loop de reconexão do index.js só age
+  // quando esta função rejeita. Sem isso o processo fica "vivo" mas surdo,
+  // sem processar nenhuma mensagem nova, até alguém notar manualmente (foi
+  // o que aconteceu na migração pro evobo-api). Checa a cada 2min se o
+  // client ainda está de fato conectado; se não estiver, lança de propósito
+  // pra acionar aquele loop de reconexão.
+  while (true) {
+    await new Promise((r) => setTimeout(r, 2 * 60_000));
+    if (!client.connected) {
+      throw new Error('Conexão com o Telegram caiu (client.connected = false).');
+    }
+  }
+}
+
+module.exports = { startTelegramListener, syncGestaoBanca };
+
+// Permite execução direta: node src/services/telegram.js
+if (require.main === module) {
+  startTelegramListener().catch((err) => {
+    console.error('Falha ao iniciar o listener do Telegram:', err);
+    process.exit(1);
+  });
+}

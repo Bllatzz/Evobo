@@ -12,6 +12,7 @@ coverage/
 handoff_prototype/
 apps/api/prisma/local-only/
 .vercel
+.playwright-mcp/
 .env*
 !.env.example
 !.env.*.example
