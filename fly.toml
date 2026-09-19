@@ -2,6 +2,15 @@
 # so this file lives at the root and `fly deploy` is run from here. Also
 # runs apps/worker's Telegram listener in-process (see server.ts) — one
 # machine instead of two, since this is a single-user hobby deployment.
+#
+# Memory: bumped 512mb -> 1536mb (2026-09-19). Three real-time Telegram
+# listeners now share this one box (API + apps/worker's OCR tip listener +
+# packages/robotip-legacy's listener, migrated in today) — 512mb caused
+# minutes-long delivery lag on tip messages, not total silence (the earlier
+# watchdog fix doesn't catch this: lastUpdateAt keeps refreshing, just late).
+# Confirmed by timeline: 512mb since 09-17, bumped to 1024mb 12:44 today with
+# no reported lag, reverted to 512mb 14:10, lag reappeared by 14:50. Do not
+# lower this again without confirming the tip pipeline is still instant.
 app = 'evobo-api'
 primary_region = 'gru'
 
@@ -27,5 +36,5 @@ primary_region = 'gru'
   strategy = 'immediate'
 
 [[vm]]
-  memory = '512mb'
+  memory = '1536mb'
   cpus = 1
