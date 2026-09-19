@@ -233,6 +233,104 @@ async function syncGestaoBanca(alert, result) {
   );
 }
 
+// ─── Manutenção pontual (migração pro evobo-api, 2026-09) ─────────────────
+
+/**
+ * "Bot vencedor 1º lugar na Copa RobôTip #1: Empate" acumulou ~550 alertas
+ * pending de maio a setembro que nunca receberam NENHUMA mensagem de
+ * resultado (não são duplicata — não têm um gêmeo resolvido pra copiar de,
+ * ver investigação em 2026-09-19). Pedido explícito do usuário: apagar só
+ * os pendentes travados dele, preservando os ~2900 já resolvidos (green/red/
+ * reembolso), que continuam válidos nas estatísticas de winrate/lucro.
+ * Idempotente — depois da 1ª execução não sobra nenhuma linha pra apagar,
+ * então roda sem risco em todo boot subsequente (não removida de propósito,
+ * pra cobrir qualquer nova pendência que volte a se acumular nesse bot).
+ */
+const EMPATE_BOT_NAME = 'Bot vencedor 1º lugar na Copa RobôTip #1: Empate';
+
+async function deleteEmpateBotPendingBacklog() {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM alerts WHERE bot_name = $1 AND result = 'pending'`,
+      [EMPATE_BOT_NAME]
+    );
+    if (rowCount > 0) {
+      console.log(`[MANUTENÇÃO] Apagados ${rowCount} alertas pendentes travados de "${EMPATE_BOT_NAME}".`);
+    }
+  } catch (err) {
+    console.error('[MANUTENÇÃO] Falha ao limpar backlog do bot Empate:', err.message);
+  }
+}
+
+/**
+ * CATCHUP (acima) só reprocessa ALERTAS perdidos, nunca RESULTADOS — um gap
+ * que ficou visível na migração: o listener passou por período(s) "vivo mas
+ * surdo" (ver watchdog em startTelegramListener) em que mensagens de
+ * resultado chegaram no canal e nunca foram aplicadas, mesmo com o alerta
+ * original já salvo. Varre as últimas BACKFILL_LOOKBACK_DAYS de histórico
+ * do canal, roda cada mensagem por parseResult() (mesma lógica já em
+ * produção) e aplica em qualquer alerta que ainda esteja pending — no-op
+ * pras que já foram resolvidas por reply normal ou já não têm mais alerta
+ * pending correspondente.
+ *
+ * Throttle de 30min entre execuções (lastBackfillRunAt, escopo de módulo —
+ * sobrevive a reconexões dentro do mesmo processo) pra não martelar a API
+ * do Telegram se o listener cair e reconectar em loop.
+ */
+const BACKFILL_LOOKBACK_DAYS = 7;
+const BACKFILL_MIN_INTERVAL_MS = 30 * 60_000;
+let lastBackfillRunAt = 0;
+
+async function backfillMissedResults(client, botSource) {
+  if (!botSource) return;
+  if (Date.now() - lastBackfillRunAt < BACKFILL_MIN_INTERVAL_MS) return;
+  lastBackfillRunAt = Date.now();
+
+  const cutoffUnix = Math.floor(Date.now() / 1000) - BACKFILL_LOOKBACK_DAYS * 86400;
+  console.log(`[BACKFILL] Varrendo últimos ${BACKFILL_LOOKBACK_DAYS} dias do canal atrás de resultado perdido...`);
+
+  let offsetId = 0;
+  let scanned = 0;
+  let resultMessages = 0;
+  let applied = 0;
+
+  try {
+    while (true) {
+      const batch = await client.getMessages(botSource, {
+        limit: 100,
+        ...(offsetId ? { offsetId } : {}),
+      });
+      if (!batch || batch.length === 0) break;
+
+      let hitCutoff = false;
+      for (const m of batch) {
+        if (m.date < cutoffUnix) { hitCutoff = true; break; }
+        scanned++;
+        if (!m.message) continue;
+
+        const parsedResult = parseResult(m.message);
+        if (!parsedResult) continue;
+        resultMessages++;
+
+        const updated = await updateAlertResult(parsedResult);
+        if (updated) {
+          applied++;
+          console.log(
+            `[BACKFILL] Resultado recuperado: ${updated.home_team} x ${updated.away_team} → ${parsedResult.result.toUpperCase()} (msg ${m.id})`
+          );
+        }
+      }
+      if (hitCutoff) break;
+
+      offsetId = batch[batch.length - 1].id;
+    }
+  } catch (err) {
+    console.error('[BACKFILL] Erro ao varrer histórico:', err.message);
+  }
+
+  console.log(`[BACKFILL] Concluído: ${scanned} mensagens varridas, ${resultMessages} eram resultado, ${applied} aplicados a alertas ainda pendentes.`);
+}
+
 /**
  * Verifica se o bot tem auto_bet ativo e, se sim, envia o alerta bruto
  * para o betting-userbot processar e executar a aposta.
@@ -371,6 +469,9 @@ async function startTelegramListener() {
       console.warn('[CATCHUP] Falha ao buscar histórico:', err.message);
     }
   }
+
+  await deleteEmpateBotPendingBacklog();
+  await backfillMissedResults(client, botSource);
 
   async function processMessage(rawText, messageId) {
     if (!rawText) return;
