@@ -233,35 +233,6 @@ async function syncGestaoBanca(alert, result) {
   );
 }
 
-// ─── Manutenção pontual (migração pro evobo-api, 2026-09) ─────────────────
-
-/**
- * "Bot vencedor 1º lugar na Copa RobôTip #1: Empate" acumulou ~550 alertas
- * pending de maio a setembro que nunca receberam NENHUMA mensagem de
- * resultado (não são duplicata — não têm um gêmeo resolvido pra copiar de,
- * ver investigação em 2026-09-19). Pedido explícito do usuário: apagar só
- * os pendentes travados dele, preservando os ~2900 já resolvidos (green/red/
- * reembolso), que continuam válidos nas estatísticas de winrate/lucro.
- * Idempotente — depois da 1ª execução não sobra nenhuma linha pra apagar,
- * então roda sem risco em todo boot subsequente (não removida de propósito,
- * pra cobrir qualquer nova pendência que volte a se acumular nesse bot).
- */
-const EMPATE_BOT_NAME = 'Bot vencedor 1º lugar na Copa RobôTip #1: Empate';
-
-async function deleteEmpateBotPendingBacklog() {
-  try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM alerts WHERE bot_name = $1 AND result = 'pending'`,
-      [EMPATE_BOT_NAME]
-    );
-    if (rowCount > 0) {
-      console.log(`[MANUTENÇÃO] Apagados ${rowCount} alertas pendentes travados de "${EMPATE_BOT_NAME}".`);
-    }
-  } catch (err) {
-    console.error('[MANUTENÇÃO] Falha ao limpar backlog do bot Empate:', err.message);
-  }
-}
-
 /**
  * CATCHUP (acima) só reprocessa ALERTAS perdidos, nunca RESULTADOS — um gap
  * que ficou visível na migração: o listener passou por período(s) "vivo mas
@@ -470,7 +441,6 @@ async function startTelegramListener() {
     }
   }
 
-  await deleteEmpateBotPendingBacklog();
   await backfillMissedResults(client, botSource);
 
   async function processMessage(rawText, messageId) {
