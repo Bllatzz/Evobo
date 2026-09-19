@@ -335,6 +335,11 @@ async function startTelegramListener() {
 
   console.log(`Escutando mensagens de: ${botSource || '(todos os chats)'}`);
 
+  // Sinal de vida real do listener — ver o watchdog no fim desta função.
+  // Começa em Date.now() (não 0) pra não disparar reconexão falsa logo no
+  // boot, antes do 1º update chegar.
+  let lastUpdateAt = Date.now();
+
   // Recupera alertas perdidos durante downtime (últimas 2h)
   if (botSource) {
     try {
@@ -399,6 +404,12 @@ async function startTelegramListener() {
 
   client.addEventHandler(async (event) => {
     try {
+      // Conta como "sinal de vida" mesmo pra update que a gente ignora
+      // (mensagem de outro chat, sem texto, etc.) — o watchdog abaixo
+      // precisa saber que o socket ainda está de fato recebendo coisa do
+      // Telegram, não só que ele reconheceu um alerta ou resultado.
+      lastUpdateAt = Date.now();
+
       const message = event.message;
       if (!message || !message.message) return;
 
@@ -422,6 +433,8 @@ async function startTelegramListener() {
   // própria conta (a única que pode reagir num chat privado com o bot).
   client.addEventHandler(async (update) => {
     try {
+      lastUpdateAt = Date.now();
+
       const results = update.reactions && update.reactions.results;
       if (!results) return;
 
@@ -447,15 +460,36 @@ async function startTelegramListener() {
   // pra evitar o loop de AUTH_KEY_DUPLICATED do GramJS reconectando sozinho
   // com a sessão duplicada — ver commit ae017b3), uma queda de conexão comum
   // não lança erro nenhum aqui, e o loop de reconexão do index.js só age
-  // quando esta função rejeita. Sem isso o processo fica "vivo" mas surdo,
-  // sem processar nenhuma mensagem nova, até alguém notar manualmente (foi
-  // o que aconteceu na migração pro evobo-api). Checa a cada 2min se o
-  // client ainda está de fato conectado; se não estiver, lança de propósito
-  // pra acionar aquele loop de reconexão.
+  // quando esta função rejeita.
+  //
+  // A 1ª versão disso só checava `client.connected` — e isso NÃO detecta o
+  // caso real que aconteceu em produção (visto em 2026-09-19, ~14:33-14:49
+  // UTC: zero alertas e zero resultados processados por 16+ minutos, sem
+  // nenhum log de queda): o socket MTProto pode continuar "conectado" do
+  // ponto de vista do GramJS enquanto a assinatura de updates do servidor
+  // trava silenciosamente — `client.connected` fica `true` o tempo todo,
+  // então aquele watchdog nunca disparava. O processo ficava "vivo" mas
+  // surdo, sem processar nenhuma mensagem nova, até alguém notar na mão.
+  //
+  // Watchdog novo: mede tempo desde o último update de QUALQUER tipo que
+  // o GramJS de fato entregou (`lastUpdateAt`, atualizado nos dois
+  // addEventHandler acima, antes de qualquer filtro/parse — conta mesmo
+  // update que a gente ignora). Esse canal costuma trazer alguma coisa a
+  // cada poucos segundos/minutos em horário de jogo; 10 minutos de
+  // silêncio total é anômalo o bastante pra forçar reconexão sem gerar
+  // falso positivo numa janela real de calmaria entre partidas.
+  const STALE_THRESHOLD_MS = 10 * 60_000;
+  const CHECK_INTERVAL_MS = 60_000;
   while (true) {
-    await new Promise((r) => setTimeout(r, 2 * 60_000));
+    await new Promise((r) => setTimeout(r, CHECK_INTERVAL_MS));
     if (!client.connected) {
       throw new Error('Conexão com o Telegram caiu (client.connected = false).');
+    }
+    const silentForMs = Date.now() - lastUpdateAt;
+    if (silentForMs > STALE_THRESHOLD_MS) {
+      throw new Error(
+        `Listener mudo: nenhum update do Telegram em ${Math.round(silentForMs / 60_000)}min (client.connected ainda true).`,
+      );
     }
   }
 }
