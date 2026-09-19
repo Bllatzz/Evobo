@@ -114,9 +114,20 @@ export async function startTelegramWorker() {
   const groupByChatId = new Map(groups.map((g) => [g.telegramChatId, g]));
   console.log(`[worker] escutando ${groups.length} grupo(s): ${groups.map((g) => g.name).join(", ") || "(nenhum cadastrado)"}`);
 
+  // Sinal de vida real do listener — ver o watchdog logo abaixo. Mesmo
+  // problema encontrado e corrigido no listener do robotip
+  // (packages/robotip-legacy/src/services/telegram.js): o GramJS pode ficar
+  // com o socket MTProto "conectado" enquanto a assinatura de updates do
+  // servidor trava silenciosamente, e esse client usa autoReconnect padrão
+  // (true) — o que cobre queda de socket, mas não esse caso "vivo mas
+  // surdo". Atualizado em QUALQUER update recebido, mesmo um que a gente
+  // ignora (grupo não cadastrado, etc.).
+  let lastUpdateAt = Date.now();
+
   // Filtra manualmente por chatId em vez de passar `chats` pro NewMessage —
   // evita depender da resolução de entity do GramJS pra ids numéricos brutos.
   client.addEventHandler(async (event: NewMessageEvent) => {
+    lastUpdateAt = Date.now();
     const chatId = event.chatId?.toString();
     const group = chatId ? groupByChatId.get(chatId) : undefined;
     if (!group) return;
@@ -131,6 +142,7 @@ export async function startTelegramWorker() {
   // Só usado hoje pelo Super Odds, que marca o resultado editando a própria
   // mensagem em vez de mandar no bet-analytix (3x ✅/❌) — ver resultFromEmoji.ts.
   client.addEventHandler(async (event: EditedMessageEvent) => {
+    lastUpdateAt = Date.now();
     const chatId = event.chatId?.toString();
     const group = chatId ? groupByChatId.get(chatId) : undefined;
     if (!group) return;
@@ -145,6 +157,7 @@ export async function startTelegramWorker() {
   // 👍/👎 na própria conta marca peguei/não peguei — ver reactionTake.ts.
   // Reação não vem como NewMessage/EditedMessage, só como update raw.
   client.addEventHandler(async (update: Api.UpdateMessageReactions) => {
+    lastUpdateAt = Date.now();
     const chatId = utils.getPeerId(update.peer);
     const group = groupByChatId.get(chatId);
     if (!group) return;
@@ -155,4 +168,27 @@ export async function startTelegramWorker() {
       console.error("[worker] falha ao processar reação:", err);
     }
   }, new Raw({ types: [Api.UpdateMessageReactions] }));
+
+  // Watchdog: se ficar WORKER_STALE_THRESHOLD_MS sem nenhum update (mesmo
+  // client.connected continuando true), força disconnect+connect no mesmo
+  // client — reaproveita sessão/entities já carregadas, sem precisar
+  // recriar o TelegramClient nem relogar. autoReconnect (padrão true nesse
+  // client) cobre queda de socket; isto cobre o caso "vivo mas surdo" que
+  // ele não pega.
+  const WORKER_STALE_THRESHOLD_MS = 10 * 60_000;
+  const WORKER_WATCHDOG_INTERVAL_MS = 60_000;
+  setInterval(async () => {
+    const silentForMs = Date.now() - lastUpdateAt;
+    if (silentForMs <= WORKER_STALE_THRESHOLD_MS) return;
+
+    console.error(`[worker] listener mudo há ${Math.round(silentForMs / 60_000)}min — forçando reconexão.`);
+    try {
+      await client.disconnect();
+      await client.connect();
+      lastUpdateAt = Date.now();
+      console.log("[worker] reconectado após ficar mudo.");
+    } catch (err) {
+      console.error("[worker] falha ao forçar reconexão:", err);
+    }
+  }, WORKER_WATCHDOG_INTERVAL_MS);
 }
