@@ -4,6 +4,7 @@ import { prisma } from "./db.js";
 import {
   applyEditedMessageResult,
   countResultEmojis,
+  detectLegResults,
   detectResult,
   RESULT_EMOJI_GROUP_NAMES,
   RESULT_MARKER_GROUP_NAMES,
@@ -63,11 +64,18 @@ export async function backfillResultFromEmoji(
         // "achei um sinal, mas não escrevi" (mensagem com >1 tip, ou
         // `result` que já não estava "pending" — ver applyEditedMessageResult).
         const detected = detectResult(message.message, group.name);
+        const legs = RESULT_MARKER_GROUP_NAMES.has(group.name) ? detectLegResults(message.message) : [];
         const count = await applyEditedMessageResult(message.id, message.message, group);
         applied += count;
 
         if (count === 0 && unmatched.length < MAX_UNMATCHED_SAMPLES) {
-          if (detected !== null) {
+          if (legs.length > 0) {
+            unmatched.push({
+              messageId: message.id,
+              reason: `${legs.length} perna(s) com resultado, nenhuma aplicada (texto não bate com exatamente 1 tip, ou já não estava "pending")`,
+              text: message.message ?? "",
+            });
+          } else if (detected !== null) {
             unmatched.push({
               messageId: message.id,
               reason: `detectei "${detected}" mas não apliquei (mensagem com mais de 1 tip, ou resultado que já não estava "pending")`,
@@ -78,8 +86,8 @@ export async function backfillResultFromEmoji(
             if (greenCount > 0 || redCount > 0) {
               unmatched.push({ messageId: message.id, reason: `✅=${greenCount} ❌=${redCount}`, text: message.message ?? "" });
             }
-          } else if (RESULT_MARKER_GROUP_NAMES.has(group.name) && message.message?.includes("Resultado")) {
-            unmatched.push({ messageId: message.id, reason: "linha \"Resultado\" presente mas não reconhecida", text: message.message ?? "" });
+          } else if (RESULT_MARKER_GROUP_NAMES.has(group.name) && (message.message?.includes("Resultado") || message.message?.includes("🏁"))) {
+            unmatched.push({ messageId: message.id, reason: "linha \"Resultado\"/\"🏁\" presente mas não reconhecida", text: message.message ?? "" });
           }
         }
       }

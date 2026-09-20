@@ -49,25 +49,61 @@ export function detectResultFromEmojis(text: string | null | undefined): "green"
 
 export type ResultSignal = "green" | "red" | "reembolso" | "meio-green" | "meio-red";
 
-// "🏁 Resultado: 🟢 Green · +0,62u" / "🏁 Resultado: 🔴 Red · −1,00u" / "🏁
-// Resultado: ⚪ Anulada · +0,00u" / "🏁 Resultado: 🔴½ Meio-red · −0,75u" / "🏁
-// Resultado: 🟢½ Meio-green · +0,31u" — âncora no rótulo literal
-// "Resultado:" (nunca usado por esse tipster pra outra coisa); o círculo
-// colorido e o "½" antes da palavra são opcionais no match pra tolerar
-// variação de formatação sem quebrar. "Meio-*" vem ANTES de "Green"/"Red"
-// na alternativa pra nunca casar só a metade errada da palavra composta.
-const RESULT_MARKER_RE = /🏁\s*Resultado:\s*(?:🟢|🔴|⚪)?½?\s*(Meio-Green|Meio-Red|Green|Red|Anulada)\b/i;
+// "🟢 Green" / "🔴 Red" / "⚪ Anulada" / "🔴½ Meio-red" / "🟢½ Meio-green" — o
+// círculo colorido e o "½" antes da palavra são opcionais no match pra
+// tolerar variação de formatação sem quebrar. "Meio-*" vem ANTES de
+// "Green"/"Red" na alternativa pra nunca casar só a metade errada da
+// palavra composta.
+const RESULT_WORD_SRC = "(?:🟢|🔴|⚪)?½?\\s*(Meio-Green|Meio-Red|Green|Red|Anulada)\\b";
+
+// "🏁 Resultado: 🟢 Green · +0,62u" / "🏁 Resultado: 🔴 Red · −1,00u" — âncora
+// no rótulo literal "Resultado:" (nunca usado por esse tipster pra outra
+// coisa).
+const RESULT_MARKER_RE = new RegExp(`🏁\\s*Resultado:\\s*${RESULT_WORD_SRC}`, "i");
+
+// Perna numerada de uma ESCADA / "N INDIVIDUAIS" editada, com o resultado no
+// fim da própria linha: "1️⃣ Honest Ahanor 1+ faltas cometidas · 🟢 Green
+// +0,72u" ou "1️⃣ AC Milan equipe com mais cartões · Lazio x AC Milan · 🟢
+// Green +2,74u". O texto da perna é tudo entre o keycap e o ÚLTIMO " · "
+// antes do resultado (guloso), então "·" dentro do texto não atrapalha.
+const LEG_RESULT_RE = new RegExp(`^([0-9])️?⃣\\s*(.+)\\s*·\\s*${RESULT_WORD_SRC}`, "i");
+
+function resultFromWord(word: string): ResultSignal {
+  switch (word.toLowerCase()) {
+    case "green":
+      return "green";
+    case "red":
+      return "red";
+    case "meio-green":
+      return "meio-green";
+    case "meio-red":
+      return "meio-red";
+    default:
+      return "reembolso"; // Anulada
+  }
+}
 
 export function detectResultFromMarker(text: string | null | undefined): ResultSignal | null {
   if (!text) return null;
   const match = text.match(RESULT_MARKER_RE);
-  if (!match) return null;
-  const word = match[1]!.toLowerCase();
-  if (word === "green") return "green";
-  if (word === "red") return "red";
-  if (word === "meio-green") return "meio-green";
-  if (word === "meio-red") return "meio-red";
-  return "reembolso"; // Anulada
+  return match ? resultFromWord(match[1]!) : null;
+}
+
+export type LegResult = { position: number; text: string; result: ResultSignal };
+
+/** Resultado por perna, pro formato em que o tipster edita CADA linha
+ * numerada da ESCADA / "N INDIVIDUAIS" (sem linha "🏁 Resultado:"; o "🏁
+ * Total" do fim é só a soma e é ignorado). Perna sem resultado ainda (jogo
+ * não terminou) simplesmente não aparece — as demais valem do mesmo jeito. */
+export function detectLegResults(text: string | null | undefined): LegResult[] {
+  if (!text) return [];
+  const legs: LegResult[] = [];
+  for (const raw of text.split("\n")) {
+    const match = raw.trim().match(LEG_RESULT_RE);
+    if (!match) continue;
+    legs.push({ position: Number(match[1]), text: match[2]!.trim(), result: resultFromWord(match[3]!) });
+  }
+  return legs;
 }
 
 /** Exportado à parte de applyEditedMessageResult pra diagnóstico (ver
@@ -80,17 +116,65 @@ export function detectResult(text: string | null | undefined, groupName: string)
   return null;
 }
 
+function normalizeLegText(text: string | null | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** Uma perna editada ("<seleção>" ou "<seleção> · <jogo>") aponta pra uma
+ * tip quando o texto bate com `selection` — sozinho ou seguido do jogo
+ * ("Lazio x AC Milan"), já que nas INDIVIDUAIS o tipster repete o confronto
+ * na linha da perna editada. */
+export function legMatchesTip(legText: string, tip: { selection: string | null; match: string | null }): boolean {
+  const leg = normalizeLegText(legText);
+  const selection = normalizeLegText(tip.selection);
+  if (!leg || !selection) return false;
+  if (leg === selection) return true;
+  const match = normalizeLegText(tip.match);
+  return match !== "" && leg === `${selection} · ${match}`;
+}
+
+/** Mensagem com várias pernas (ESCADA / N INDIVIDUAIS): cada linha numerada
+ * ganha o próprio resultado, aplicado só à tip cujo texto bate com a perna.
+ * As pernas de uma mesma mensagem são INDEPENDENTES (podem ter desfechos
+ * diferentes), então nunca se aplica um resultado à mensagem toda — e uma
+ * perna que não casa com EXATAMENTE 1 tip ainda pendente (0 ou ambígua) fica
+ * de fora pra revisão manual, nunca chuta. */
+async function applyLegResults(messageId: number, legs: LegResult[], group: TelegramGroup): Promise<number> {
+  const tips = await prisma.telegramTip.findMany({
+    where: { groupId: group.id, telegramMessageId: BigInt(messageId) },
+    select: { id: true, selection: true, match: true, result: true },
+  });
+
+  let applied = 0;
+  for (const leg of legs) {
+    const candidates = tips.filter((t) => legMatchesTip(leg.text, t));
+    if (candidates.length !== 1) continue;
+    const tip = candidates[0]!;
+    if (tip.result !== "pending") continue;
+
+    const { count } = await prisma.telegramTip.updateMany({
+      where: { id: tip.id, result: "pending" },
+      data: { result: leg.result, needsReview: false },
+    });
+    if (count > 0) {
+      applied += count;
+      console.log(`[worker] resultado "${leg.result}" aplicado via edição da perna ${leg.position} (grupo ${group.name}, msg ${messageId})`);
+    }
+  }
+  return applied;
+}
+
 /** Chamado pelo listener de mensagens editadas (ver index.ts) — só age nos
  * grupos cadastrados em RESULT_EMOJI_GROUP_NAMES/RESULT_MARKER_GROUP_NAMES.
- * Atualiza TODAS as TelegramTip da mensagem editada de uma vez — MAS só
- * quando a mensagem mapeia pra exatamente 1 tip. Nos grupos de
- * RESULT_MARKER_GROUP_NAMES, o formato ESCADA do Padovan junta pernas
- * INDEPENDENTES (odd/stake próprios cada uma, podem ganhar/perder cada
- * uma pro seu lado) na mesma mensagem — sem um exemplo real de como o
- * tipster marca resultado numa ESCADA editada (uma linha "Resultado" por
- * perna, ou só uma pra mensagem toda), aplicar um resultado só a todas de
- * uma vez arriscaria errar quem não teve o mesmo desfecho; por ora fica
- * pra revisão manual sempre que a mensagem tiver mais de 1 tip.
+ *
+ * Duas formas de o tipster marcar resultado nos grupos de
+ * RESULT_MARKER_GROUP_NAMES:
+ *  - linha única "🏁 Resultado: ..." (mensagem de 1 tip): aplica a TODAS as
+ *    tips da mensagem, MAS só quando ela mapeia pra exatamente 1 tip — se
+ *    tiver mais, as pernas são independentes e um resultado só arriscaria
+ *    errar quem não teve o mesmo desfecho (fica pra revisão manual);
+ *  - resultado em cada perna numerada (ESCADA / N INDIVIDUAIS): aplicado
+ *    perna a perna, ver applyLegResults.
  *
  * Nunca sobrescreve um `result` que já saiu de "pending" (proteção pra
  * marcação manual anterior) — como trade-off, isso também significa que
@@ -101,6 +185,11 @@ export async function applyEditedMessageResult(
   messageText: string | null | undefined,
   group: TelegramGroup,
 ): Promise<number> {
+  if (RESULT_MARKER_GROUP_NAMES.has(group.name)) {
+    const legs = detectLegResults(messageText);
+    if (legs.length > 0) return applyLegResults(messageId, legs, group);
+  }
+
   const result = detectResult(messageText, group.name);
   if (!result) return 0;
 
