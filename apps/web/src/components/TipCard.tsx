@@ -3,6 +3,7 @@ import type { FeedTip } from "../lib/tips";
 import { takeTip, untakeTip } from "../lib/tips";
 import { formatConfidence, formatOdds, formatUnits, timeAgo } from "../lib/format";
 import { avatarGradient } from "../lib/avatar";
+import { safeHttpUrl } from "../lib/safeUrl";
 import { Avatar } from "./Avatar";
 import { VerifiedBadge } from "./VerifiedBadge";
 import { IconArrowUp, IconCheck, IconComment, IconExternalLink, IconShare } from "./Icon";
@@ -113,7 +114,9 @@ export function TipCard({ tip, onChange }: { tip: FeedTip; onChange?: () => void
           type="button"
           onClick={(e) => {
             e.preventDefault();
-            window.open(tip.house, "_blank", "noopener,noreferrer");
+            // tip.house is user-authored — only ever open an http(s) URL.
+            const url = safeHttpUrl(tip.house);
+            if (url) window.open(url, "_blank", "noopener,noreferrer");
           }}
           className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-[13px] bg-accent text-[14px] font-semibold text-[#08090A]"
         >

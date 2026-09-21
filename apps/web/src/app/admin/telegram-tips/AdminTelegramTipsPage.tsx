@@ -22,6 +22,7 @@ import { Dropdown } from "../../../components/Dropdown";
 import { BookmakerCombobox } from "../../../components/BookmakerCombobox";
 import { Modal } from "../../../components/Modal";
 import { bookmakerLabel } from "../../../lib/bookmakers";
+import { safeHttpUrl } from "../../../lib/safeUrl";
 import {
   IconChevronLeft,
   IconChevronDown,
@@ -221,7 +222,8 @@ function AdminTipRow({
   const [saving, setSaving] = useState(false);
 
   const chip = STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!;
-  const betActive = !!tip.betUrl;
+  const safeBetUrl = safeHttpUrl(tip.betUrl); // only http(s) ever reaches an <a href>
+  const betActive = !!safeBetUrl;
 
   async function commit(patch: Parameters<typeof patchTelegramTip>[1]) {
     setSaving(true);
@@ -398,7 +400,7 @@ function AdminTipRow({
       )}
 
       <a
-        href={betActive ? tip.betUrl! : undefined}
+        href={betActive ? safeBetUrl! : undefined}
         target={betActive ? "_blank" : undefined}
         rel="noreferrer"
         onClick={(e) => {

@@ -18,6 +18,7 @@ import { Modal } from "../../components/Modal";
 import { Dropdown } from "../../components/Dropdown";
 import { BookmakerCombobox } from "../../components/BookmakerCombobox";
 import { bookmakerLabel } from "../../lib/bookmakers";
+import { safeHttpUrl } from "../../lib/safeUrl";
 import {
   IconTelegram,
   IconExternalLink,
@@ -214,7 +215,9 @@ function TipRow({
   // picks a casa — otherwise every tip started with the link dead.
   const defBookmaker = defaultBookmaker(tip, activeBookmaker);
   const effBookmaker = draft?.bookmaker ?? defBookmaker.bookmaker;
-  const effBetUrl = draft?.betUrl ?? defBookmaker.betUrl;
+  // The link can come from a Telegram message or a hand-edited draft — only an
+  // http(s) URL is ever rendered as an <a href>.
+  const effBetUrl = safeHttpUrl(draft?.betUrl ?? defBookmaker.betUrl);
   const oddDrifted = tip.originalOdd !== null && tip.odd !== null && tip.originalOdd !== tip.odd;
   const betActive = !!effBetUrl;
   const chip = tip.mine.takenStatus === "taken" ? (STATUS_CHIPS[tip.result] ?? STATUS_CHIPS.pending!) : NAO_PEGA_CHIP;

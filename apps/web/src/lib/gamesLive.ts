@@ -35,7 +35,7 @@ export type LiveGamesResponse = {
 };
 
 export const fetchLiveGames = (date: string): Promise<LiveGamesResponse> =>
-  apiFetch(`/games-live?date=${date}`);
+  apiFetch(`/games-live?date=${encodeURIComponent(date)}`);
 
 /** One past result for a team, oldest → newest — see teamForm.ts on the API. */
 export type TeamFormEntry = {
@@ -56,4 +56,4 @@ export type GameDetail = {
 };
 
 export const fetchGameDetail = (gameId: string, date: string): Promise<GameDetail> =>
-  apiFetch(`/games-live/${gameId}?date=${date}`);
+  apiFetch(`/games-live/${encodeURIComponent(gameId)}?date=${encodeURIComponent(date)}`);

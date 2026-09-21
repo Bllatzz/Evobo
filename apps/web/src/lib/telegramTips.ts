@@ -58,15 +58,15 @@ export function fetchTelegramTips(filter: TelegramTipsFilter = {}): Promise<Tele
 
 /** Admin only — corrige o registro oficial (odd/unidade/casa/link/mercado/jogo/resultado). */
 export const patchTelegramTip = (id: string, input: UpdateTelegramTipInput): Promise<TelegramTip> =>
-  apiFetch(`/telegram-tips/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+  apiFetch(`/telegram-tips/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
 
 /** Acompanhamento pessoal — se EU peguei, com qual unidade/odd/casa. Sempre no próprio usuário. */
 export const patchTelegramTipTake = (id: string, input: UpdateTelegramTipTakeInput): Promise<TelegramTip> =>
-  apiFetch(`/telegram-tips/${id}/take`, { method: "PATCH", body: JSON.stringify(input) });
+  apiFetch(`/telegram-tips/${encodeURIComponent(id)}/take`, { method: "PATCH", body: JSON.stringify(input) });
 
 /** Admin only — apaga a tip de vez (nunca a foto, que outras tips do mesmo bilhete podem compartilhar). */
 export const deleteTelegramTip = (id: string): Promise<{ deleted: boolean }> =>
-  apiFetch(`/telegram-tips/${id}`, { method: "DELETE" });
+  apiFetch(`/telegram-tips/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 export const fetchTelegramGroups = (): Promise<TelegramGroup[]> => apiFetch("/telegram-tips/groups");
 

@@ -156,6 +156,18 @@ export const TipSchema = z.object({
 });
 export type Tip = z.infer<typeof TipSchema>;
 
+/** http(s) only. `z.string().url()` alone accepts `javascript:` and `data:`
+ * URLs, and these values end up in an <a href> / window.open on other users'
+ * screens — a stored XSS if the scheme isn't restricted. */
+export const isHttpUrl = (value: string): boolean => {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 export const CreateTipInput = TipSchema.pick({
   matchId: true,
   market: true,
@@ -167,7 +179,10 @@ export const CreateTipInput = TipSchema.pick({
   imageUrl: true,
   visibility: true,
   vipGroupId: true,
-}).partial({ confidence: true, analysisText: true, imageUrl: true, vipGroupId: true });
+})
+  .partial({ confidence: true, analysisText: true, imageUrl: true, vipGroupId: true })
+  // `house` carries the bet link ("Abrir aposta" opens it) — only http(s).
+  .extend({ house: z.string().min(1).max(500).refine(isHttpUrl, "house must be an http(s) URL") });
 export type CreateTipInput = z.infer<typeof CreateTipInput>;
 
 export const BillingPeriod = z.enum(["monthly", "quarterly", "yearly"]);
@@ -389,7 +404,7 @@ export const UpdateTelegramTipInput = z.object({
   marketType: TelegramTipMarketType.nullable().optional(),
   match: z.string().max(200).nullable().optional(),
   bookmaker: z.string().max(80).nullable().optional(),
-  betUrl: z.string().url().nullable().optional(),
+  betUrl: z.string().url().refine(isHttpUrl, "betUrl must be an http(s) URL").nullable().optional(),
   /** "Limite de aposta" da casa em reais — quando setado, a unidade pessoal
    * de quem pegar essa tip é automaticamente limitada a isso (ver PATCH
    * /:id/take e TelegramTip.mine.limitApplied). */
@@ -405,7 +420,7 @@ export const UpdateTelegramTipTakeInput = z.object({
   odd: z.number().positive().nullable().optional(),
   unit: z.number().positive().nullable().optional(),
   bookmaker: z.string().max(80).nullable().optional(),
-  betUrl: z.string().url().nullable().optional(),
+  betUrl: z.string().url().refine(isHttpUrl, "betUrl must be an http(s) URL").nullable().optional(),
   /** Bônus/turbinada em R$ pago por fora da odd (ex.: "Aposta Turbinada
    * +50%" da Betano) — nunca entra no casamento odd-a-odd do import, só
    * soma no lucro em R$ quando há unitValue configurado. */

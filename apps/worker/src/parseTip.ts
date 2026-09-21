@@ -485,7 +485,9 @@ function extractLink(
   text: string,
   entities: TextEntity[] | undefined,
 ): { bookmaker: string | null; betUrl: string | null; plainUrlLine: string | null } {
-  const hidden = entities?.find((e) => e.url);
+  // Only http(s): a Telegram text-link can point at any scheme (javascript:,
+  // data:), and this ends up as an <a href> on the tips screens.
+  const hidden = entities?.find((e) => e.url && /^https?:\/\//i.test(e.url));
   if (hidden?.url) {
     return { bookmaker: extractBookmaker(hidden.url), betUrl: hidden.url, plainUrlLine: null };
   }

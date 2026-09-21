@@ -8,6 +8,7 @@ import {
   type StatPair,
 } from "../../lib/robot";
 import { formatOdds } from "../../lib/format";
+import { safeHttpUrl } from "../../lib/safeUrl";
 import {
   IconRobotMonitor,
   IconTrophy,
@@ -178,9 +179,9 @@ function DesktopRobotCard({ signal }: { signal: RobotSignal }) {
 
       {signal.marketGroupKey === OVER_CORNERS_GROUP_KEY && <OverCornersNote />}
 
-      {signal.bet365Url && (
+      {safeHttpUrl(signal.bet365Url) && (
         <a
-          href={signal.bet365Url}
+          href={safeHttpUrl(signal.bet365Url)!}
           target="_blank"
           rel="noreferrer"
           className="flex h-[42px] items-center justify-center gap-1.5 rounded-xl bg-accent text-[14px] font-bold text-[#08090A]"
@@ -512,9 +513,9 @@ export function RobotPage() {
 
               {signal.marketGroupKey === OVER_CORNERS_GROUP_KEY && <OverCornersNote />}
 
-              {signal.bet365Url && (
+              {safeHttpUrl(signal.bet365Url) && (
                 <a
-                  href={signal.bet365Url}
+                  href={safeHttpUrl(signal.bet365Url)!}
                   target="_blank"
                   rel="noreferrer"
                   className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-accent text-[13.5px] font-bold text-[#08090A]"

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Game } from "@evobo/shared-types";
 import { createTip, fetchGames } from "../../lib/tips";
+import { safeHttpUrl } from "../../lib/safeUrl";
 import { IconLock, IconX } from "../../components/Icon";
 
 export function NewTipPage() {
@@ -32,6 +33,13 @@ export function NewTipPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!selectedGame || !market.trim() || !odds || !stake || !betLink.trim()) return;
+
+    // type="url" also accepts javascript:/data: — the API rejects them too, but
+    // say so here instead of a generic publish error.
+    if (!safeHttpUrl(betLink.trim())) {
+      setError("O link da aposta precisa começar com http:// ou https://.");
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
