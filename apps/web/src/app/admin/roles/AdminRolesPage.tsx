@@ -299,6 +299,11 @@ export function AdminRolesPage() {
 
   const editorBlock = editingRole && (
     <RoleEditor
+      // RoleEditor seeds its form state from `role` once (useState initializers).
+      // Without a key, opening a second role while the editor is open swapped the
+      // prop but kept the first role's description/screens — and "Salvar" then
+      // wrote those onto the newly opened role.
+      key={editingRole.id}
       role={editingRole}
       onClose={() => setEditingRole(null)}
       onSaved={() => {
