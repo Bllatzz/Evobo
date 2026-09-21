@@ -38,6 +38,7 @@ import { LoginPage } from "./app/login/LoginPage";
 import { RegisterPage } from "./app/register/RegisterPage";
 import { ForgotPasswordPage } from "./app/forgot-password/ForgotPasswordPage";
 import { ResetPasswordPage } from "./app/reset-password/ResetPasswordPage";
+import { NotFoundPage } from "./app/not-found/NotFoundPage";
 
 /**
  * The handoff design is a 390x844 phone frame for almost every screen — this
@@ -365,6 +366,9 @@ function App() {
               </RouteGuard>
             }
           />
+
+          {/* Anything else: a "page not found" screen instead of a blank page. */}
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </AuthProvider>
       </ThemeProvider>

@@ -1,4 +1,5 @@
 import type { EvPick } from "./evPlus";
+import { addDaysIso, todayIsoSaoPaulo } from "./dates";
 
 export type EvFilterState = {
   dateFrom: string; // yyyy-mm-dd
@@ -12,20 +13,16 @@ export type EvFilterState = {
   evMax: number;
 };
 
-function toDateInput(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 // Matches the two robotip fetch windows in apps/api's ev-plus route: 7 days back
 // (finished games) through 3 days ahead (live/upcoming) — a tighter default would
-// silently exclude picks the page actually has data for.
+// silently exclude picks the page actually has data for. "Today" is São Paulo's
+// (lib/dates.ts): the UTC date is already tomorrow after ~21h in Brazil, which
+// used to push the whole window a day forward and hide the oldest day of picks.
 export function defaultEvFilters(): EvFilterState {
-  const today = new Date();
-  const days7Ago = new Date(today.getTime() - 7 * 86_400_000);
-  const in3Days = new Date(today.getTime() + 3 * 86_400_000);
+  const today = todayIsoSaoPaulo();
   return {
-    dateFrom: toDateInput(days7Ago),
-    dateTo: toDateInput(in3Days),
+    dateFrom: addDaysIso(today, -7),
+    dateTo: addDaysIso(today, 3),
     market: "all",
     oddMin: 1,
     oddMax: 30,

@@ -1,4 +1,5 @@
 import type { LiveGame } from "./gamesLive";
+import { todayIsoSaoPaulo } from "./dates";
 
 export type GameStatusFilter = "all" | "scheduled" | "finished";
 
@@ -10,13 +11,9 @@ export type GamesFilterState = {
   cornersMarketOnly: boolean;
 };
 
-function toDateInput(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 export function defaultGamesFilters(): GamesFilterState {
   return {
-    date: toDateInput(new Date()),
+    date: todayIsoSaoPaulo(),
     status: "all",
     minuteMin: 0,
     minuteMax: 150,

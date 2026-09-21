@@ -127,7 +127,11 @@ export function GamesFilterModal({ open, onClose, filters, onApply, onOpenSavedF
             <input
               type="date"
               value={draft.date}
-              onChange={(e) => set("date", e.target.value)}
+              // Clearing the native date picker yields "" — keep the previous date
+              // rather than filtering by no date at all.
+              onChange={(e) => {
+                if (e.target.value) set("date", e.target.value);
+              }}
               className="w-full rounded-lg border border-border-strong bg-surface-alt px-2.5 py-2 font-mono text-[12px] text-text outline-none"
             />
           </label>

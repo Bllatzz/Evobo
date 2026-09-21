@@ -3,6 +3,15 @@ import type { Session } from "@supabase/supabase-js";
 import type { ScreenKey } from "@evobo/shared-types";
 import { supabase } from "../lib/supabase";
 import { apiFetch, ApiError } from "../lib/api";
+import { retryTransient } from "../lib/retry";
+
+/** 401/403 from the backend = the token was rejected (a real "logged out"),
+ * as opposed to a network error or 5xx, which are worth retrying. */
+const isAuthFailure = (err: unknown): boolean =>
+  err instanceof ApiError && (err.status === 401 || err.status === 403);
+
+/** Waits before each /auth/me retry: covers a few seconds of API restart. */
+const ME_RETRY_DELAYS_MS = [1000, 2000];
 
 type Me = {
   id: string;
@@ -45,10 +54,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSessionChecked(true);
     });
 
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setSessionChecked(true);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        setSession(data.session);
+        setSessionChecked(true);
+      })
+      .catch(() => {
+        // Reading the stored session failed: treat it as "no session" instead
+        // of leaving sessionChecked false — that kept `loading` true and the
+        // route guard on a blank screen forever.
+        setSession(null);
+        setSessionChecked(true);
+      });
 
     return () => subscription.subscription.unsubscribe();
   }, []);
@@ -65,15 +83,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setLoading(true);
       try {
-        const data = await apiFetch("/auth/me");
+        // A network blip or a 5xx (e.g. opening the site while the API is
+        // restarting for a deploy) is retried a couple of times while `loading`
+        // stays true. On the first load `me` is still null, so giving up at
+        // once made `isAuthenticated` false and bounced a valid session to
+        // /login.
+        const data = await retryTransient(
+          () => apiFetch("/auth/me"),
+          (err) => !isAuthFailure(err),
+          ME_RETRY_DELAYS_MS,
+          () => cancelled,
+        );
         if (!cancelled) setMe(data);
       } catch (err) {
         // Only a real auth failure (401/403 — token rejected by the backend)
-        // means "logged out". A network blip, timeout, or 5xx during a
-        // backend deploy must not wipe `me` — that would bounce a user with
-        // a perfectly valid session back to /login over a transient error.
-        const isAuthFailure = err instanceof ApiError && (err.status === 401 || err.status === 403);
-        if (!cancelled && isAuthFailure) setMe(null);
+        // means "logged out". A network blip, timeout, or 5xx that outlasted
+        // the retries must not wipe `me` — that would bounce a user with a
+        // perfectly valid session back to /login over a transient error.
+        if (!cancelled && isAuthFailure(err)) setMe(null);
       } finally {
         if (!cancelled) setLoading(false);
       }

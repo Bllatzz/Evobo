@@ -9,6 +9,10 @@ import { IconCrown } from "../../components/Icon";
 /** Desktop podium (D2) — a 2nd/1st/3rd bar-chart layout, quite different from
  * the mobile podium's flat row of avatars. Bar heights and border colors are
  * fixed per position (gold/silver/bronze), not data-driven. */
+/** ROI colour: highlight for a gain, red for a loss (it was always the
+ * highlight colour, so a tipster at -12% looked like a winner). */
+const roiColor = (roi: number): string => (roi >= 0 ? "text-accent" : "text-live");
+
 function DesktopPodium({ top3 }: { top3: RankedTipster[] }) {
   const [first, second, third] = [top3[0], top3[1], top3[2]];
   const slots = [
@@ -37,7 +41,7 @@ function DesktopPodium({ top3 }: { top3: RankedTipster[] }) {
             <div className={`mt-2 font-semibold ${place === 1 ? "text-[15px]" : "text-[14px]"}`}>
               {tipster.displayName}
             </div>
-            <div className={`font-mono font-bold text-accent ${place === 1 ? "text-[18px]" : "text-[15px]"}`}>
+            <div className={`font-mono font-bold ${roiColor(tipster.roi)} ${place === 1 ? "text-[18px]" : "text-[15px]"}`}>
               {tipster.roi >= 0 ? "+" : ""}
               {tipster.roi.toFixed(0)}%
             </div>
@@ -89,7 +93,7 @@ function DesktopRankingTable({ ranking }: { ranking: RankedTipster[] }) {
           <span className="w-[100px] text-right font-mono text-[13px] text-text-muted">
             {tipster.hitRate.toFixed(0)}%
           </span>
-          <span className="w-[100px] text-right font-mono text-[15px] font-bold text-accent">
+          <span className={`w-[100px] text-right font-mono text-[15px] font-bold ${roiColor(tipster.roi)}`}>
             {tipster.roi >= 0 ? "+" : ""}
             {tipster.roi.toFixed(1)}%
           </span>
@@ -133,7 +137,7 @@ function Podium({ top3 }: { top3: RankedTipster[] }) {
             <div className="mt-1.5 truncate text-[12px] font-semibold">
               {tipster.displayName.split(" ")[0]}
             </div>
-            <div className="font-mono text-[13px] font-bold text-accent">
+            <div className={`font-mono text-[13px] font-bold ${roiColor(tipster.roi)}`}>
               {tipster.roi >= 0 ? "+" : ""}
               {tipster.roi.toFixed(0)}%
             </div>
@@ -262,7 +266,7 @@ export function RankingPage() {
                   {tipster.tipsCount} tips · {tipster.hitRate.toFixed(0)}% win
                 </div>
               </div>
-              <div className="font-mono text-[15px] font-bold text-accent">
+              <div className={`font-mono text-[15px] font-bold ${roiColor(tipster.roi)}`}>
                 {tipster.roi >= 0 ? "+" : ""}
                 {tipster.roi.toFixed(1)}%
               </div>

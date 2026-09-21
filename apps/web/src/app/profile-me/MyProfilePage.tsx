@@ -276,7 +276,6 @@ function BankrollChart({
  * VIP Telegram. Defaults to "no telegram data" for users without the
  * telegram_banca screen, which leaves every stat exactly as it was before. */
 type TelegramFold = {
-  bancaInicialUnits: number | null;
   unitValue: number | null;
   profitUnits: number;
   staked: number;
@@ -288,7 +287,6 @@ type TelegramFold = {
   abertoCount: number;
 };
 const NO_TELEGRAM_FOLD: TelegramFold = {
-  bancaInicialUnits: null,
   unitValue: null,
   profitUnits: 0,
   staked: 0,
@@ -463,10 +461,8 @@ export function MyProfilePage() {
     Promise.all([fetchTelegramSettings(), fetchBookmakerBalances(), fetchTelegramBanca(), fetchBookmakerNames()])
       .then(([settings, bals, banca, names]) => {
         const unitValue = settings.unitValue;
-        const depositedTotal = bals.reduce((sum, b) => sum + b.balance, 0);
         const peguei = banca.totals.peguei;
         setTg({
-          bancaInicialUnits: unitValue && unitValue > 0 ? depositedTotal / unitValue : null,
           unitValue,
           profitUnits: peguei?.profit ?? 0,
           staked: peguei?.staked ?? 0,
@@ -528,7 +524,11 @@ export function MyProfilePage() {
     // Reembolso não é vitória nem derrota — fora do denominador do winrate.
     const combinedDecided = greenCount + redCount + tg.green + tg.red;
     const combinedGreen = greenCount + tg.green;
-    const bancaInicial = tg.bancaInicialUnits ?? STARTING_BANKROLL_UNITS;
+    // Derived here, not stored at load: it depends on the deposits (`balances`)
+    // and the unit value, both of which the user edits on this very page — a
+    // value computed once at load stayed stale until the next reload.
+    const depositedTotal = balances.reduce((sum, b) => sum + b.balance, 0);
+    const bancaInicial = tg.unitValue && tg.unitValue > 0 ? depositedTotal / tg.unitValue : STARTING_BANKROLL_UNITS;
     const combinedPnl = pnl + tg.profitUnits;
     const combinedStaked = staked + tg.staked;
 
@@ -546,7 +546,7 @@ export function MyProfilePage() {
       abertoUnits: tg.abertoUnits,
       abertoCount: tg.abertoCount,
     };
-  }, [settled, tg, bets, tgTipsCount]);
+  }, [settled, tg, bets, tgTipsCount, balances]);
 
   // Windowed chart data: native bets are filtered client-side (no server date
   // filter for fetchMyBets), the Telegram half comes straight from
@@ -612,10 +612,14 @@ export function MyProfilePage() {
   }
 
   async function persistBalances(next: TelegramBookmakerBalance[]) {
+    const previous = balances;
     setBalances(next);
     setSavingBalances(true);
     try {
       await saveBookmakerBalances(next);
+    } catch {
+      // The server refused it: don't keep showing a balance that isn't saved.
+      setBalances(previous);
     } finally {
       setSavingBalances(false);
     }
@@ -623,8 +627,16 @@ export function MyProfilePage() {
 
   function addBalance() {
     const bookmaker = (newBookmaker === OTHER_OPTION ? customBookmaker : newBookmaker).trim();
-    if (!bookmaker || newBalance.trim() === "") return;
-    const next = [...balances, { bookmaker, balance: Number(newBalance.replace(",", ".")) }];
+    const value = Number(newBalance.trim().replace(",", "."));
+    // Text or a negative amount is ignored — Number("abc") is NaN, which used
+    // to be sent to the server and shown as "R$ NaN".
+    if (!bookmaker || newBalance.trim() === "" || !Number.isFinite(value) || value < 0) return;
+    const sameCasa = (name: string) => name.toLowerCase() === bookmaker.toLowerCase();
+    // A casa typed again (any casing) updates the saved balance instead of
+    // adding a duplicate row.
+    const next = balances.some((b) => sameCasa(b.bookmaker))
+      ? balances.map((b) => (sameCasa(b.bookmaker) ? { ...b, balance: value } : b))
+      : [...balances, { bookmaker, balance: value }];
     setNewBookmaker("");
     setCustomBookmaker("");
     setNewBalance("");

@@ -9,6 +9,7 @@ import {
   type GamesFilterState,
   type SavedGamesFilter,
 } from "../../lib/gamesFilters";
+import { addDaysIso, todayIsoSaoPaulo } from "../../lib/dates";
 import { GamesFilterModal } from "./GamesFilterModal";
 import { GamesSavedFiltersModal } from "./GamesSavedFiltersModal";
 import { PaginationControl } from "../../components/PaginationControl";
@@ -19,22 +20,8 @@ import { IconSearch, IconTune, IconCornerFlag } from "../../components/Icon";
 const PAGE_SIZE = 12; // leagues per page
 const REFRESH_MS = 30_000; // live scores/odds change fast enough to be worth polling
 
-// Pure calendar-date math on the YYYY-MM-DD string itself (never through a
-// browser-local Date + toISOString — that shifts by the local UTC offset,
-// so anyone in Brazil (UTC-3) opening this after ~21h local time got
-// "Hoje" showing tomorrow's games, "Ontem" showing today's, and so on,
-// since toISOString() had already rolled into the next UTC day).
-function todayIsoSaoPaulo(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-}
-
-function addDaysIso(iso: string, days: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(Date.UTC(y!, m! - 1, d!));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
-}
-
+// Pure calendar-date math on the YYYY-MM-DD string itself, never through a
+// browser-local Date + toISOString — see lib/dates.ts for why.
 function diffDaysIso(a: string, b: string): number {
   const [ay, am, ad] = a.split("-").map(Number);
   const [by, bm, bd] = b.split("-").map(Number);

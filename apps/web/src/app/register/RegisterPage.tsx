@@ -15,6 +15,9 @@ export function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Success notice (e-mail confirmation pending) — kept apart from `error` so it
+  // isn't rendered in the error colour and mistaken for a failed signup.
+  const [info, setInfo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const strength = useMemo(() => passwordStrength(password), [password]);
@@ -23,29 +26,42 @@ export function RegisterPage() {
     e.preventDefault();
     if (!agreed || strength.score < MIN_SCORE_TO_SUBMIT) return;
     const trimmedName = name.trim();
-    if (!trimmedName) return;
+    if (!trimmedName) {
+      // `required` lets a whitespace-only name through — say so instead of
+      // silently doing nothing.
+      setError("Informe seu nome.");
+      return;
+    }
     setError(null);
+    setInfo(null);
     setSubmitting(true);
 
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: { data: { display_name: trimmedName } },
-    });
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { data: { display_name: trimmedName } },
+      });
 
-    setSubmitting(false);
-    if (error) {
-      setError(translateAuthError(error));
-      return;
+      if (error) {
+        setError(translateAuthError(error));
+        return;
+      }
+      // If e-mail confirmation is required, signUp succeeds but returns no
+      // session — navigating to "/" would just bounce back to /login via
+      // RouteGuard with no explanation of what happened.
+      if (!data.session) {
+        setInfo("Cadastro criado! Confirme seu e-mail para poder entrar.");
+        return;
+      }
+      navigate("/", { replace: true });
+    } catch {
+      // A network failure makes signUp throw instead of returning `error`;
+      // without this the button stayed on "Criando…" until a reload.
+      setError("Não foi possível criar a conta. Verifique sua conexão e tente de novo.");
+    } finally {
+      setSubmitting(false);
     }
-    // If e-mail confirmation is required, signUp succeeds but returns no
-    // session — navigating to "/" would just bounce back to /login via
-    // RouteGuard with no explanation of what happened.
-    if (!data.session) {
-      setError("Cadastro criado! Confirme seu e-mail para poder entrar.");
-      return;
-    }
-    navigate("/", { replace: true });
   }
 
   return (
@@ -166,6 +182,7 @@ export function RegisterPage() {
         </label>
 
         {error && <p className="mb-3 text-sm text-live">{error}</p>}
+        {info && <p className="mb-3 text-sm text-accent">{info}</p>}
 
         <button
           type="submit"

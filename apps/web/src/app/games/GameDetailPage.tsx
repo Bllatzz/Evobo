@@ -5,14 +5,11 @@ import { formatOdds } from "../../lib/format";
 import { CrestName, onCrestError } from "../../components/CrestName";
 import { IconChevronLeft, IconCornerFlag, IconLive, IconPennant } from "../../components/Icon";
 import { ApiError } from "../../lib/api";
+import { todayIsoSaoPaulo } from "../../lib/dates";
 
 // Live/finished games change fast enough to be worth polling, same cadence
 // as the games list this page was reached from.
 const REFRESH_MS = 30_000;
-
-function todayIsoSaoPaulo(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-}
 
 const RESULT_STYLE: Record<TeamFormEntry["result"], { label: string; className: string }> = {
   W: { label: "V", className: "bg-accent text-[#08090A]" },
