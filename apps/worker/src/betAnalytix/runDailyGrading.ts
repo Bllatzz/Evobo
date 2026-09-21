@@ -2,6 +2,7 @@ import { prisma } from "../db.js";
 import { BANKROLL_BY_GROUP_NAME } from "./config.js";
 import { fetchBankrollBets } from "./fetchBankroll.js";
 import { matchTip } from "./matchTips.js";
+import { runTippyGrading } from "../tippy/runTippyGrading.js";
 
 export type DailyGradingResult = { groupsChecked: number; graded: number; needsReview: number };
 
@@ -9,7 +10,10 @@ export type DailyGradingResult = { groupsChecked: number; graded: number; needsR
  * POST /admin/grade-now. Nunca mexe numa tip que já tem `result` !==
  * "pending" — só grada quando o match é confiável, e só marca
  * `needsReview` quando é ambíguo de verdade (ver matchTips.ts). Uma falha
- * ao buscar um bankroll não derruba os outros grupos. */
+ * ao buscar um bankroll não derruba os outros grupos. Também roda o Tippy
+ * (grupos com vitrine pública lá, ver tippy/runTippyGrading.ts) e soma os
+ * dois — assim o botão do admin e o agendamento diário cobrem as duas
+ * fontes sem mais nenhuma chamada. */
 export async function runDailyGrading(): Promise<DailyGradingResult> {
   let graded = 0;
   let needsReview = 0;
@@ -50,5 +54,12 @@ export async function runDailyGrading(): Promise<DailyGradingResult> {
     }
   }
 
-  return { groupsChecked, graded, needsReview };
+  // Depois do bet-analytix (que depende do PC ligado) e isolado dele: se o
+  // túnel estiver fora, as falhas acima só logam e o Tippy roda do mesmo jeito.
+  const tippy = await runTippyGrading();
+  return {
+    groupsChecked: groupsChecked + tippy.groupsChecked,
+    graded: graded + tippy.graded,
+    needsReview: needsReview + tippy.needsReview,
+  };
 }

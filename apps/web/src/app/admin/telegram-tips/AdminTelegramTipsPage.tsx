@@ -666,7 +666,7 @@ export function AdminTelegramTipsPage() {
             disabled={grading}
             className="flex-none rounded-full bg-accent-soft px-3.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.02em] text-accent disabled:opacity-50"
           >
-            {grading ? "Checando…" : "Checar bet-analytix agora"}
+            {grading ? "Checando…" : "Checar bet-analytix + Tippy agora"}
           </button>
           <button
             onClick={async () => {

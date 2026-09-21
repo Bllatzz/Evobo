@@ -189,7 +189,7 @@ export const fillTelegramTipsGaps = (
 export const retryMissingOcr = (): Promise<{ groupsEnqueued: number; tipsEnqueued: number }> =>
   apiFetch("/telegram-tips/admin/retry-ocr", { method: "POST" });
 
-/** Admin only — dispara sob demanda a checagem no bet-analytix (normalmente roda sozinha às 3h). */
+/** Admin only — dispara sob demanda a checagem no bet-analytix e no Tippy (o bet-analytix roda sozinho às 3h, o Tippy a cada 30min). */
 export const runBetAnalytixGrading = (): Promise<{ groupsChecked: number; graded: number; needsReview: number }> =>
   apiFetch("/telegram-tips/admin/grade-now", { method: "POST" });
 

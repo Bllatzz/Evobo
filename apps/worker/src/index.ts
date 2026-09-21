@@ -10,6 +10,7 @@ import { startExtractDetailsWorker } from "./queues/extractDetailsWorker.js";
 import { purgeOldTips } from "./purgeOldTips.js";
 import { backfillSince, fillGapsSince } from "./backfillRange.js";
 import { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
+import { runTippyGrading } from "./tippy/runTippyGrading.js";
 import { applyEditedMessageResult } from "./resultFromEmoji.js";
 import { backfillResultFromEmoji } from "./backfillResultFromEmoji.js";
 import { applyMyReactionTake } from "./reactionTake.js";
@@ -18,6 +19,7 @@ import { syncRecentSignals } from "./syncRecentSignals.js";
 
 export { retryMissingOcr } from "./retryOcr.js";
 export { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
+export { runTippyGrading } from "./tippy/runTippyGrading.js";
 export {
   matchBookmakerBet,
   GAME_SIMILARITY_THRESHOLD,
@@ -46,6 +48,33 @@ function scheduleDailyGrading(): void {
       .catch((err) => console.error("[bet-analytix] falha no grading diário:", err))
       .finally(scheduleDailyGrading);
   }, next.getTime() - now.getTime());
+}
+
+const TIPPY_POLL_INTERVAL_MS = 30 * 60 * 1000;
+const TIPPY_FIRST_RUN_DELAY_MS = 2 * 60 * 1000;
+
+/** O Tippy é um fetch de ~230 KB (sem Chromium/túnel), então não espera o
+ * grading das 3h: confere a cada 30min pra o resultado aparecer logo depois
+ * que o canal marca. Primeira rodada 2min depois do boot (cobre o que ficou
+ * pendente durante o deploy). `running` evita duas rodadas sobrepostas se o
+ * Tippy demorar; sobrepor com o botão/3h é seguro (o update só pega tips
+ * ainda "pending"). Só loga quando algo mudou. */
+function scheduleTippyPolling(): void {
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const r = await runTippyGrading();
+      if (r.graded > 0 || r.needsReview > 0) console.log("[tippy] grading:", r);
+    } catch (err) {
+      console.error("[tippy] falha no grading:", err);
+    } finally {
+      running = false;
+    }
+  };
+  setTimeout(run, TIPPY_FIRST_RUN_DELAY_MS);
+  setInterval(run, TIPPY_POLL_INTERVAL_MS);
 }
 
 // Set once startTelegramWorker's client connects — reused by
@@ -126,6 +155,7 @@ export async function startTelegramWorker() {
   purgeOldTips().catch((err) => console.error("[purge] falha:", err));
   setInterval(() => purgeOldTips().catch((err) => console.error("[purge] falha:", err)), PURGE_INTERVAL_MS);
   scheduleDailyGrading();
+  scheduleTippyPolling();
 
   const groups = await prisma.telegramGroup.findMany({ where: { active: true } });
   const groupByChatId = new Map(groups.map((g) => [g.telegramChatId, g]));
