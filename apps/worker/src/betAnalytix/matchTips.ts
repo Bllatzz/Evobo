@@ -34,6 +34,24 @@ export function textSimilarity(a: string, b: string): number {
   return overlap / (setA.size + setB.size - overlap);
 }
 
+/** "x"/"vs" aparecem em todo confronto — contam como palavra igual entre
+ * jogos diferentes e inflariam a semelhança, então ficam de fora daqui. */
+const GAME_STOP_TOKENS = new Set(["x", "vs", "v"]);
+
+/** Semelhança só do CONFRONTO (times), ignorando o mercado: o bet-analytix
+ * guarda apostas turbinadas como "Bahia x Remo aumento betano" — só jogo e
+ * casa, nada do mercado — então o texto longo da seleção da tip ("+0.5 HT
+ * Bahia ou Remo ganham HT e +3.5 Cards") sempre parece diferente delas. */
+export function gameSimilarity(a: string, b: string): number {
+  const tokens = (s: string) => new Set(normalizeText(s).split(" ").filter((t) => t && !GAME_STOP_TOKENS.has(t)));
+  const setA = tokens(a);
+  const setB = tokens(b);
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let overlap = 0;
+  for (const t of setA) if (setB.has(t)) overlap++;
+  return overlap / (setA.size + setB.size - overlap);
+}
+
 export type TipToMatch = {
   match: string | null;
   selection: string | null;
@@ -65,7 +83,12 @@ export function matchTip(tip: TipToMatch, bets: BetAnalytixBet[]): MatchOutcome 
   const states = new Set(candidates.map((c) => c.state));
   if (states.size > 1) return { needsReview: true };
 
-  const bestSimilarity = Math.max(...candidates.map((c) => textSimilarity(tipText, c.label)));
+  // Mesmo jogo + mesma odd + dentro da janela já é um match forte (>95% pelo
+  // critério do dono), então basta o jogo OU o texto todo se parecerem com o
+  // rótulo — exigir o mercado também derrubava as apostas turbinadas.
+  const bestSimilarity = Math.max(
+    ...candidates.map((c) => Math.max(textSimilarity(tipText, c.label), tip.match ? gameSimilarity(tip.match, c.label) : 0)),
+  );
   if (bestSimilarity < TEXT_SIMILARITY_THRESHOLD) return { needsReview: true };
 
   const state = candidates[0]!.state;
