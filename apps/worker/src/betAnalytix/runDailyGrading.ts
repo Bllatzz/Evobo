@@ -1,6 +1,7 @@
 import { prisma } from "../db.js";
-import { BANKROLL_BY_GROUP_NAME } from "./config.js";
-import { fetchBankrollBets } from "./fetchBankroll.js";
+import { BANKROLL_BY_GROUP_NAME, UNIT_VALUE_BY_GROUP_NAME } from "./config.js";
+import { fetchBankrollBets, type BetAnalytixBet } from "./fetchBankroll.js";
+import { chooseEntry, llmCandidates } from "./llmMatch.js";
 import { matchTip } from "./matchTips.js";
 import { runTippyGrading } from "../tippy/runTippyGrading.js";
 
@@ -10,7 +11,9 @@ export type DailyGradingResult = { groupsChecked: number; graded: number; needsR
  * POST /admin/grade-now. Nunca mexe numa tip que já tem `result` !==
  * "pending" — só grada quando o match é confiável, e só marca
  * `needsReview` quando é ambíguo de verdade (ver matchTips.ts). Uma falha
- * ao buscar um bankroll não derruba os outros grupos. Também roda o Tippy
+ * ao buscar um bankroll não derruba os outros grupos. O que a comparação de
+ * texto não resolve (apelidos, abreviações) o modelo local decide, ver
+ * llmMatch.ts. Também roda o Tippy
  * (grupos com vitrine pública lá, ver tippy/runTippyGrading.ts) e soma os
  * dois — assim o botão do admin e o agendamento diário cobrem as duas
  * fontes sem mais nenhuma chamada. */
@@ -34,22 +37,83 @@ export async function runDailyGrading(): Promise<DailyGradingResult> {
 
     const pendingTips = await prisma.telegramTip.findMany({
       where: { groupId: group.id, result: "pending" },
-      select: { id: true, match: true, selection: true, odd: true, receivedAt: true },
+      select: { id: true, match: true, selection: true, odd: true, unit: true, bookmaker: true, receivedAt: true },
     });
+    const unitValue = UNIT_VALUE_BY_GROUP_NAME[groupName];
+
+    // `result: "pending"` no where: se o admin marcou à mão (ou o emoji/reação
+    // chegou) entre o findMany e aqui, isso ganha — nunca pisa.
+    const grade = async (id: string, result: "green" | "red") => {
+      const { count } = await prisma.telegramTip.updateMany({ where: { id, result: "pending" }, data: { result, needsReview: false } });
+      graded += count;
+    };
+    const flag = async (id: string) => {
+      await prisma.telegramTip.update({ where: { id }, data: { needsReview: true } });
+      needsReview++;
+    };
+
+    // Tips que a comparação de texto não resolveu mas têm entrada(s) com a
+    // mesma odd na janela: quem decide é o modelo (llmMatch.ts), DEPOIS do
+    // loop — pra poder garantir que uma entrada resolve uma tip só.
+    const undecided: { tip: (typeof pendingTips)[number]; odd: number; candidates: BetAnalytixBet[] }[] = [];
 
     for (const tip of pendingTips) {
-      const outcome = matchTip(
-        { match: tip.match, selection: tip.selection, odd: tip.odd !== null ? Number(tip.odd) : null, receivedAt: tip.receivedAt },
-        bets,
-      );
+      const odd = tip.odd !== null ? Number(tip.odd) : null;
+      const outcome = matchTip({ match: tip.match, selection: tip.selection, odd, receivedAt: tip.receivedAt }, bets);
       if (outcome === null) continue;
 
       if ("needsReview" in outcome) {
-        await prisma.telegramTip.update({ where: { id: tip.id }, data: { needsReview: true } });
-        needsReview++;
+        const candidates = odd !== null ? llmCandidates({ odd, receivedAt: tip.receivedAt }, bets) : [];
+        if (candidates.length > 0) undecided.push({ tip, odd: odd!, candidates });
+        else await flag(tip.id);
       } else {
-        await prisma.telegramTip.update({ where: { id: tip.id }, data: { result: outcome.result, needsReview: false } });
-        graded++;
+        await grade(tip.id, outcome.result);
+      }
+    }
+
+    // Ollama fora do ar (PC desligado/túnel caído) é transitório: as tips
+    // seguem "precisa revisar" e a próxima rodada tenta de novo.
+    let modelDown = false;
+    const chosen = new Map<string, BetAnalytixBet | null>();
+    for (const u of undecided) {
+      if (modelDown) {
+        chosen.set(u.tip.id, null);
+        continue;
+      }
+      try {
+        chosen.set(
+          u.tip.id,
+          await chooseEntry(
+            {
+              match: u.tip.match,
+              selection: u.tip.selection,
+              bookmaker: u.tip.bookmaker,
+              odd: u.odd,
+              expectedStake: unitValue !== undefined && u.tip.unit !== null ? Number(u.tip.unit) * unitValue : null,
+              receivedAt: u.tip.receivedAt,
+            },
+            u.candidates,
+          ),
+        );
+      } catch (err) {
+        console.error(`[bet-analytix] modelo indisponível (${groupName}) — tips seguem pra revisão:`, err);
+        modelDown = true;
+        chosen.set(u.tip.id, null);
+      }
+    }
+
+    const entryKey = (b: BetAnalytixBet) => `${b.date}|${b.label}|${b.odds}|${b.stake}`;
+    const timesChosen = new Map<string, number>();
+    for (const entry of chosen.values()) if (entry) timesChosen.set(entryKey(entry), (timesChosen.get(entryKey(entry)) ?? 0) + 1);
+
+    for (const u of undecided) {
+      const entry = chosen.get(u.tip.id) ?? null;
+      const resolved = entry !== null && timesChosen.get(entryKey(entry)) === 1 && (entry.state === 1 || entry.state === 2);
+      if (resolved) {
+        console.log(`[bet-analytix] ${u.tip.id} gradada ${entry.state === 1 ? "green" : "red"} pelo modelo (entrada "${entry.label}", stake ${entry.stake})`);
+        await grade(u.tip.id, entry.state === 1 ? "green" : "red");
+      } else {
+        await flag(u.tip.id);
       }
     }
   }
