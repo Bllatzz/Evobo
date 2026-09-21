@@ -9,6 +9,8 @@ import {
 import { authGuard } from "../../middleware/authGuard.js";
 import { roleGuard } from "../../middleware/roleGuard.js";
 import { recordAuditLog } from "../../middleware/auditLog.js";
+import { adminProtectionFor } from "../../middleware/ownerProtection.js";
+import { env } from "../../config/env.js";
 import { prisma, withPrivilegedWrite } from "../../db/prisma.js";
 
 /**
@@ -201,11 +203,18 @@ export async function rolesRoutes(app: FastifyInstance) {
     }
 
     const [user, role] = await Promise.all([
-      prisma.user.findUnique({ where: { id: parsed.data.userId } }),
+      prisma.user.findUnique({ where: { id: parsed.data.userId }, include: { role: true } }),
       prisma.role.findUnique({ where: { id: parsed.data.roleId } }),
     ]);
     if (!user) return reply.code(404).send({ error: "user_not_found" });
     if (!role) return reply.code(404).send({ error: "role_not_found" });
+
+    // Taking the admin role away (moving an admin to any other role) is
+    // reserved for the owner — see adminProtectionFor.
+    if (role.name !== "admin") {
+      const blocked = adminProtectionFor(env.OWNER_USER_ID, request.authUser!.id, { id: user.id, roleName: user.role.name });
+      if (blocked) return reply.code(403).send({ error: blocked });
+    }
 
     const updated = await withPrivilegedWrite("user", (tx) =>
       tx.user.update({ where: { id: user.id }, data: { roleId: role.id } }),

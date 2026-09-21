@@ -5,6 +5,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { Prisma } from "@prisma/client";
 import { env } from "./config/env.js";
+import { prisma } from "./db/prisma.js";
 
 import { authRoutes } from "./modules/auth/routes.js";
 import { usersRoutes } from "./modules/users/routes.js";
@@ -26,6 +27,11 @@ import { adminRoutes } from "./modules/admin/routes.js";
 import { searchRoutes } from "./modules/search/routes.js";
 
 const app = Fastify({
+  // The API sits behind exactly one proxy hop (Fly's edge). Without this,
+  // request.ip is the proxy's address, so the rate limiter below puts every
+  // client in a single bucket. `1` (not `true`) trusts only that last hop, so
+  // a client can't dodge the limit by sending its own X-Forwarded-For.
+  trustProxy: 1,
   logger: {
     level: env.NODE_ENV === "production" ? "info" : "debug",
     // Never log Authorization headers, tokens, or payment/proof payloads.
@@ -57,6 +63,15 @@ app.setErrorHandler((error: FastifyError, request, reply) => {
     return reply.code(400).send({ error: "invalid_input" });
   }
 
+  // Bad client input that got past the route's own checks (malformed uuid,
+  // Invalid Date, NaN, unknown enum value) is the caller's mistake, not ours.
+  if (
+    error instanceof Prisma.PrismaClientValidationError ||
+    (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2023")
+  ) {
+    return reply.code(400).send({ error: "invalid_input" });
+  }
+
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2025") return reply.code(404).send({ error: "not_found" });
     if (error.code === "P2002" || error.code === "P2003") {
@@ -67,6 +82,10 @@ app.setErrorHandler((error: FastifyError, request, reply) => {
   const statusCode = error.statusCode && error.statusCode < 500 ? error.statusCode : 500;
   return reply.code(statusCode).send({ error: statusCode < 500 ? error.message : "internal_error" });
 });
+
+if (!env.OWNER_USER_ID) {
+  app.log.warn("OWNER_USER_ID is not set — no admin can be demoted or suspended by another admin until it is");
+}
 
 app.get("/health", async () => ({ status: "ok" }));
 
@@ -110,13 +129,42 @@ app
     process.exit(1);
   });
 
+// Fly stops the machine with a signal on every deploy. Without a handler the
+// process dies instantly and in-flight requests get cut off; this lets them
+// finish, closes the DB pool, then exits. The timer is a hard stop so a stuck
+// connection can never hold up the deploy — kept under Fly's default 5s
+// kill_timeout (fly.toml doesn't override it), after which Fly SIGKILLs anyway.
+let shuttingDown = false;
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  app.log.info({ signal }, "shutting down");
+  setTimeout(() => process.exit(1), 4_000).unref();
+  try {
+    await app.close();
+    await prisma.$disconnect();
+  } catch (err) {
+    app.log.error({ err }, "error during shutdown");
+  }
+  process.exit(0);
+}
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+
 // Telegram listener + OCR queue, same process/machine as the API — see
 // apps/worker/src/index.ts and apps/api/Dockerfile for why. Only set in
 // production (TELEGRAM_API_ID absent locally), so `npm run dev:api` never
 // tries to connect to Telegram.
 if (process.env.TELEGRAM_API_ID) {
-  const { startTelegramWorker } = await import("@evobo/worker");
-  startTelegramWorker().catch((err) => app.log.error({ err }, "telegram worker crashed"));
+  // A failure while LOADING the worker (e.g. a missing env var it validates on
+  // import) must not take the whole API down with it — a crash here would
+  // restart-loop the machine over something that only affects Telegram.
+  try {
+    const { startTelegramWorker } = await import("@evobo/worker");
+    startTelegramWorker().catch((err) => app.log.error({ err }, "telegram worker crashed"));
+  } catch (err) {
+    app.log.error({ err }, "failed to load the telegram worker — API keeps running without it");
+  }
 }
 
 // Os 2 auto-checkers de fundo (corner/home-win) só leem alertas pendentes do

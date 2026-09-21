@@ -62,13 +62,67 @@ function todayInSaoPaulo(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
 
+/** YYYY-MM-DD that is also a real calendar day — the format regex alone lets
+ * "2026-13-45" through, which would reach robotip as a bogus lookup. */
+function isRealIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+// This endpoint is public and takes any date, so cap how many days stay in
+// memory — otherwise a caller walking through dates grows the Map forever.
+const MAX_CACHED_DATES = 60;
 const cache = new Map<string, { games: LiveGame[]; fetchedAt: number }>();
 
-async function loadGames(isoDate: string, log: FastifyBaseLogger): Promise<{ games: LiveGame[]; unavailable: boolean }> {
+function rememberDate(isoDate: string, games: LiveGame[]) {
+  failedAt.delete(isoDate);
+  cache.delete(isoDate); // re-insert so a refreshed date counts as the newest
+  cache.set(isoDate, { games, fetchedAt: Date.now() });
+  while (cache.size > MAX_CACHED_DATES) {
+    cache.delete(cache.keys().next().value!); // Map iterates oldest-first
+  }
+}
+
+type LoadedGames = { games: LiveGame[]; unavailable: boolean };
+
+// While robotip is down, every request used to wait out its own timeout and
+// refetch every game's stats. Concurrent callers for the same date now share
+// one fetch, and after a failure that date serves its stale copy for a while
+// instead of retrying. Tracked per date (and capped like `cache`) so a bad
+// date can't block the good ones.
+const FAILURE_BACKOFF_MS = 30_000;
+const inFlight = new Map<string, Promise<LoadedGames>>();
+const failedAt = new Map<string, number>();
+
+function rememberFailure(isoDate: string) {
+  failedAt.delete(isoDate);
+  failedAt.set(isoDate, Date.now());
+  while (failedAt.size > MAX_CACHED_DATES) {
+    failedAt.delete(failedAt.keys().next().value!);
+  }
+}
+
+async function loadGames(isoDate: string, log: FastifyBaseLogger): Promise<LoadedGames> {
   const cached = cache.get(isoDate);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return { games: cached.games, unavailable: false };
   }
+  const lastFailure = failedAt.get(isoDate);
+  if (lastFailure !== undefined && Date.now() - lastFailure < FAILURE_BACKOFF_MS) {
+    return { games: cached?.games ?? [], unavailable: !cached };
+  }
+
+  let pending = inFlight.get(isoDate);
+  if (!pending) {
+    pending = refreshGames(isoDate, log).finally(() => inFlight.delete(isoDate));
+    inFlight.set(isoDate, pending);
+  }
+  return pending;
+}
+
+async function refreshGames(isoDate: string, log: FastifyBaseLogger): Promise<LoadedGames> {
+  const cached = cache.get(isoDate);
 
   try {
     const raw = await fetchNextGames(isoDate);
@@ -116,11 +170,12 @@ async function loadGames(isoDate: string, log: FastifyBaseLogger): Promise<{ gam
       };
     });
 
-    cache.set(isoDate, { games, fetchedAt: Date.now() });
+    rememberDate(isoDate, games);
     log.info({ date: isoDate, total: games.length }, "Jogos live feed refreshed");
     return { games, unavailable: false };
   } catch (err) {
     log.error({ err, date: isoDate }, "failed to fetch Jogos live feed from robotip");
+    rememberFailure(isoDate);
     return { games: cached?.games ?? [], unavailable: !cached };
   }
 }
@@ -129,7 +184,7 @@ export async function gamesLiveRoutes(app: FastifyInstance) {
   // Public read, same as modules/games — this is robotip's own public page data.
   app.get<{ Querystring: { date?: string } }>("/", async (request, reply) => {
     const { date } = request.query;
-    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    if (date && !isRealIsoDate(date)) {
       return reply.code(400).send({ error: "invalid_date" });
     }
 
@@ -147,7 +202,7 @@ export async function gamesLiveRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { gameId } = request.params;
       const { date } = request.query;
-      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      if (date && !isRealIsoDate(date)) {
         return reply.code(400).send({ error: "invalid_date" });
       }
 

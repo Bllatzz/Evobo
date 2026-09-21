@@ -1,4 +1,5 @@
 import type { BetAnalytixBet } from "./playwrightFetch.js";
+import { tunnelHeaders } from "../tunnelAuth.js";
 
 export type { BetAnalytixBet };
 
@@ -14,7 +15,10 @@ export async function fetchBankrollBets(bankrollId: string): Promise<BetAnalytix
   const fetcherUrl = process.env.BET_ANALYTIX_FETCHER_URL;
   if (!fetcherUrl) throw new Error("BET_ANALYTIX_FETCHER_URL não configurado (transitório: servidor local pode estar desligado)");
 
-  const res = await fetch(`${fetcherUrl}/bankroll/${bankrollId}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  const res = await fetch(`${fetcherUrl}/bankroll/${bankrollId}`, {
+    headers: tunnelHeaders(),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(`bet-analytix-fetcher respondeu ${res.status} pro bankroll ${bankrollId}: ${detail}`);

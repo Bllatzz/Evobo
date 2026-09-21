@@ -34,9 +34,10 @@ export async function extractTipDetails(
   };
 
   // Erros de rede/timeout do fetch propagam por conta própria (transitório).
-  const res = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+  // Chave no header, não na query string — URL vai parar em log de proxy/erro.
+  const res = await fetch(GEMINI_ENDPOINT, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     signal: AbortSignal.timeout(GEMINI_FETCH_TIMEOUT_MS),
     body: JSON.stringify(body),
   });

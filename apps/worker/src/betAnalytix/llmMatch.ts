@@ -1,5 +1,6 @@
 import type { BetAnalytixBet } from "./fetchBankroll.js";
 import { ODD_TOLERANCE, TIME_WINDOW_MS } from "./matchTips.js";
+import { tunnelHeaders } from "../tunnelAuth.js";
 
 /** Mesma infra do OCR (ollamaVision.ts): OLLAMA_URL é o túnel pro PC, e o
  * modelo já está lá — só que aqui o prompt é texto puro. Sem custo e sem cota. */
@@ -67,7 +68,7 @@ function buildPrompt(tip: LlmTip, candidates: BetAnalytixBet[]): string {
 export async function chooseEntry(tip: LlmTip, candidates: BetAnalytixBet[]): Promise<BetAnalytixBet | null> {
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...tunnelHeaders() },
     signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
     body: JSON.stringify({
       model: OLLAMA_MODEL,

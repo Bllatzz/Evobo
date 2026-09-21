@@ -3,6 +3,8 @@ import type { Prisma } from "@prisma/client";
 import { authGuard } from "../../middleware/authGuard.js";
 import { roleGuard } from "../../middleware/roleGuard.js";
 import { recordAuditLog } from "../../middleware/auditLog.js";
+import { adminProtectionFor } from "../../middleware/ownerProtection.js";
+import { env } from "../../config/env.js";
 import { prisma, withPrivilegedWrite } from "../../db/prisma.js";
 import { listCuratedMarketGroups } from "../robot-signals/routes.js";
 
@@ -76,8 +78,15 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "cannot_deactivate_self" });
     }
 
-    const target = await prisma.user.findUnique({ where: { id: request.params.id } });
+    const target = await prisma.user.findUnique({ where: { id: request.params.id }, include: { role: true } });
     if (!target) return reply.code(404).send({ error: "not_found" });
+
+    // Suspending an admin takes their access away just like demoting them —
+    // same rule: only the owner may do it (see adminProtectionFor).
+    if (!isActive) {
+      const blocked = adminProtectionFor(env.OWNER_USER_ID, request.authUser!.id, { id: target.id, roleName: target.role.name });
+      if (blocked) return reply.code(403).send({ error: blocked });
+    }
 
     const updated = await withPrivilegedWrite("user", (tx) =>
       tx.user.update({ where: { id: request.params.id }, data: { isActive } }),

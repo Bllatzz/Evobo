@@ -16,8 +16,15 @@ const EnvSchema = z.object({
 
   // Neo IA (robotip.com.br) requires login + is capped at 6 AI credits/day
   // on the free tier — not wired up yet, see src/modules/neoia-scraper.
-  NEOIA_EMAIL: z.string().email().optional(),
-  NEOIA_PASSWORD: z.string().min(1).optional(),
+  // .env.example ships these as NEOIA_EMAIL="" — an empty string is "unset",
+  // not an invalid e-mail, so copying the example doesn't fail the boot.
+  NEOIA_EMAIL: z.preprocess((v) => (v === "" ? undefined : v), z.string().email().optional()),
+  NEOIA_PASSWORD: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional()),
+
+  // User id (public.users.id) of the platform owner: the only account allowed
+  // to demote or suspend another admin, and one nobody can demote/suspend.
+  // Unset = no owner, so no admin can be demoted/suspended by another.
+  OWNER_USER_ID: z.preprocess((v) => (v === "" ? undefined : v), z.string().uuid().optional()),
 
   PORT: z.coerce.number().int().positive().default(3000),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

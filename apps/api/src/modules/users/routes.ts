@@ -92,12 +92,21 @@ export async function usersRoutes(app: FastifyInstance) {
           : Promise.resolve(false),
       ]);
 
-      const { role, _count, ...profile } = user;
+      // Explicit allowlist: this endpoint is public, so never spread the whole
+      // row — lastLoginAt, roleId, isActive, updatedAt and verifiedBadgeReason
+      // are internal/admin-only (admin sees them through /admin/users).
       return {
-        ...profile,
-        role: role.name,
-        followers: _count.followers,
-        following: _count.following,
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        bio: user.bio,
+        favoriteSports: user.favoriteSports,
+        verifiedAt: user.verifiedAt,
+        createdAt: user.createdAt,
+        role: user.role.name,
+        followers: user._count.followers,
+        following: user._count.following,
         followedByMe,
         ...performance,
       };

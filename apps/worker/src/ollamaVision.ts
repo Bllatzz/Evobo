@@ -1,4 +1,5 @@
 import { buildOcrPrompt, parseOcrResponseText, type OcrResult } from "./ocrShared.js";
+import { tunnelHeaders } from "./tunnelAuth.js";
 
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_VISION_MODEL ?? "qwen2.5vl:7b";
@@ -28,7 +29,7 @@ export async function extractTipDetails(
   // mesma convenção do Gemini: o Ollama não estar de pé agora é passageiro.
   const res = await fetch(`${OLLAMA_URL}/api/generate`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...tunnelHeaders() },
     signal: AbortSignal.timeout(OLLAMA_FETCH_TIMEOUT_MS),
     body: JSON.stringify(body),
   });

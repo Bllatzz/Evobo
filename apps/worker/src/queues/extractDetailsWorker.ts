@@ -47,7 +47,12 @@ function connection() {
   };
 }
 
-export const extractDetailsQueue = new Queue<ExtractDetailsJob>(QUEUE_NAME, { connection: connection() });
+// Sem isso o BullMQ guarda TODO job terminado pra sempre no Redis (Upstash) —
+// mantém só os mais recentes, o bastante pra investigar uma falha.
+export const extractDetailsQueue = new Queue<ExtractDetailsJob>(QUEUE_NAME, {
+  connection: connection(),
+  defaultJobOptions: { removeOnComplete: 100, removeOnFail: 500 },
+});
 
 /** Joins every leg the OCR found for a single tip with a real line break — the
  * frontend renders `selection.split("\n")` as a list, so this is the one
@@ -128,8 +133,10 @@ async function createLegTips(legs: LegsSpec, selections: OcrResult["selections"]
 async function processJob(data: ExtractDetailsJob) {
   const { data: file, error } = await supabaseAdmin.storage.from(PHOTO_BUCKET).download(data.photoPath);
   if (error || !file) {
-    console.error("[extract-details] failed to download photo:", error);
-    return;
+    // Lança em vez de `return`: retornar faz o BullMQ tratar o job como
+    // concluído e nunca usar as tentativas (attempts/backoff) configuradas em
+    // quem enfileira — a tip ficava sem odd/mercado pra sempre.
+    throw new Error(`falha ao baixar a foto ${data.photoPath} do Storage: ${error?.message ?? "arquivo vazio"}`);
   }
   const buffer = Buffer.from(await file.arrayBuffer());
 

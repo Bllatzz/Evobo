@@ -2,7 +2,12 @@ import type { Game, Tip, User } from "@evobo/shared-types";
 import { apiFetch } from "./api";
 import { supabase } from "./supabase";
 
-export type ProfileDetail = User & {
+// Only what GET /users/:username actually returns — the full User row (roleId,
+// isActive, lastLoginAt, ...) is deliberately not exposed on public profiles.
+export type ProfileDetail = Pick<
+  User,
+  "id" | "username" | "displayName" | "avatarUrl" | "bio" | "favoriteSports" | "verifiedAt" | "createdAt"
+> & {
   role: string;
   followers: number;
   following: number;

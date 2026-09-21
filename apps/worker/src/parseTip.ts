@@ -98,7 +98,9 @@ const ODD_LINE_RE = /\bodd\b\s*:?\s*(\d+(?:[.,]\d+)?)/i;
 // even tries this parser when the message is a Telegram reply; a
 // coincidental "+0.5u" in a non-reply message never reaches it.
 const STAKE_TOPUP_RE = /^\+\s*(\d+(?:[.,]\d+)?)\s*u\b/i;
-const LIMIT_LINE_RE = /\blimite\b(?:\s+de\s+aposta)?\s*:?\s*(?:r\$\s*)?(\d+(?:[.,]\d+)?)\s*\$?/i;
+// The amount alternation tries the pt-BR thousands form first ("1.500",
+// "1.500,50") so its "." isn't read as a decimal point — see toMoneyNumber.
+const LIMIT_LINE_RE = /\blimite\b(?:\s+de\s+aposta)?\s*:?\s*(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)\s*\$?/i;
 // Anchored to the whole line (after stripping a leading emoji and an
 // optional "Porcentagem:" label) — a loose "contains a %" match used to
 // pick up incidental percentages from free-text commentary lines too (e.g.
@@ -150,6 +152,15 @@ const MULTIPLA_MARKER_RE = /^🎯\s*MÚLTIPLA/i;
 
 function toNumber(raw: string): number {
   return parseFloat(raw.replace(",", "."));
+}
+
+/** Like toNumber, but for an amount in R$ (the bookmaker's stake limit), where
+ * "." can be a thousands separator: "1.500" is 1500, not 1.5. A "." followed by
+ * exactly three digits counts as thousands ("250.50" stays 250.5). Odds, units
+ * and percentages keep using toNumber — there "." really is the decimal. */
+function toMoneyNumber(raw: string): number {
+  if (/^\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(raw)) return parseFloat(raw.replace(/\./g, "").replace(",", "."));
+  return toNumber(raw);
 }
 
 /**
@@ -558,7 +569,7 @@ export function parseTip(rawText: string | null | undefined, entities?: TextEnti
     }
     const limitMatch = line.match(LIMIT_LINE_RE);
     if (limitMatch) {
-      fields.limit = toNumber(limitMatch[1]!);
+      fields.limit = toMoneyNumber(limitMatch[1]!);
       continue;
     }
     const novaPct = line.match(NOVA_PERCENTAGE_RE);

@@ -28,9 +28,25 @@ export async function purgeOldTips(): Promise<void> {
   });
   if (candidates.length === 0) return;
 
-  const photoPaths = candidates.map((t) => t.photoPath).filter((p): p is string => p !== null);
-  if (photoPaths.length > 0) {
-    const { error } = await supabaseAdmin.storage.from(PHOTO_BUCKET).remove(photoPaths);
+  const photoPaths = [...new Set(candidates.map((t) => t.photoPath).filter((p): p is string => p !== null))];
+
+  // Uma mensagem com várias seleções (e as respostas de aumento de stake) divide
+  // UMA foto entre várias tips. Se alguma tip que NÃO está sendo limpa agora
+  // (pendente, mais nova ou fora deste lote) ainda aponta pro arquivo, ele
+  // fica — só some quando a última tip que o usa for limpa, numa rodada futura.
+  const stillUsed =
+    photoPaths.length > 0
+      ? await prisma.telegramTip.findMany({
+          where: { photoPath: { in: photoPaths }, id: { notIn: candidates.map((t) => t.id) } },
+          select: { photoPath: true },
+          distinct: ["photoPath"],
+        })
+      : [];
+  const keep = new Set(stillUsed.map((t) => t.photoPath));
+  const removablePaths = photoPaths.filter((p) => !keep.has(p));
+
+  if (removablePaths.length > 0) {
+    const { error } = await supabaseAdmin.storage.from(PHOTO_BUCKET).remove(removablePaths);
     if (error) {
       // Não some as linhas do banco se o Storage falhar — tenta de novo no
       // próximo ciclo em vez de perder a referência da foto.

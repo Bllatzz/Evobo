@@ -190,12 +190,16 @@ function toFiniteNumber(v: string | null | undefined, fallback: number | null): 
  * ~20k-row response, too heavy to refetch on every Robô/Gráfico Robô page view.
  * `unavailable: true` means the upstream fetch failed and there's no cached
  * data to fall back on either — callers must not present that as "zero". */
-async function fetchGestaoRows(
-  log: FastifyBaseLogger,
-): Promise<{ rows: GestaoRow[]; unavailable: boolean }> {
-  if (gestaoCache && Date.now() - gestaoCache.fetchedAt < GESTAO_CACHE_TTL_MS) {
-    return { rows: gestaoCache.rows, unavailable: false };
-  }
+type GestaoLoad = { rows: GestaoRow[]; unavailable: boolean };
+
+// While robotip is down, every request used to wait out the 10s timeout on its
+// own and refetch the ~20k rows: concurrent callers now share one fetch, and
+// after a failure we serve the stale copy for a while instead of retrying.
+const GESTAO_FAILURE_BACKOFF_MS = 30_000;
+let gestaoInFlight: Promise<GestaoLoad> | null = null;
+let gestaoLastFailureAt = 0;
+
+async function refreshGestaoRows(log: FastifyBaseLogger): Promise<GestaoLoad> {
   try {
     const res = await fetch(`${ROBOTIP_API_URL}/api/gestao`, {
       signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
@@ -205,11 +209,26 @@ async function fetchGestaoRows(
     const rows = (await res.json()) as unknown;
     if (!Array.isArray(rows)) throw new Error("unexpected /api/gestao response shape");
     gestaoCache = { rows: rows as GestaoRow[], fetchedAt: Date.now() };
+    gestaoLastFailureAt = 0;
     return { rows: gestaoCache.rows, unavailable: false };
   } catch (err) {
+    gestaoLastFailureAt = Date.now();
     log.error({ err }, "failed to fetch gestao (curated bankroll ledger) from robotip API");
     return { rows: gestaoCache?.rows ?? [], unavailable: !gestaoCache };
   }
+}
+
+async function fetchGestaoRows(log: FastifyBaseLogger): Promise<GestaoLoad> {
+  if (gestaoCache && Date.now() - gestaoCache.fetchedAt < GESTAO_CACHE_TTL_MS) {
+    return { rows: gestaoCache.rows, unavailable: false };
+  }
+  if (Date.now() - gestaoLastFailureAt < GESTAO_FAILURE_BACKOFF_MS) {
+    return { rows: gestaoCache?.rows ?? [], unavailable: !gestaoCache };
+  }
+  gestaoInFlight ??= refreshGestaoRows(log).finally(() => {
+    gestaoInFlight = null;
+  });
+  return gestaoInFlight;
 }
 
 /** green: stake × (odd − 1); red: −stake; reembolso: 0 — same convention robotip's own calcPL uses. */

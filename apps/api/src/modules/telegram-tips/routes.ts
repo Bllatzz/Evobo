@@ -383,7 +383,10 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     return prisma.telegramGroup.findMany({ orderBy: { name: "asc" } });
   });
 
+  // Grupos são globais (definem quais chats o worker escuta e qual banca cada
+  // grupo usa no grading) — só admin altera, como nas outras rotas de escrita.
   app.post("/groups", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
     const parsed = CreateTelegramGroupInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
@@ -393,6 +396,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   });
 
   app.patch<{ Params: { id: string } }>("/groups/:id", async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
     const parsed = UpdateTelegramGroupInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });

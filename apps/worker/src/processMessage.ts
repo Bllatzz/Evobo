@@ -10,20 +10,32 @@ function messageEntities(message: Api.Message): TextEntity[] {
     .map((e) => ({ url: e.url }));
 }
 
+const UPLOAD_ATTEMPTS = 3;
+const UPLOAD_RETRY_DELAY_MS = 1_000;
+
+/** Falha do Storage costuma ser passageira — tenta algumas vezes antes de
+ * desistir (1s, depois 2s de espera). Se nenhuma funcionar, o chamador cria a
+ * tip sem foto: ela nunca some por causa da imagem, e o link/texto da aposta
+ * continuam salvos nela. */
+async function uploadPhoto(photoPath: string, buffer: Buffer): Promise<boolean> {
+  for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt++) {
+    const { error } = await supabaseAdmin.storage
+      .from(PHOTO_BUCKET)
+      .upload(photoPath, buffer, { contentType: "image/jpeg", upsert: true });
+    if (!error) return true;
+    console.error(`[worker] falha ao subir foto (tentativa ${attempt}/${UPLOAD_ATTEMPTS}):`, error);
+    if (attempt < UPLOAD_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, UPLOAD_RETRY_DELAY_MS * attempt));
+  }
+  return false;
+}
+
 async function downloadPhoto(message: Api.Message, group: TelegramGroup): Promise<string | null> {
   if (!message.photo) return null;
   const buffer = await message.downloadMedia();
   if (!buffer || !Buffer.isBuffer(buffer)) return null;
 
   const photoPath = `${group.id}/${message.id}.jpg`;
-  const { error } = await supabaseAdmin.storage
-    .from(PHOTO_BUCKET)
-    .upload(photoPath, buffer, { contentType: "image/jpeg", upsert: true });
-  if (error) {
-    console.error("[worker] falha ao subir foto:", error);
-    return null;
-  }
-  return photoPath;
+  return (await uploadPhoto(photoPath, buffer)) ? photoPath : null;
 }
 
 /**
@@ -107,7 +119,10 @@ async function processMessageOnce(message: Api.Message, group: TelegramGroup): P
 
   const photoPath = await downloadPhoto(message, group);
 
-  const createdTips = await Promise.all(
+  // Numa transação: uma mensagem com várias seleções entra inteira ou não
+  // entra. Antes (Promise.all) uma falha no meio deixava só parte das tips, e
+  // o dedupe acima tratava a mensagem como já processada pra sempre.
+  const createdTips = await prisma.$transaction(
     parsed.selections.map((sel) =>
       prisma.telegramTip.create({
         data: {
