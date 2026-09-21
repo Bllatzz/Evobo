@@ -67,7 +67,8 @@ function expectedStakeReais(candidate: CandidateTip, unitValueReais: number): nu
  * POST /telegram-tips/import-bets).
  *
  * odd+texto+horário são obrigatórios (mesmo critério do bet-analytix,
- * `matchTips.ts`) pra entrar na lista de candidatos. Com 2+ candidatos
+ * `matchTips.ts`) pra entrar na lista de candidatos — exceto o horário
+ * quando a aposta não traz `placedAt`. Com 2+ candidatos
  * restantes, desempata pela unidade implícita (stake real ÷ valor da
  * unidade do usuário) contra a unidade sugerida de cada um — sem
  * `unitValueReais`, não dá pra calcular essa distância, então TODOS os
@@ -82,14 +83,17 @@ export function matchBookmakerBet(
   unitValueReais: number | null,
 ): BookmakerBetOutcome {
   const betText = `${bet.game ?? ""} ${bet.selection}`.trim();
-  const betTime = new Date(bet.placedAt).getTime();
+  // Sem data (casa que não mostra quando a aposta foi feita, ex.: Bet365) a
+  // janela de horário simplesmente não se aplica — odd + jogo/texto seguem
+  // obrigatórios, e o empate entre candidatos continua resolvido pela unidade.
+  const betTime = bet.placedAt ? new Date(bet.placedAt).getTime() : NaN;
 
   const candidates = allCandidates.filter((c) => {
     const oddMatches =
       (c.odd !== null && Math.abs(c.odd - bet.odd) <= ODD_TOLERANCE) ||
       (c.originalOdd !== null && Math.abs(c.originalOdd - bet.odd) <= ODD_TOLERANCE);
     if (!oddMatches) return false;
-    if (Math.abs(c.receivedAt.getTime() - betTime) > TIME_WINDOW_MS) return false;
+    if (!Number.isNaN(betTime) && Math.abs(c.receivedAt.getTime() - betTime) > TIME_WINDOW_MS) return false;
 
     // Nome do jogo é o sinal forte quando os dois lados têm um — ver
     // GAME_SIMILARITY_THRESHOLD. Só cai pro texto combinado (jogo+mercado)

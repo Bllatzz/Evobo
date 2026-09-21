@@ -422,7 +422,11 @@ export type UpdateTelegramTipTakeInput = z.infer<typeof UpdateTelegramTipTakeInp
 export const ImportedBookmakerBetSchema = z.object({
   betNumber: z.string(),
   status: z.enum(["aberta", "ganha", "perdido", "cashout", "cancelado"]),
-  placedAt: z.string(),
+  /** null/ausente quando a casa não mostra a data da aposta (ex.: Bet365 —
+   * o card só traz stake/seleção/resultado). O casamento então ignora a
+   * janela de horário e decide só por odd + jogo/texto (ver
+   * matchBookmakerBet). */
+  placedAt: z.string().nullable().optional(),
   selection: z.string(),
   game: z.string().nullable(),
   odd: z.number().positive(),
