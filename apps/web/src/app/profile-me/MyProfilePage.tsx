@@ -4,6 +4,7 @@ import { fetchMyBets, type ProfileTip } from "../../lib/profile";
 import { formatOdds, formatUnits } from "../../lib/format";
 import { Avatar } from "../../components/Avatar";
 import { AccountMenu } from "../../components/AccountMenu";
+import { AutoBettingCard } from "./AutoBettingCard";
 import { useAuth } from "../../stores/auth";
 import { bookmakerLabel } from "../../lib/bookmakers";
 import { IconCheck, IconX, IconPlus, IconPencil } from "../../components/Icon";
@@ -1080,6 +1081,12 @@ export function MyProfilePage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {me.role === "admin" && (
+        <div className="mt-6 px-4 lg:px-0">
+          <AutoBettingCard />
         </div>
       )}
     </div>

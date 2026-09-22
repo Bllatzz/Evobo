@@ -83,6 +83,28 @@ export const UpdateOwnProfileInput = z.object({
 });
 export type UpdateOwnProfileInput = z.infer<typeof UpdateOwnProfileInput>;
 
+export const FavoriteKind = z.enum(["team", "league"]);
+export type FavoriteKind = z.infer<typeof FavoriteKind>;
+
+export const AddFavoriteInput = z.object({
+  kind: FavoriteKind,
+  externalId: z.string().min(1).max(40),
+  name: z.string().min(1).max(120),
+  imageUrl: z.string().url().max(500).nullable().optional(),
+});
+export type AddFavoriteInput = z.infer<typeof AddFavoriteInput>;
+
+/** Casas suportadas pela "Aposta automática" (extensão apps/betting-extension). */
+export const AUTO_BET_BOOKMAKERS = ["betano"] as const;
+export const AutoBetBookmaker = z.enum(AUTO_BET_BOOKMAKERS);
+export type AutoBetBookmaker = z.infer<typeof AutoBetBookmaker>;
+
+export const SaveBookmakerCredentialInput = z.object({
+  username: z.string().trim().min(1).max(200),
+  password: z.string().min(1).max(200),
+});
+export type SaveBookmakerCredentialInput = z.infer<typeof SaveBookmakerCredentialInput>;
+
 export const UserSchema = z.object({
   id: z.string().uuid(),
   username: z.string().min(3).max(30),

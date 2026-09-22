@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Evobo Betano",
+  "version": "0.2.1",
+  "description": "Lê as tips da Betano do Evobo, abre o link, confere a odd e preenche a stake (dry-run: nunca aposta)",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "debugger"
+  ],
+  "host_permissions": [
+    "*://*.betano.bet.br/*",
+    "https://evobo-api.fly.dev/*",
+    "http://localhost/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.betano.bet.br/*"
+      ],
+      "js": [
+        "betano/plan.js",
+        "betano/slip.js",
+        "betano/run.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Evobo Betano"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./stores/auth";
+import { FavoritesProvider } from "./stores/favorites";
 import { ThemeProvider } from "./stores/theme";
 import { RouteGuard } from "./components/RouteGuard";
 import { AppShell } from "./components/AppShell";
@@ -81,6 +82,7 @@ function App() {
     <BrowserRouter>
       <ThemeProvider>
       <AuthProvider>
+      <FavoritesProvider>
         <DocumentTitle />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -370,6 +372,7 @@ function App() {
           {/* Anything else: a "page not found" screen instead of a blank page. */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+      </FavoritesProvider>
       </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

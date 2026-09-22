@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fetchGameDetail, type GameDetail, type LiveGame, type TeamFormEntry } from "../../lib/gamesLive";
 import { formatOdds } from "../../lib/format";
 import { CrestName, onCrestError } from "../../components/CrestName";
+import { FavoriteStar } from "../../components/FavoriteStar";
 import { IconChevronLeft, IconCornerFlag, IconLive, IconPennant } from "../../components/Icon";
 import { ApiError } from "../../lib/api";
 import { todayIsoSaoPaulo } from "../../lib/dates";
@@ -108,6 +109,14 @@ function ScoreHeader({ game, homeForm, awayForm }: { game: LiveGame; homeForm: T
       <div className="mb-3 flex items-center justify-center gap-1.5 font-mono text-[11px] text-text-tertiary">
         <IconPennant size={12} className="text-accent" />
         {game.league}
+        <FavoriteStar
+          kind="league"
+          externalId={game.leagueId}
+          name={game.league}
+          imageUrl={game.leagueImageUrl}
+          size={13}
+          className="-my-1"
+        />
       </div>
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-1 flex-col items-center gap-1.5 text-center">
@@ -117,7 +126,10 @@ function ScoreHeader({ game, homeForm, awayForm }: { game: LiveGame; homeForm: T
             alt=""
             className="h-11 w-11 rounded-full bg-surface-chip object-contain"
           />
-          <span className="line-clamp-2 text-[13px] font-semibold">{game.homeTeam}</span>
+          <span className="flex items-center gap-0.5">
+            <span className="line-clamp-2 text-[13px] font-semibold">{game.homeTeam}</span>
+            <FavoriteStar kind="team" externalId={game.homeId} name={game.homeTeam} imageUrl={game.homeImageUrl} size={13} />
+          </span>
           <FormDots form={homeForm} />
         </div>
 
@@ -147,7 +159,10 @@ function ScoreHeader({ game, homeForm, awayForm }: { game: LiveGame; homeForm: T
             alt=""
             className="h-11 w-11 rounded-full bg-surface-chip object-contain"
           />
-          <span className="line-clamp-2 text-[13px] font-semibold">{game.awayTeam}</span>
+          <span className="flex items-center gap-0.5">
+            <span className="line-clamp-2 text-[13px] font-semibold">{game.awayTeam}</span>
+            <FavoriteStar kind="team" externalId={game.awayId} name={game.awayTeam} imageUrl={game.awayImageUrl} size={13} />
+          </span>
           <FormDots form={awayForm} />
         </div>
       </div>

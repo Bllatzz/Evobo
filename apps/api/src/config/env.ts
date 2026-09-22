@@ -26,6 +26,17 @@ const EnvSchema = z.object({
   // Unset = no owner, so no admin can be demoted/suspended by another.
   OWNER_USER_ID: z.preprocess((v) => (v === "" ? undefined : v), z.string().uuid().optional()),
 
+  // 32 random bytes, base64 — encrypts bookmaker logins for "Aposta
+  // automática" (see lib/secretBox.ts). Unset = saving/reading them is off.
+  // Rotating it makes every saved login unreadable (they must be re-entered).
+  CREDENTIALS_ENCRYPTION_KEY: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z
+      .string()
+      .refine((v) => Buffer.from(v, "base64").length === 32, "must be 32 bytes, base64")
+      .optional(),
+  ),
+
   PORT: z.coerce.number().int().positive().default(3000),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   CORS_ORIGIN: z.string().min(1),
