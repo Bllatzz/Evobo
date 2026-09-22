@@ -19,6 +19,7 @@ O que **já foi corrigido** está nos commits `6dcbbef` (RLS, túnel, dono/admin
 | 8 | ✔ **Perfil público do tipster** (`ProfilePage.tsx`). (1) O gráfico "EVOLUÇÃO DE LUCRO · 90 DIAS" plota **todas** as tips que a tela tem, não só as de 90 dias (o número "LUCRO 90D" ao lado filtra, e os dois podem discordar). (2) **O lucro de 90 dias, verdes/vermelhas e odd média de 30 dias vêm só das últimas 30 tips**, porque `GET /users/:username/tips` tem `take: 30` (`apps/api/src/modules/users/routes.ts`) — para um tipster com mais de 30 tips o número fica errado (ROI e acerto do topo vêm de outro cálculo e estão certos). (3) `toFixed(0)` mostra `-0u`/`+0u` para lucros pequenos. Seu motivo: a parte de tipster ainda não foi construída. | `apps/web/src/app/profile/ProfilePage.tsx` (~18-60, ~119-131, ~225-242) | Correção pequena: filtrar o gráfico pelos últimos 90 dias (`last90`) e usar 1 casa decimal. Correção de verdade do (2): a API calcular os totais de 30/90 dias no servidor |
 | 10 | ✔ **`import-bets` (API)**: o upsert grava `bonusReais = null` por cima de um bônus digitado à mão; a prévia (dry-run) mostra `0` em vez de vazio quando a take não tem unidade; a tip "reivindicada" no ramo *divergente* continua na lista de candidatas e pode explicar uma 2ª aposta. ~ Rename/delete de casa em várias etapas, sem transação. | `apps/api/src/modules/telegram-tips/routes.ts` (~331-380, ~685-860) | Cada correção é 1 linha: manter o bônus se o novo for vazio; mostrar vazio na prévia; tirar a tip de `remaining` no ramo divergente |
 | 22 | ✔ **Grading**: (a) grupos de emoji (Super Odds) aplicam ✅✅✅/❌❌❌ a **todas** as pernas pendentes de uma mensagem (só os grupos de marcador têm o guard `tipCount > 1`); (b) `flag()` do `runDailyGrading` não confere `result: "pending"`; (c) se o `runTippyGrading` falhar, o resultado do bet-analytix se perde. Provavelmente raro: as mensagens desses grupos parecem ter 1 tip. | `apps/worker/src/resultFromEmoji.ts` (~197), `apps/worker/src/betAnalytix/runDailyGrading.ts` | Aplicar o mesmo guard `tipCount > 1`; `updateMany` com `result: "pending"`; `try/catch` em volta do Tippy |
+| 23 | ✔ **`resultAutoChecker` (robotip-legacy)**: o `UPDATE alerts SET result = ...` do checker automático (corners/home-win) não exige `result = 'pending'`, só o `id`. Se o resultado já foi decidido (Telegram ou ajuste manual) bem no instante em que o checker roda, ele sobrescreve. Janela de corrida estreita (milissegundos entre o SELECT e o UPDATE). | `packages/robotip-legacy/src/services/resultAutoChecker.js` (`checkAlert`, ~78-90) | `UPDATE ... WHERE id = $2 AND result = 'pending'`; logar quando `rowCount === 0` (resultado já decidido por outro caminho) |
 | — | **ErrorBoundary** (o app inteiro fica em branco se uma tela lançar erro ao desenhar, ex.: `profile.roi.toFixed` com `roi` nulo, `perf.bestRun.length` sem operações). Só a tela 404 foi feita. | `apps/web/src/main.tsx` | Componente de captura mostrando "Algo deu errado" + botão Recarregar |
 
 ## 2. Ainda a decidir (patches de funcionalidade do `apps/web`)
@@ -42,6 +43,54 @@ O que **já foi corrigido** está nos commits `6dcbbef` (RLS, túnel, dono/admin
 12. **Tippy/OCR**: `parseTippyCalls` sem guarda de elemento nulo; `discardReason` por texto exato; `visionProvider` cai em silêncio para Gemini com valor desconhecido.
 
 Também não corrigidos (~): `parseTip` — `ODD_LINE_RE` sem âncora (um comentário pode sobrescrever a odd) e bookmaker extraído de subdomínio (`sports.bet365.com` → `sports`); caches de EV+/`teamForm` sem single-flight; o fetcher `:3939` escuta em todas as interfaces (não mudei por causa do histórico de `localhost` → `[::1]` no WSL2).
+
+## 3b. Adiados — bloco 3 (`packages/robotip-legacy`, `scripts`, `infra`, `.github`, config da raiz)
+
+Aplicados desta revisão: cliente do Telegram desconectado ao reconectar (watchdog), e alerta duplicado (mesmo bot, mesmo jogo, dentro de 30s) não dispara mais aposta automática duas vezes. `packages/robotip-legacy/src/services/telegram.js`.
+
+**`packages/robotip-legacy` — HTTP (`routes/*.js`), tudo sem autenticação (ver item 1 acima, que já cobre isso em geral):**
+1. `PATCH /api/bot-configs/:botName` **liga apostas automáticas de verdade** sem login; `POST /:botName/apply-odds` reescreve `bet_odds` de todo o histórico do bot em `alerts` **e** `gestao_banca`, sem transação, sem auditoria.
+2. `POST /api/alerts` insere qualquer JSON do corpo (46 colunas) sem validar tipo/tamanho, e transmite via SSE pra todo mundo conectado.
+3. `GET /api/alerts` e `/stats`: `limit`/`page` sem teto (`?limit=100000000` derruba a tabela); `bot_names` quebra com parâmetro repetido; datas inválidas dão 500.
+4. `PATCH /api/alerts/:id` não é transacional com a sincronização do `gestao_banca`, e o upsert usa `EXCLUDED.stake_pct` (sempre não-nulo) — pode sobrescrever um stake ajustado por outro caminho (`PATCH /gestao/bot/:botName`).
+5. `POST /api/gestao/sync` usa `NOT EXISTS` em vez de `ON CONFLICT DO NOTHING` — corrida com o PATCH de alerts ou com o caminho do Telegram gera erro 500 sem transação.
+6. `queryCache` do `alerts.js` usa `req.originalUrl` cru como chave, sem teto — cresce sem limite com query strings diferentes.
+7. `GET /events` (SSE): sem autenticação, sem heartbeat, sem limite de conexões — qualquer um recebe `raw_message` de todo alerta em tempo real.
+8. `POST`/`PATCH` de `bot-filter-profiles`: `name.trim()` sem checar tipo (500 se não for string); `bot_names` nunca validado como array.
+
+**`services/telegram.js` (Telegram/parsing) — não corrigidos nesta revisão:**
+9. `claim(id)` marca a mensagem como processada **antes** de processar — se `processMessage` falhar (erro transitório de banco), a mensagem nunca mais é tentada de novo.
+10. Se a leitura da linha de base (`baselineId`) falhar no boot, ela fica em `0` e o poll de 15s pode reprocessar as últimas 20 mensagens do canal, reaplicando resultados e podendo disparar apostas automáticas antigas de novo.
+11. O watchdog de silêncio (10min sem update) não é atualizado só pelo poll bem-sucedido — pode forçar reconexões falsas em horário de pouco jogo, piorando a frequência do bug do item de conexão dupla (já corrigido no ponto de vazamento, mas a causa da reconexão em si continua).
+12. `updateAlertResult`: usa `ILIKE '%...%'` sem escapar `%`/`_`/`\` do texto vindo do Telegram; `UPDATE ... WHERE id = (SELECT ... LIMIT 1)` sem `FOR UPDATE SKIP LOCKED` — push e poll concorrentes podem selecionar a mesma linha pendente.
+13. O backfill dos últimos 7 dias de resultado (rodado a cada boot) não é idempotente — pode fechar um alerta pendente errado do mesmo jogo se a mensagem de resultado for reprocessada.
+14. `parseResult`: testa `RED`/`GREEN`/`WON`/`LOST` em qualquer linha da mensagem, incluindo o nome dos times — um time chamado "Red Bull" ou "Red Star" pode ser lido como resultado vermelho.
+15. `parseAlert` pode devolver `home_team`/`away_team` nulos quando o formato foge do esperado; a checagem de duplicata (`home_team = $2`) nunca casa com `NULL`, então esses alertas nunca são detectados como duplicata nem batem com uma mensagem de resultado depois.
+16. `ROBOTIP_TELEGRAM_BOT_SOURCE` não definido: o listener aceita mensagens de **qualquer** chat, incluindo apostas automáticas disparadas por mensagem forjada.
+17. A sessão do Telegram é salva em texto puro num `.env` local (só funciona em dev; na Fly o filesystem é efêmero) — login interativo em produção trava esperando `stdin`.
+18. `dispararAutoAposta`: sem `ROBOTIP_BRIDGE_SECRET` configurado, a chamada pra ligar a aposta sai **sem segredo nenhum**; sem timeout no fetch.
+
+**`services/cornerAutoChecker.js` / `homeWinAutoChecker.js`:**
+19. `Number(null)` vira `0` — se a StatsFeed devolver campos nulos (jogo adiado/abandonado), o corner-checker pode gradar green/red errado em vez de esperar. Depende do comportamento real da API upstream (`ended=1`), não confirmado.
+20. `resultAutoChecker.start()` sem guarda de reentrância — chamar duas vezes cria dois timers rodando em paralelo.
+
+**Scrapers (`scripts/bookmaker-scrapers/*.js`) — extraem o histórico de apostas do seu próprio navegador, você que roda:**
+21. Só bet365 e betano validam odd/stake antes de gerar o JSON; lottu/novibet/esportesdasorte podem gerar `NaN`, que o servidor rejeita no import inteiro (1 aposta ruim derruba o lote).
+22. Betano: quando o resultado é "ganha" e o cálculo bate diferente do texto, o script **reescreve o stake** silenciosamente (sem aviso no console).
+23. Bet365: a data da aposta é a primeira `dd/mm/yyyy` encontrada no card — pode pegar a data do jogo em vez da data da aposta.
+24. Todos: paginação por clique em botão por texto (`/mostrar mais|carregar mais/i`), sem escopo — pode clicar em botão errado da página. Fuso horário fixo em `-03:00` independente do navegador.
+
+**Config raiz / CI / infra:**
+25. `.github/workflows/ci.yml`: sem bloco `permissions:` (token com escopo padrão de escrita); actions presas em `@v4` (tag móvel, não SHA); `node-version: 20`, já fora do suporte na data desta revisão.
+26. `infra/docker-compose.yml`: Redis exposto em `0.0.0.0:6379` sem senha.
+27. `.dockerignore`: só ignora `**/*.env` e `**/*.env.local` — `.env.production`/`.env.development` não estão cobertos.
+28. `vercel.json`: sem headers de segurança (CSP, X-Frame-Options) no rewrite catch-all.
+29. `db/pool.js` (robotip-legacy): `ssl: { rejectUnauthorized: false }` no Postgres, sem `pool.on('error')`.
+
+**`packages/shared-types` — validação fraca, não corrigida:**
+30. `odds`/`odd` só exige `positive()`, sem mínimo de 1.0 nem teto — `0.0001` passa.
+31. `ImportBookmakerBetsInput.bets` sem `.max()` no array; o comentário diz que `dryRun` tem default `true`, mas o schema não tem `.default(true)` — depende de quem consome tratar `undefined` como dry-run.
+32. `TipStatus` duplicado entre `packages/design-tokens` (union TS) e `packages/shared-types` (`z.enum`) — risco de os dois saírem de sincronia.
 
 ## 4. Adiados — bloco 2 (`apps/web`)
 

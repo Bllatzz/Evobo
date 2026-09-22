@@ -162,6 +162,7 @@ async function saveAlert(parsed, rawMessage, telegramMessageId) {
     ]
   );
   broadcast('new-alert', rows[0]);
+  return rows[0];
 }
 
 /**
@@ -465,7 +466,14 @@ async function startTelegramListener() {
     }
 
     await fillCornerBaseline(parsed);
-    await saveAlert(parsed, rawText, messageId);
+    const saved = await saveAlert(parsed, rawText, messageId);
+    if (!saved) {
+      // saveAlert já logou o [DUP] — mesmo bot_name + mesmo jogo dentro da
+      // janela de duplicata (push e poll podem entregar a mesma mensagem
+      // duas vezes). Sem este corte, a auto-aposta abaixo disparava de
+      // novo, dobrando uma aposta real.
+      return;
+    }
     console.log(`Alerta salvo: ${parsed.home_team} x ${parsed.away_team} - minuto ${parsed.game_minute}`);
 
     dispararAutoAposta(parsed.bot_name, rawText).catch((err) => {
@@ -610,6 +618,12 @@ async function startTelegramListener() {
     }
   } finally {
     if (pollTimer) clearInterval(pollTimer);
+    // Sem isto, o client (e seus 2 addEventHandler) continuava vivo depois
+    // que esta função rejeitava — index.js cria um client NOVO na mesma
+    // sessão, e os dois passam a processar a mesma mensagem (alerta
+    // duplicado, aposta automática em dobro), além do risco de
+    // AUTH_KEY_DUPLICATED.
+    await client.disconnect().catch(() => {});
   }
 }
 
