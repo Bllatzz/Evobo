@@ -15,6 +15,7 @@ import { applyEditedMessageResult } from "./resultFromEmoji.js";
 import { backfillResultFromEmoji } from "./backfillResultFromEmoji.js";
 import { applyMyReactionTake } from "./reactionTake.js";
 import { backfillReactionTake } from "./backfillReactionTake.js";
+import { sendMyReaction } from "./sendReaction.js";
 import { syncRecentSignals } from "./syncRecentSignals.js";
 
 export { retryMissingOcr } from "./retryOcr.js";
@@ -113,6 +114,12 @@ export async function runBackfillResultFromEmoji() {
 export async function runBackfillReactionTake() {
   if (!liveClient) throw new Error("telegram worker not connected yet");
   return backfillReactionTake(liveClient);
+}
+
+/** Reage 👍/👎 na mensagem da tip — ver sendReaction.ts. */
+export async function reactToTipMessage(groupId: string, telegramMessageId: bigint, emoji: "👍" | "👎") {
+  if (!liveClient) throw new Error("telegram worker not connected yet");
+  return sendMyReaction(liveClient, groupId, telegramMessageId, emoji);
 }
 
 /** Telegram MTProto listener + OCR queue consumer. Exported (rather than

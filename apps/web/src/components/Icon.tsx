@@ -417,3 +417,20 @@ export function IconTune({ size = 15, className }: IconProps) {
     </svg>
   );
 }
+
+export function IconStar({ size = 22, className, filled = false }: IconProps & { filled?: boolean }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z" />
+    </svg>
+  );
+}

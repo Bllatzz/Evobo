@@ -15,6 +15,9 @@ import { gamesLiveRoutes } from "./modules/games-live/routes.js";
 import { vipRoutes } from "./modules/vip/routes.js";
 import { paymentsRoutes } from "./modules/payments/routes.js";
 import { followsRoutes } from "./modules/follows/routes.js";
+import { favoritesRoutes } from "./modules/favorites/routes.js";
+import { bettingQueueRoutes } from "./modules/betting-queue/routes.js";
+import { autoBettingRoutes } from "./modules/auto-betting/routes.js";
 import { rankingRoutes } from "./modules/ranking/routes.js";
 import { commentsRoutes } from "./modules/comments/routes.js";
 import { notificationsRoutes } from "./modules/notifications/routes.js";
@@ -97,6 +100,7 @@ await app.register(gamesLiveRoutes, { prefix: "/games-live" });
 await app.register(vipRoutes, { prefix: "/vip" });
 await app.register(paymentsRoutes, { prefix: "/payments" });
 await app.register(followsRoutes, { prefix: "/follows" });
+await app.register(favoritesRoutes, { prefix: "/favorites" });
 await app.register(rankingRoutes, { prefix: "/ranking" });
 await app.register(commentsRoutes, { prefix: "/comments" });
 await app.register(notificationsRoutes, { prefix: "/notifications" });
@@ -107,6 +111,8 @@ await app.register(telegramTipsRoutes, { prefix: "/telegram-tips" });
 await app.register(evPlusRoutes, { prefix: "/ev-plus" });
 await app.register(adminRoutes, { prefix: "/admin" });
 await app.register(searchRoutes, { prefix: "/search" });
+await app.register(bettingQueueRoutes, { prefix: "/betting-queue" });
+await app.register(autoBettingRoutes, { prefix: "/auto-betting" });
 
 // CornerIQ (robotip-analyzer) migrado do app Fly separado — Express legado
 // montado como está via @fastify/express, isolado sob /robotip pra não

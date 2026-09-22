@@ -31,6 +31,7 @@ export type LiveGame = {
   awayTeam: string;
   homeImageUrl: string;
   awayImageUrl: string;
+  leagueId: string;
   league: string;
   leagueCountry: string | null;
   leagueImageUrl: string;
@@ -149,6 +150,7 @@ async function refreshGames(isoDate: string, log: FastifyBaseLogger): Promise<Lo
         awayTeam: e.away_name,
         homeImageUrl: e.img_time_1,
         awayImageUrl: e.img_time_2,
+        leagueId: e.id_liga,
         league: e.nome_liga,
         leagueCountry: e.league_country,
         leagueImageUrl: leagueImageById.get(e.id_liga)!,

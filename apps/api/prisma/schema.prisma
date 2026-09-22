@@ -84,6 +84,9 @@ model User {
   telegramBancaSettings    TelegramBancaSettings?
   telegramBookmakerBalances TelegramBookmakerBalance[]
   telegramTipTakes         TelegramTipTake[]
+  favorites                UserFavorite[]
+  bookmakerCredentials     BookmakerCredential[]
+  extensionKey             ExtensionKey?
 
   @@map("users")
 }
@@ -551,4 +554,62 @@ model TelegramBookmakerBalance {
 
   @@unique([userId, bookmaker])
   @@map("telegram_bookmaker_balances")
+}
+
+enum FavoriteKind {
+  team
+  league
+
+  @@map("favorite_kind")
+}
+
+/// Teams/leagues a user starred on the Jogos page. `externalId` is robotip's
+/// own id (home_id/away_id or id_liga from the jogosdodia feed) — the name
+/// and image are snapshotted so the favorites list renders without having to
+/// find that team/league in some day's feed first.
+model UserFavorite {
+  userId     String       @map("user_id") @db.Uuid
+  kind       FavoriteKind
+  externalId String       @map("external_id")
+  name       String
+  imageUrl   String?      @map("image_url")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, kind, externalId])
+  @@map("user_favorites")
+}
+
+/// Bookmaker login for "Aposta automática" (admin-only for now). Username and
+/// password are AES-256-GCM encrypted with CREDENTIALS_ENCRYPTION_KEY (a Fly
+/// secret, never in the DB) — reversible on purpose: the betting extension
+/// has to type the real password into the bookmaker's login form. The API
+/// only ever hands them out decrypted to the owner's extension key.
+model BookmakerCredential {
+  userId       String   @map("user_id") @db.Uuid
+  bookmaker    String
+  usernameEnc  String   @map("username_enc")
+  passwordEnc  String   @map("password_enc")
+  /// Masked username ("b****@hotmail.com") so the profile can show which
+  /// account is connected without decrypting anything.
+  usernameHint String   @map("username_hint")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, bookmaker])
+  @@map("bookmaker_credentials")
+}
+
+/// The betting extension's credential — one per user, generated from the
+/// profile and shown once. Only its SHA-256 is stored (the API just checks
+/// it, never needs it back). Replaces a Supabase session because the
+/// extension runs unattended and the account signs in with Google.
+model ExtensionKey {
+  userId     String    @id @map("user_id") @db.Uuid
+  keyHash    String    @unique @map("key_hash")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("extension_keys")
 }

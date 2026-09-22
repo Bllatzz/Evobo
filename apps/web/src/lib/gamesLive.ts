@@ -9,6 +9,7 @@ export type LiveGame = {
   awayTeam: string;
   homeImageUrl: string;
   awayImageUrl: string;
+  leagueId: string;
   league: string;
   leagueCountry: string | null;
   leagueImageUrl: string;

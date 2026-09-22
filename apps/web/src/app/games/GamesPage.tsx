@@ -14,6 +14,7 @@ import { GamesFilterModal } from "./GamesFilterModal";
 import { GamesSavedFiltersModal } from "./GamesSavedFiltersModal";
 import { PaginationControl } from "../../components/PaginationControl";
 import { CrestName } from "../../components/CrestName";
+import { FavoriteStar } from "../../components/FavoriteStar";
 import { useDragScroll } from "../../hooks/useDragScroll";
 import { IconSearch, IconTune, IconCornerFlag } from "../../components/Icon";
 
@@ -108,6 +109,7 @@ function compareGames(a: LiveGame, b: LiveGame): number {
 }
 
 type LeagueGroup = {
+  leagueId: string;
   league: string;
   leagueCountry: string | null;
   leagueImageUrl: string;
@@ -117,10 +119,16 @@ type LeagueGroup = {
 function groupByLeague(games: LiveGame[]): LeagueGroup[] {
   const map = new Map<string, LeagueGroup>();
   for (const g of games) {
-    let group = map.get(g.league);
+    let group = map.get(g.leagueId);
     if (!group) {
-      group = { league: g.league, leagueCountry: g.leagueCountry, leagueImageUrl: g.leagueImageUrl, games: [] };
-      map.set(g.league, group);
+      group = {
+        leagueId: g.leagueId,
+        league: g.league,
+        leagueCountry: g.leagueCountry,
+        leagueImageUrl: g.leagueImageUrl,
+        games: [],
+      };
+      map.set(g.leagueId, group);
     }
     group.games.push(g);
   }
@@ -241,6 +249,14 @@ function LeagueCard({ group, date }: { group: LeagueGroup; date: string }) {
         <span className="truncate font-mono text-[12px] font-semibold text-text-tertiary">
           {group.league.toUpperCase()}
         </span>
+        <FavoriteStar
+          kind="league"
+          externalId={group.leagueId}
+          name={group.league}
+          imageUrl={group.leagueImageUrl}
+          size={14}
+          className="-my-1"
+        />
       </div>
       <div className="divide-y divide-border-subtle overflow-hidden rounded-2xl border border-border bg-surface">
         {group.games.map((game) => (
@@ -477,7 +493,7 @@ export function GamesPage() {
             <>
               <div className="flex flex-col gap-4">
                 {pageLeagues.map((group) => (
-                  <LeagueCard key={group.league} group={group} date={filters.date} />
+                  <LeagueCard key={group.leagueId} group={group} date={filters.date} />
                 ))}
               </div>
               <PaginationControl page={page} totalPages={totalPages} onChange={setPage} />
