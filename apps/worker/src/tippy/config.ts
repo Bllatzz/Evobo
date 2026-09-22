@@ -7,4 +7,5 @@
  * mexer no código. */
 export const TIPPY_TOKEN_ENV_BY_GROUP_NAME: Record<string, string> = {
   "Padovan NBA/NFL": "TIPPY_TOKEN_PADOVAN_NBA_NFL",
+  "Padovan All Sports": "TIPPY_TOKEN_PADOVAN_ALL_SPORTS",
 };
