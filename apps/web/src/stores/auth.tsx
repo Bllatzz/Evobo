@@ -10,8 +10,10 @@ import { retryTransient } from "../lib/retry";
 const isAuthFailure = (err: unknown): boolean =>
   err instanceof ApiError && (err.status === 401 || err.status === 403);
 
-/** Waits before each /auth/me retry: covers a few seconds of API restart. */
-const ME_RETRY_DELAYS_MS = [1000, 2000];
+/** Waits before each /auth/me retry. Covers a full API restart (a Fly deploy
+ * or secret change keeps it down ~30-60s) — the old 3s budget ran out mid-
+ * restart and bounced a valid session to /login. */
+const ME_RETRY_DELAYS_MS = [1000, 2000, 3000, 5000, 5000, 10000, 10000, 10000, 15000, 15000, 15000];
 
 type Me = {
   id: string;
@@ -31,6 +33,10 @@ type AuthContextValue = {
   session: Session | null;
   me: Me | null;
   isAuthenticated: boolean;
+  /** Has a session but /auth/me kept failing for a non-auth reason (API
+   * down) — the route guard shows a "reconnect" screen instead of /login. */
+  connectionError: boolean;
+  retryConnection: () => void;
   canAccess: (screen: ScreenKey) => boolean;
   signOut: () => Promise<void>;
   refreshMe: () => Promise<void>;
@@ -47,6 +53,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // placeholder null, concludes "logged out" and flips `loading` false
   // before the real session loads, bouncing every reload to /login.
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -82,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       setLoading(true);
+      setConnectionError(false);
       try {
         // A network blip or a 5xx (e.g. opening the site while the API is
         // restarting for a deploy) is retried a couple of times while `loading`
@@ -96,11 +105,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         );
         if (!cancelled) setMe(data);
       } catch (err) {
-        // Only a real auth failure (401/403 — token rejected by the backend)
-        // means "logged out". A network blip, timeout, or 5xx that outlasted
-        // the retries must not wipe `me` — that would bounce a user with a
-        // perfectly valid session back to /login over a transient error.
-        if (!cancelled && isAuthFailure(err)) setMe(null);
+        if (cancelled) return;
+        if (isAuthFailure(err)) {
+          // A stored access token that expired while the tab was closed is
+          // rejected before supabase-js gets to refresh it — refresh once and
+          // retry before calling it a real "logged out".
+          const refreshed = await supabase.auth.refreshSession().catch(() => null);
+          if (cancelled) return;
+          if (refreshed?.data.session) {
+            try {
+              const data = await apiFetch("/auth/me");
+              if (!cancelled) setMe(data);
+              return;
+            } catch {
+              // falls through to "logged out"
+            }
+          }
+          if (!cancelled) setMe(null);
+        } else if (!me) {
+          // Only a real auth failure means "logged out". A network error or
+          // 5xx that outlasted the retries must not bounce a valid session
+          // to /login — show "reconnect" instead (a `me` loaded earlier
+          // just stays as is).
+          setConnectionError(true);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -120,13 +148,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // token atual direto do client do Supabase, não precisa desse efeito
     // rodar de novo só por causa do refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user.id, sessionChecked]);
+  }, [session?.user.id, sessionChecked, attempt]);
 
   const value: AuthContextValue = {
     loading,
     session,
     me,
     isAuthenticated: !!session && !!me,
+    connectionError: !!session && !me && connectionError,
+    retryConnection: () => setAttempt((n) => n + 1),
     // Deny by default — mirrors the backend's roleGuard, which is the check
     // that actually matters. This one is just so the UI doesn't flash
     // screens the user can't use.

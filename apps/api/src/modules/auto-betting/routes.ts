@@ -55,14 +55,14 @@ export async function autoBettingRoutes(app: FastifyInstance) {
         create: { userId, bookmaker: bookmaker.data, ...data },
         update: data,
       });
-      await recordAuditLog({ actorId: userId, action: "bookmaker_credential.save", targetType: "bookmaker_credential", targetId: bookmaker.data });
+      await recordAuditLog({ actorId: userId, action: "bookmaker_credential.save", targetType: "bookmaker_credential", metadata: { bookmaker: bookmaker.data } });
       return reply.code(204).send();
     });
 
     profile.delete<{ Params: { bookmaker: string } }>("/credentials/:bookmaker", async (request, reply) => {
       const userId = request.authUser!.id;
       await prisma.bookmakerCredential.deleteMany({ where: { userId, bookmaker: request.params.bookmaker } });
-      await recordAuditLog({ actorId: userId, action: "bookmaker_credential.delete", targetType: "bookmaker_credential", targetId: request.params.bookmaker });
+      await recordAuditLog({ actorId: userId, action: "bookmaker_credential.delete", targetType: "bookmaker_credential", metadata: { bookmaker: request.params.bookmaker } });
       return reply.code(204).send();
     });
 
@@ -112,7 +112,7 @@ export async function autoBettingRoutes(app: FastifyInstance) {
       });
       if (!row) return reply.code(404).send({ error: "no_credentials" });
 
-      await recordAuditLog({ actorId: userId, action: "bookmaker_credential.read_by_extension", targetType: "bookmaker_credential", targetId: bookmaker.data });
+      await recordAuditLog({ actorId: userId, action: "bookmaker_credential.read_by_extension", targetType: "bookmaker_credential", metadata: { bookmaker: bookmaker.data } });
       return {
         username: open(row.usernameEnc, ctx(userId, bookmaker.data, "username")),
         password: open(row.passwordEnc, ctx(userId, bookmaker.data, "password")),
