@@ -104,6 +104,13 @@ async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
     await pushLog({ tipo: "dry_run", tip: task, relatorio: { ok: false, abort: "pagina_nao_carregou", pagina: status }, tempos });
     return null;
   }
+  // Nunca ir pra aposta sem saber se está logado (pedido do usuário,
+  // 2026-09-23): nem ENTRAR nem sinal de logado em 20s = para aqui.
+  if (status.logado === null) {
+    tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
+    await pushLog({ tipo: "dry_run", tip: task, relatorio: { ok: false, abort: "nao_sei_se_esta_logado", pagina: status }, tempos });
+    return null;
+  }
 
   // Sem a conexão (ex.: DevTools aberto na aba) os cliques ainda tentam,
   // conectando um por um — o relatório mostra se falharem.
@@ -142,7 +149,7 @@ async function runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, 
   }
 
   const report = await runInTab(tab.id, runnerTask);
-  if (report && login.logou) report.login = { logouAntes: true, passos: login.passos };
+  if (report) report.login = login.logou ? { logouAntes: true, passos: login.passos } : { jaEstavaLogado: true, sinal: login.sinal };
   tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
   await pushLog({ tipo: "dry_run", tip: task, relatorio: report, tempos });
   if (runnerTask.placeReal && report?.aposta?.confirmed) await reportResult(task, report, config);
@@ -264,7 +271,7 @@ function loginKind(username) {
 // Usuário e senha vêm do Evobo (salvos criptografados no perfil → "Aposta
 // automática") e só existem nesta função, em memória.
 async function ensureLoggedIn(tabId, config, st) {
-  if (st.logado) return { ok: true, jaLogado: true };
+  if (st.logado) return { ok: true, jaLogado: true, sinal: st.sinal };
 
   const res = await fetch(`${config.apiUrl}/auto-betting/extension/credentials/betano`, {
     headers: { "x-extension-key": config.extensionKey },

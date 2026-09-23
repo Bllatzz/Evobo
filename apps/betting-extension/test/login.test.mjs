@@ -27,6 +27,7 @@ const PAGE = `<body style="margin:0">
       document.getElementById("host").innerHTML = "";
       document.querySelector('[data-qa="login-button"]').remove();
       document.querySelector('[data-qa="register-button"]').remove();
+      document.querySelector("nav").insertAdjacentHTML("beforeend", '<span data-qa="header-balance">R$ 100,00</span>');
     };
   </script></body>`;
 
@@ -69,7 +70,8 @@ const idAt = (page, p) =>
 
 test("login: deslogado → acha ENTRAR, aba, campos e INICIAR SESSÃO dentro do iframe", async () => {
   const page = await setup();
-  assert.deepEqual(await page.evaluate(() => window.BetanoLogin.status()), { pronto: true, logado: false });
+  const antes = await page.evaluate(() => window.BetanoLogin.status());
+  assert.deepEqual([antes.pronto, antes.logado], [true, false]);
 
   const entrar = await page.evaluate(() => window.BetanoLogin.loginButtonPoint());
   assert.equal(await idAt(page, entrar), "login-button");
@@ -95,7 +97,9 @@ test("login: deslogado → acha ENTRAR, aba, campos e INICIAR SESSÃO dentro do 
   await page.mouse.click(enviar.ponto.x, enviar.ponto.y);
 
   assert.deepEqual(await page.evaluate(() => window.BetanoLogin.waitLoggedIn()), { ok: true });
-  assert.deepEqual(await page.evaluate(() => window.BetanoLogin.status()), { pronto: true, logado: true });
+  const depois = await page.evaluate(() => window.BetanoLogin.status());
+  assert.deepEqual([depois.pronto, depois.logado], [true, true]);
+  assert.match(depois.sinal, /header-balance/);
   await page.close();
 });
 
@@ -125,5 +129,23 @@ test("login: formulário que não abre dá motivo claro", async () => {
     return window.BetanoLogin.fields();
   });
   assert.equal(semForm.motivo, "formulario_de_login_nao_apareceu");
+  await page.close();
+});
+
+// 2026-09-23: o bilhete apareceu antes do cabeçalho, ENTRAR não veio a tempo
+// e a extensão tratou como "logado" e foi pra aposta. Sem ENTRAR e sem sinal
+// de logado, o status tem que dizer "não sei" (logado: null).
+test("status: sem ENTRAR e sem sinal de logado → logado null (nunca 'logado')", async () => {
+  const page = await setup();
+  const st = await page.evaluate(async () => {
+    document.querySelector('[data-qa="login-button"]').remove();
+    document.querySelector('[data-qa="register-button"]').remove();
+    const real = window.BetanoSlip.waitFor;
+    window.BetanoSlip.waitFor = (fn, _t, step) => real(fn, 300, step); // sem esperar 20s no teste
+    return window.BetanoLogin.status();
+  });
+  assert.equal(st.pronto, true);
+  assert.equal(st.logado, null);
+  assert.ok(Array.isArray(st.dataQa));
   await page.close();
 });
