@@ -79,6 +79,28 @@
 
   const headerLoginButton = () => QA('[data-qa="login-button"]').find(visible) ?? null;
 
+  // Marcadores do cabeçalho LOGADO. O HTML do cabeçalho logado ainda não foi
+  // visto — são palpites por nome (saldo, conta, usuário, depositar); o
+  // histórico mostra qual casou (`sinal`) ou, se nenhum, a lista de data-qa.
+  const LOGGED_IN = [
+    '[data-qa*="balance" i]',
+    '[data-qa*="account-menu" i]',
+    '[data-qa*="my-account" i]',
+    '[data-qa*="user-menu" i]',
+    '[data-qa*="avatar" i]',
+    '[data-qa*="deposit" i]',
+    '[data-qa*="logout" i]',
+  ];
+  function loggedInMarker() {
+    for (const sel of LOGGED_IN) {
+      const el = QA(sel).find(visible);
+      if (el) return `${sel} → ${el.getAttribute("data-qa")}`;
+    }
+    return null;
+  }
+
+  const pageDataQa = () => [...new Set(QA("[data-qa]").map((el) => el.getAttribute("data-qa")))].slice(0, 60);
+
   // Página carregou o cabeçalho? (logo da Betano) — antes disso não dá pra
   // dizer se está logado ou não.
   async function status() {
@@ -90,13 +112,16 @@
     // Sem nenhum: diz o que a página tinha (ex.: a tela "Access to this page
     // is restricted" que a Betano deu pro Playwright em 2026-09-21).
     if (!ready) {
-      const dataQa = [...new Set(QA("[data-qa]").map((el) => el.getAttribute("data-qa")))].slice(0, 40);
-      return { pronto: false, url: location.href, titulo: document.title, dataQa, textoVisivel: (document.body?.innerText ?? "").replace(/\s+/g, " ").slice(0, 300) };
+      return { pronto: false, url: location.href, titulo: document.title, dataQa: pageDataQa(), textoVisivel: (document.body?.innerText ?? "").replace(/\s+/g, " ").slice(0, 300) };
     }
-    // O botão ENTRAR pode demorar mais que o resto do cabeçalho pra aparecer
-    // — esperar um pouco antes de concluir "logado".
-    const btn = await S.waitFor(() => headerLoginButton(), 3000, 200);
-    return { pronto: true, logado: !btn };
+    // Logado ou não só com um sinal POSITIVO: ENTRAR visível = deslogado;
+    // algo que só existe logado (saldo, conta, depositar) = logado. "Não
+    // achei ENTRAR" NÃO é logado — em 2026-09-23 o bilhete apareceu antes do
+    // cabeçalho, ENTRAR não veio em 3s e a extensão foi direto pra aposta
+    // deslogada. Sem nenhum dos dois, quem chama aborta.
+    const estado = await S.waitFor(() => (headerLoginButton() ? "deslogado" : loggedInMarker() ? "logado" : null), 20000, 250);
+    if (!estado) return { pronto: true, logado: null, dataQa: pageDataQa() };
+    return { pronto: true, logado: estado === "logado", sinal: estado === "logado" ? loggedInMarker() : "botão ENTRAR" };
   }
 
   function loginButtonPoint() {

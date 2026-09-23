@@ -25,6 +25,14 @@ function linhaAposta(a) {
   return `\n✘ Não clicou: ${a.reason}${a.erro ? ` (${a.erro})` : ""}`;
 }
 
+// Primeira linha: o que a extensão concluiu sobre o login antes da aposta.
+function linhaLogin(l) {
+  if (!l) return "";
+  if (l.logouAntes) return "🔐 Estava deslogado — logou antes de conferir a aposta\n";
+  if (l.jaEstavaLogado) return `🔐 Já estava logado (${l.sinal ?? "?"})\n`;
+  return "";
+}
+
 function linhaTempos(t) {
   if (!t) return "";
   const ocr = t.esperouOcrS > 0 ? `, ${t.esperouOcrS}s disso esperando a odd/unidade da foto` : "";
@@ -40,7 +48,7 @@ function resumo(entry) {
   if (!r) return { classe: "skip", texto: "sem resposta da aba" };
   if (r.abort) return { classe: "skip", texto: `✘ Abortou: ${r.abort}` };
   const out = resumoPlano(r);
-  return { classe: r.aposta && !r.aposta.confirmed ? "skip" : out.classe, texto: out.texto + linhaAposta(r.aposta) + linhaTempos(entry.tempos) };
+  return { classe: r.aposta && !r.aposta.confirmed ? "skip" : out.classe, texto: linhaLogin(r.login) + out.texto + linhaAposta(r.aposta) + linhaTempos(entry.tempos) };
 }
 
 function resumoPlano(r) {
