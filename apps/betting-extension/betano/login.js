@@ -17,6 +17,20 @@
   const S = root.BetanoSlip;
   const Q = (sel, el = document) => el.querySelector(sel);
   const QA = (sel, el = document) => [...el.querySelectorAll(sel)];
+
+  // Busca que entra em shadow DOM aberto. Em 2026-09-23 a lista de data-qa
+  // da página (querySelectorAll normal) não tinha NADA do cabeçalho — nem
+  // brand-logo, nem ENTRAR — embora o HTML copiado do DevTools tivesse: o
+  // cabeçalho provavelmente fica dentro de um shadow root, que a busca
+  // normal não enxerga.
+  function deepQA(sel, rootNode = document) {
+    const out = [...rootNode.querySelectorAll(sel)];
+    for (const el of rootNode.querySelectorAll("*")) {
+      if (el.shadowRoot) out.push(...deepQA(sel, el.shadowRoot));
+    }
+    return out;
+  }
+  const shadowHosts = () => deepQA("*").filter((el) => el.shadowRoot).map((el) => el.tagName.toLowerCase());
   const text = (el) => (el ? el.textContent.replace(/\s+/g, " ").trim() : "");
   const norm = (s) =>
     String(s ?? "")
@@ -33,7 +47,7 @@
     return r.width > 0 && r.height > 0 && st.visibility !== "hidden" && st.display !== "none";
   };
 
-  const loginFrame = () => QA('#iframe-modal iframe, iframe.myaccount-iframe, iframe[src*="/myaccount/login"]').find(visible) ?? null;
+  const loginFrame = () => deepQA('#iframe-modal iframe, iframe.myaccount-iframe, iframe[src*="/myaccount/login"]').find(visible) ?? null;
 
   const frameDoc = (frame) => {
     try {
@@ -77,7 +91,7 @@
   const PERIGOSO = /fechar|close|cancel|ajuda|cadastr|registr|esqueceu|facebook|google|yahoo|linkedin|×|✕/;
   const isDangerous = (el) => PERIGOSO.test(norm(`${text(el)} ${el.getAttribute("aria-label") ?? ""} ${el.className ?? ""}`)) || /^[x×✕]?$/.test(norm(text(el)));
 
-  const headerLoginButton = () => QA('[data-qa="login-button"]').find(visible) ?? null;
+  const headerLoginButton = () => deepQA('[data-qa="login-button"]').find(visible) ?? null;
 
   // Marcadores do cabeçalho LOGADO. O HTML do cabeçalho logado ainda não foi
   // visto — são palpites por nome (saldo, conta, usuário, depositar); o
@@ -93,13 +107,19 @@
   ];
   function loggedInMarker() {
     for (const sel of LOGGED_IN) {
-      const el = QA(sel).find(visible);
+      const el = deepQA(sel).find(visible);
       if (el) return `${sel} → ${el.getAttribute("data-qa")}`;
     }
     return null;
   }
 
-  const pageDataQa = () => [...new Set(QA("[data-qa]").map((el) => el.getAttribute("data-qa")))].slice(0, 60);
+  // Diagnóstico: data-qa da página (inclusive dentro de shadow DOM), com os
+  // que parecem de cabeçalho/conta primeiro, e quais elementos têm shadow root.
+  const HEADER_HINT = /login|register|logo|balance|account|user|deposit|logout|header|nav|menu|avatar|wallet|saldo|profile/i;
+  const pageDataQa = () => {
+    const all = [...new Set(deepQA("[data-qa]").map((el) => el.getAttribute("data-qa")))];
+    return { cabecalho: all.filter((q) => HEADER_HINT.test(q)).slice(0, 60), outros: all.filter((q) => !HEADER_HINT.test(q)).slice(0, 20), total: all.length, shadowHosts: [...new Set(shadowHosts())].slice(0, 20) };
+  };
 
   // Página carregou o cabeçalho? (logo da Betano) — antes disso não dá pra
   // dizer se está logado ou não.
@@ -108,7 +128,8 @@
     // em 2026-09-23 a página abriu normal (título certo, /bookingcode/ →
     // "/") e o data-qa="brand-logo" não apareceu em 15s.
     const READY = ['[data-qa="brand-logo"]', '[data-qa="login-button"]', '[data-qa="register-button"]', '[data-qa="bet-slip"]', '[data-qa="floating-betslip-header"]', '[data-qa="nav-menu"]'];
-    const ready = await S.waitFor(() => READY.some((sel) => Q(sel)), 15000, 250);
+    // Os sinais de logado também contam: logado não tem ENTRAR/REGISTRAR.
+    const ready = await S.waitFor(() => READY.some((sel) => deepQA(sel).length > 0) || !!loggedInMarker(), 15000, 250);
     // Sem nenhum: diz o que a página tinha (ex.: a tela "Access to this page
     // is restricted" que a Betano deu pro Playwright em 2026-09-21).
     if (!ready) {
