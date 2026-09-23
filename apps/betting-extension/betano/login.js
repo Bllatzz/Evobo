@@ -1,0 +1,190 @@
+// Login automático na Betano — só LOCALIZA as coisas na página (botão ENTRAR,
+// aba do tipo de login, campos, botão de enviar) e devolve coordenadas. Quem
+// clica e DIGITA é o background, via CDP (cliques/teclado confiáveis): a
+// senha nunca passa por este script nem pelo JS da página.
+//
+// HTML real (colado pelo usuário em 2026-09-23):
+//  - deslogado, o cabeçalho tem button[data-qa="register-button"] (REGISTRAR)
+//    e button[data-qa="login-button"] (ENTRAR);
+//  - ENTRAR abre #iframe-modal com <iframe class="myaccount-iframe"
+//    src="/myaccount/login"> (mesmo site, então dá pra ler o DOM dele daqui);
+//  - dentro: abas "Nome de usuário" / "E-mail" / "CPF" (CPF vem marcada),
+//    campo Login ID, campo Senha e o botão "INICIAR SESSÃO".
+// Os campos dentro do iframe ainda não tiveram o HTML visto — são achados de
+// forma genérica (input de senha + o input de texto junto dele).
+(function (root) {
+  if (root.BetanoLogin) return;
+  const S = root.BetanoSlip;
+  const Q = (sel, el = document) => el.querySelector(sel);
+  const QA = (sel, el = document) => [...el.querySelectorAll(sel)];
+  const text = (el) => (el ? el.textContent.replace(/\s+/g, " ").trim() : "");
+  const norm = (s) =>
+    String(s ?? "")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .trim();
+
+  // getComputedStyle da janela DONA do elemento (o do iframe é outra janela).
+  const visible = (el) => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const st = (el.ownerDocument.defaultView ?? window).getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && st.visibility !== "hidden" && st.display !== "none";
+  };
+
+  const loginFrame = () => QA('#iframe-modal iframe, iframe.myaccount-iframe, iframe[src*="/myaccount/login"]').find(visible) ?? null;
+
+  const frameDoc = (frame) => {
+    try {
+      return frame?.contentDocument ?? null;
+    } catch {
+      return null; // outra origem: não dá pra ler
+    }
+  };
+
+  // Onde está o formulário: dentro do iframe do modal (o normal) ou, se um
+  // dia a Betano mudar, na própria página.
+  function formScope() {
+    const frame = loginFrame();
+    const doc = frameDoc(frame);
+    if (doc && QA('input[type="password"]', doc).some(visible)) return { doc, frame };
+    if (QA('input[type="password"]').some(visible)) return { doc: document, frame: null };
+    return null;
+  }
+
+  // Coordenadas na janela de cima (é nelas que o CDP clica): posição dentro
+  // do iframe + posição do iframe na página.
+  function point(el, frame) {
+    el.scrollIntoView({ block: "center", inline: "center" });
+    const r = el.getBoundingClientRect();
+    const f = frame ? frame.getBoundingClientRect() : { left: 0, top: 0 };
+    return { x: Math.round(f.left + r.left + r.width / 2), y: Math.round(f.top + r.top + r.height / 2) };
+  }
+
+  const headerLoginButton = () => QA('[data-qa="login-button"]').find(visible) ?? null;
+
+  // Página carregou o cabeçalho? (logo da Betano) — antes disso não dá pra
+  // dizer se está logado ou não.
+  async function status() {
+    const ready = await S.waitFor(() => Q('[data-qa="brand-logo"]'), 15000);
+    if (!ready) return { pronto: false };
+    // O botão ENTRAR pode demorar um pouco mais que o logo pra renderizar.
+    const btn = await S.waitFor(() => headerLoginButton(), 1500);
+    return { pronto: true, logado: !btn };
+  }
+
+  function loginButtonPoint() {
+    const btn = headerLoginButton();
+    return btn ? point(btn, null) : null;
+  }
+
+  // Espera o modal com o formulário (o iframe carrega depois do clique).
+  const waitForm = () => S.waitFor(() => formScope(), 15000, 250);
+
+  const TAB_TEXT = {
+    cpf: (t) => t === "cpf",
+    email: (t) => t === "e-mail" || t === "email",
+    usuario: (t) => t.startsWith("nome de usu"),
+  };
+
+  // Aba do tipo de login ("Nome de usuário" / "E-mail" / "CPF"). Clicar na
+  // que já está marcada não muda nada, então sempre devolve o ponto dela.
+  async function tabPoint(tipo) {
+    const scope = await waitForm();
+    if (!scope) return { ok: false, motivo: "formulario_de_login_nao_apareceu", textos: dialogTexts() };
+    const match = TAB_TEXT[tipo];
+    if (!match) return { ok: false, motivo: "tipo_de_login_desconhecido" };
+    const clickable = QA("button, [role='tab'], label, a", scope.doc).find((el) => visible(el) && match(norm(text(el))));
+    // Sem elemento clicável com o texto exato: o texto pode estar num <span>
+    // solto — usa o clicável mais próximo dele.
+    const leaf =
+      clickable ??
+      QA("span, div, p", scope.doc)
+        .filter((el) => el.children.length === 0 && visible(el) && match(norm(text(el))))
+        .map((el) => el.closest("button, [role='tab'], label, a") ?? el)[0];
+    if (!leaf) return { ok: false, motivo: "aba_do_tipo_de_login_nao_encontrada", tipo };
+    return { ok: true, ponto: point(leaf, scope.frame) };
+  }
+
+  function userInput(doc, pwd) {
+    const box = pwd.closest("form, [role='dialog'], dialog, [class*='modal'], [class*='Modal']") ?? doc.body;
+    const sel = 'input:not([type="password"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"])';
+    return QA(sel, box).find(visible) ?? QA(sel, doc).find(visible) ?? null;
+  }
+
+  function submitButton(doc) {
+    const buttons = QA("button, input[type='submit']", doc).filter(visible);
+    return (
+      buttons.find((b) => /iniciar sessao/.test(norm(text(b) || b.value))) ??
+      buttons.find((b) => b.type === "submit") ??
+      buttons.find((b) => /^(entrar|login|acessar)$/.test(norm(text(b) || b.value))) ??
+      null
+    );
+  }
+
+  // Campos do formulário, depois de escolher a aba.
+  async function fields() {
+    const scope = await waitForm();
+    if (!scope) return { ok: false, motivo: "formulario_de_login_nao_apareceu", textos: dialogTexts() };
+    const pwd = QA('input[type="password"]', scope.doc).find(visible);
+    const user = userInput(scope.doc, pwd);
+    if (!user) return { ok: false, motivo: "campo_de_usuario_nao_encontrado", textos: dialogTexts() };
+    // Limpa o que o autocompletar do Chrome já tiver posto — o background
+    // digita por cima com teclado de verdade.
+    const win = scope.doc.defaultView ?? window;
+    const setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value").set;
+    for (const input of [user, pwd]) {
+      setter.call(input, "");
+      input.dispatchEvent(new win.Event("input", { bubbles: true }));
+    }
+    return { ok: true, usuario: point(user, scope.frame), senha: point(pwd, scope.frame) };
+  }
+
+  // Botão "INICIAR SESSÃO" — pedido DEPOIS de digitar (ele fica desabilitado
+  // com os campos vazios). Sem botão, o background aperta Enter.
+  async function submitPoint() {
+    const scope = formScope();
+    if (!scope) return { ok: false, motivo: "formulario_sumiu" };
+    const btn = submitButton(scope.doc);
+    return { ok: true, ponto: btn ? point(btn, scope.frame) : null, desabilitado: !!btn?.disabled };
+  }
+
+  // Textos visíveis de diálogos/erros (na página e no iframe) — pro
+  // relatório dizer por que o login não passou (senha errada, captcha,
+  // código por SMS…). Nunca inclui valores de campos.
+  function dialogTexts() {
+    const docs = [document, frameDoc(loginFrame())].filter(Boolean);
+    return docs
+      .flatMap((doc) => QA("[role='dialog'], dialog[open], [data-qa*='error'], [class*='error'], [role='alert']", doc))
+      .filter(visible)
+      .map(text)
+      .filter(Boolean)
+      .map((t) => t.slice(0, 300))
+      .slice(0, 5);
+  }
+
+  async function waitLoggedIn() {
+    const ok = await S.waitFor(() => !headerLoginButton() && !loginFrame(), 25000, 250);
+    return ok ? { ok: true } : { ok: false, motivo: "login_nao_confirmado", textos: dialogTexts() };
+  }
+
+  root.BetanoLogin = { status, loginButtonPoint, tabPoint, fields, submitPoint, waitLoggedIn };
+
+  if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((msg, _sender, send) => {
+      const handlers = {
+        login_status: status,
+        login_botao: async () => loginButtonPoint(),
+        login_aba: () => tabPoint(msg.tipo),
+        login_campos: fields,
+        login_enviar: submitPoint,
+        login_aguardar: waitLoggedIn,
+      };
+      const h = handlers[msg?.acao];
+      if (!h) return;
+      Promise.resolve(h()).then(send, (e) => send({ ok: false, motivo: "erro", erro: String(e?.message ?? e) }));
+      return true;
+    });
+  }
+})(typeof self !== "undefined" ? self : this);
