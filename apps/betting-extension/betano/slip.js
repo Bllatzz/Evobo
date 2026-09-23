@@ -3,7 +3,7 @@
 // confirmados no HTML real do bilhete em 2026-09-21. Se a Betano renomear um
 // `data-qa`, este é o único arquivo que muda.
 //
-// O clique em "APOSTE JÁ" só acontece por run.js (placeSingles), com o modo
+// O clique em "APOSTE JÁ" só acontece por run.js (placeBet), com o modo
 // "apostar de verdade" ligado e as travas de lá.
 (function (root) {
   const Q = (sel, el = document) => el.querySelector(sel);
@@ -24,6 +24,21 @@
     const n = parseFloat(s);
     return Number.isFinite(n) ? n : null;
   };
+
+  // Odd que vale pra aposta. Com "Super Turbinada" a Betano mostra DUAS
+  // `bet-odds` lado a lado (HTML real de 2026-09-23): a original com
+  // `odds-ticker-enhanced` (2.02) e a turbinada com `odds-ticker-solid`
+  // (2.42 = 2.02 + 20%) — a tip é passada com a turbinada. Pegar a primeira
+  // lia 2.02 e barrava a aposta por "odd menor". Com mais de uma, usa a
+  // `-solid`; sem ela, a maior (a turbinada é sempre maior que a original).
+  function readOdd(scope) {
+    const els = QA('[data-qa="bet-odds"]', scope);
+    if (els.length <= 1) return parseOdd(text(els[0]));
+    const solid = els.find((el) => el.classList.contains("odds-ticker-solid"));
+    if (solid) return parseOdd(text(solid));
+    const odds = els.map((el) => parseOdd(text(el))).filter((n) => n !== null);
+    return odds.length ? Math.max(...odds) : null;
+  }
 
   async function waitFor(fn, timeout = 5000, step = 100) {
     const end = Date.now() + timeout;
@@ -57,7 +72,7 @@
       selection: text(Q('[data-qa="selection-label"]', card)),
       market: text(Q('[data-qa="market-label"]', card)),
       teams: QA(".participants__participant-name", card).map(text),
-      odd: parseOdd(text(Q('[data-qa="bet-odds"]', card))),
+      odd: readOdd(card),
       stakeInputId: Q('input[data-qa="stake-area"]', card)?.id ?? null,
     }));
     const acc = Q('[data-qa="accumulator"]', slip);
@@ -66,7 +81,7 @@
       tab: checked ? (TAB_NAMES[checked.value] ?? null) : null,
       cards,
       accumulator: acc
-        ? { label: text(acc.firstElementChild), odd: parseOdd(text(Q('[data-qa="bet-odds"]', acc))), stakeInputId: accInput?.id ?? null }
+        ? { label: text(acc.firstElementChild), odd: readOdd(acc), stakeInputId: accInput?.id ?? null }
         : null,
       placeButton: readPlaceButton(slip),
     };
@@ -119,7 +134,7 @@
     const items = QA('[data-qa="receipt-item"]', receipt).map((it) => ({
       titulo: text(Q('[data-qa="bet-label-title"]', it)),
       valorReais: parseBRL(text(Q('[data-qa="bet-label-amount"]', it))),
-      odd: parseOdd(text(Q('[data-qa="bet-odds"]', it))),
+      odd: readOdd(it),
       betId: text(Q('[data-qa="unique-bet-identification-number"]', it)) || null,
     }));
     return {
