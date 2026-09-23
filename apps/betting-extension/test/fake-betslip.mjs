@@ -19,7 +19,7 @@ export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", r
       const cardHtml = (c, i, withStake) => `
         <div data-qa="bet-activity-card">
           <div data-qa="leg-info-header"><a data-qa="selection-label">${c.selection}</a>
-            <span data-qa="bet-odds">${c.odd}</span></div>
+            ${c.oddOriginal ? `<span data-qa="bet-odds" class="odds-ticker odds-ticker-enhanced">${c.oddOriginal}</span><span data-qa="bet-odds" class="odds-ticker odds-ticker-solid">${c.odd}</span>` : `<span data-qa="bet-odds">${c.odd}</span>`}</div>
           <div data-qa="leg-info-main"><a data-qa="market-label">${c.market ?? ""}</a>
             <div class="participants">${c.teams.map((t) => `<span class="participants__participant-name">${t}</span>`).join("")}</div></div>
           ${withStake ? `<div class="stake-area"><input id="stakeInput_1:SGL:${i}" type="text" inputmode="decimal" data-qa="stake-area" value="${st.singles[i] ?? ""}"></div>` : ""}

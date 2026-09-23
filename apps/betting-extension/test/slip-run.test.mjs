@@ -227,3 +227,20 @@ test("simples: Betano que grava a stake com atraso não perde os campos anterior
   assert.equal(r.singles.botao.totalReais, 35);
   await page.close();
 });
+
+// Bug real de 2026-09-23: "20% Super Turbinada" — o cartão mostra a odd
+// original (2.02, odds-ticker-enhanced) E a turbinada (2.42, odds-ticker-solid).
+test("super turbinada: lê a odd turbinada, não a original, e aposta", async () => {
+  const cards = [{ selection: "Barcelona (F)", market: "Resultado do 1° Tempo", teams: ["Barcelona (F)", "Paris FC (F)"], odd: 2.42, oddOriginal: 2.02 }];
+  const page = await setup({ cards, accOdd: 2.42 });
+  const snap = await page.evaluate(() => window.BetanoSlip.readSnapshot());
+  assert.equal(snap.cards[0].odd, 2.42);
+  const r = await run(page, {
+    tipId: "grp:bonmati",
+    unitValueReais: 10,
+    maxStakeReais: 50,
+    legs: [{ id: "a", match: "Barcelona (F) x Paris FC (F)", selection: "Barcelona vencer o primeiro tempo + 4 gols na partida + Aitana Bonmati 2 sot.", odd: 2.42, unit: 1 }],
+  });
+  assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd, l.reason]), [["stake", 2.42, null]]);
+  await page.close();
+});
