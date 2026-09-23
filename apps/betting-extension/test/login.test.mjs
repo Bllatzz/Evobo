@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "betano");
 const ORIGIN = "https://fake.betano.test";
@@ -31,12 +32,15 @@ const PAGE = `<body style="margin:0">
     };
   </script></body>`;
 
-const LOGIN_FORM = `<body style="margin:0">
+// Mesma estrutura do formulário real (form[data-qa="login"] + abas em
+// ul[data-qa="login-methods"]), mas sem os data-qa das abas/botão — força o
+// caminho "pelo texto" do login.js.
+const LOGIN_FORM = `<body style="margin:0"><form data-qa="login">
   <p>Login ID</p>
-  <div><button type="button" id="t-user">Nome de usuário</button><button type="button" id="t-mail">E-mail</button><button type="button" id="t-cpf"><span>CPF</span></button></div>
+  <ul data-qa="login-methods"><li><button type="button" id="t-user">Nome de usuário</button></li><li><button type="button" id="t-mail">E-mail</button></li><li><button type="button" id="t-cpf"><span>CPF</span></button></li></ul>
   <input id="user" type="text" placeholder="ex. 29684956312">
   <p>Senha</p><input id="pwd" type="password" placeholder="Entre com a sua senha">
-  <button id="go" type="button">INICIAR SESSÃO</button>
+  <button id="go" type="button">INICIAR SESSÃO</button></form>
   <script>document.getElementById("go").onclick = () => parent.fakeLoggedIn();</script></body>`;
 
 let browser;
@@ -66,6 +70,15 @@ const idAt = (page, p) =>
     const r = el.getBoundingClientRect();
     const inner = el.contentDocument.elementFromPoint(x - r.left, y - r.top);
     return inner?.id || inner?.parentElement?.id || inner?.tagName;
+  }, p);
+
+// data-qa do botão/elemento mais próximo no ponto (descendo pro iframe).
+const qaAt = (page, p) =>
+  page.evaluate(({ x, y }) => {
+    const el = document.elementFromPoint(x, y);
+    const r = el.getBoundingClientRect();
+    const inner = el.tagName === "IFRAME" ? el.contentDocument.elementFromPoint(x - r.left, y - r.top) : el;
+    return inner?.closest("[data-qa]")?.getAttribute("data-qa") ?? null;
   }, p);
 
 test("login: deslogado → acha ENTRAR, aba, campos e INICIAR SESSÃO dentro do iframe", async () => {
@@ -167,5 +180,41 @@ test("status: cabeçalho dentro de shadow DOM — vê ENTRAR e o saldo", async (
   });
   assert.deepEqual([res.deslogado.pronto, res.deslogado.logado], [true, false]);
   assert.deepEqual([res.logado.pronto, res.logado.logado], [true, true]);
+  await page.close();
+});
+
+// Formulário REAL (test/fixtures/betano-login-form.html) + um campo de senha
+// "isca" na página de fora — o login real de 2026-09-23 falhou em 3s com
+// aba_do_tipo_de_login_nao_encontrada, com o modal aberto.
+test("login com o HTML real do formulário: ignora senha fora do modal e usa os data-qa reais", async () => {
+  const form = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "betano-login-form.html"), "utf8");
+  const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+  await page.route(`${ORIGIN}/**`, (r) =>
+    r.fulfill({
+      contentType: "text/html; charset=utf-8",
+      body: r.request().url().includes("/myaccount/login")
+        ? `<body style="margin:0">${form}</body>`
+        : `<body style="margin:0"><form><input type="password" style="width:2px;height:2px"></form>
+           <div id="iframe-modal" style="position:absolute;left:200px;top:40px"><iframe class="myaccount-iframe" src="/myaccount/login" style="width:600px;height:620px;border:0"></iframe></div></body>`,
+    }),
+  );
+  await page.goto(`${ORIGIN}/`);
+  await page.waitForFunction(() => document.querySelector("iframe")?.contentDocument?.querySelector('[data-qa="login"]'));
+  for (const f of ["plan.js", "slip.js", "login.js"]) await page.addScriptTag({ path: join(root, f) });
+
+  const aba = await page.evaluate(() => window.BetanoLogin.tabPoint("cpf"));
+  assert.equal(aba.ok, true, JSON.stringify(aba));
+  assert.match(aba.alvo, /data-qa=taxid/);
+  assert.equal(await qaAt(page, aba.ponto), "taxid"); // o clique cai no botão CPF, dentro do iframe
+
+  const campos = await page.evaluate(() => window.BetanoLogin.fields());
+  assert.equal(campos.ok, true, JSON.stringify(campos));
+  const u = await page.evaluate(() => window.BetanoLogin.targetPoint("usuario"));
+  assert.equal(await idAt(page, u.ponto), "taxid");
+  const pw = await page.evaluate(() => window.BetanoLogin.targetPoint("senha"));
+  assert.equal(await idAt(page, pw.ponto), "password");
+  const go = await page.evaluate(() => window.BetanoLogin.targetPoint("enviar"));
+  assert.match(go.alvo, /data-qa=submit/);
+  assert.equal(go.desabilitado, true); // vazio: o background aperta Enter em vez de clicar
   await page.close();
 });

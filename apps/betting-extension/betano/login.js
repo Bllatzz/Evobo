@@ -10,8 +10,12 @@
 //    src="/myaccount/login"> (mesmo site, então dá pra ler o DOM dele daqui);
 //  - dentro: abas "Nome de usuário" / "E-mail" / "CPF" (CPF vem marcada),
 //    campo Login ID, campo Senha e o botão "INICIAR SESSÃO".
-// Os campos dentro do iframe ainda não tiveram o HTML visto — são achados de
-// forma genérica (input de senha + o input de texto junto dele).
+// HTML de dentro do iframe (também real, 2026-09-23, em
+// test/fixtures/betano-login-form.html): form[data-qa="login"], abas
+// ul[data-qa="login-methods"] > button[data-qa="username"|"email"|"taxid"],
+// Login ID input[data-qa="input"] (id muda com a aba), senha #password,
+// button[data-qa="submit"] "INICIAR SESSÃO" (começa disabled), X =
+// data-qa="exit-modal". O cabeçalho da página fica em shadow DOM.
 (function (root) {
   if (root.BetanoLogin) return;
   const S = root.BetanoSlip;
@@ -59,12 +63,42 @@
 
   // Onde está o formulário: dentro do iframe do modal (o normal) ou, se um
   // dia a Betano mudar, na própria página.
+  // Só aceita um documento que tenha o formulário de login REAL da Betano
+  // (form[data-qa="login"] / ul[data-qa="login-methods"], HTML de
+  // 2026-09-23) com o campo de senha visível. Antes bastava "tem um campo de
+  // senha visível", e a extensão procurou as abas no documento errado
+  // (aba_do_tipo_de_login_nao_encontrada em 3s, com o modal aberto) —
+  // provavelmente um campo de senha escondido pra gerenciador de senhas.
+  const LOGIN_FORM = 'form[data-qa="login"], [data-qa="login-methods"]';
+  const isLoginDoc = (doc) => !!doc && !!Q(LOGIN_FORM, doc) && QA('input[type="password"]', doc).some(visible);
   function formScope() {
     const frame = loginFrame();
     const doc = frameDoc(frame);
-    if (doc && QA('input[type="password"]', doc).some(visible)) return { doc, frame };
-    if (QA('input[type="password"]').some(visible)) return { doc: document, frame: null };
+    if (isLoginDoc(doc)) return { doc, frame };
+    if (isLoginDoc(document)) return { doc: document, frame: null };
     return null;
+  }
+
+  // Onde procurou e o que tinha lá — pro histórico quando algo não é achado.
+  function scopeDebug(scope) {
+    const frame = loginFrame();
+    return {
+      onde: scope ? (scope.frame ? "iframe do modal" : "página") : "nenhum",
+      iframeAchado: !!frame,
+      iframeLegivel: !!frameDoc(frame),
+      iframeUrl: (() => {
+        try {
+          return frameDoc(frame)?.location.href ?? null;
+        } catch {
+          return null;
+        }
+      })(),
+      botoes: scope
+        ? QA("button", scope.doc)
+            .slice(0, 15)
+            .map((b) => `${b.getAttribute("data-qa") ?? "?"}:"${text(b).slice(0, 20)}"${visible(b) ? "" : " (invisível)"}`)
+        : [],
+    };
   }
 
   // Coordenadas na janela de cima (é nelas que o CDP clica): posição dentro
@@ -89,7 +123,8 @@
 
   // Nunca clicar em fechar/ajuda/cadastro achando que é outra coisa.
   const PERIGOSO = /fechar|close|cancel|ajuda|cadastr|registr|esqueceu|facebook|google|yahoo|linkedin|×|✕/;
-  const isDangerous = (el) => PERIGOSO.test(norm(`${text(el)} ${el.getAttribute("aria-label") ?? ""} ${el.className ?? ""}`)) || /^[x×✕]?$/.test(norm(text(el)));
+  const DANGEROUS_QA = /exit-modal|help-chat|forgot-password|facebook|google|yahoo|linkedin|socials/i;
+  const isDangerous = (el) => DANGEROUS_QA.test(el.getAttribute?.("data-qa") ?? "") || PERIGOSO.test(norm(`${text(el)} ${el.getAttribute("aria-label") ?? ""} ${el.className ?? ""}`)) || /^[x×✕]?$/.test(norm(text(el)));
 
   const headerLoginButton = () => deepQA('[data-qa="login-button"]').find(visible) ?? null;
 
@@ -153,6 +188,8 @@
   // Espera o modal com o formulário (o iframe carrega depois do clique).
   const waitForm = () => S.waitFor(() => formScope(), 15000, 250);
 
+  // data-qa reais das abas (ul[data-qa="login-methods"], 2026-09-23).
+  const TAB_QA = { cpf: "taxid", email: "email", usuario: "username" };
   const TAB_TEXT = {
     cpf: (t) => t === "cpf",
     email: (t) => t === "e-mail" || t === "email",
@@ -161,24 +198,45 @@
 
   // Aba do tipo de login ("Nome de usuário" / "E-mail" / "CPF"). Clicar na
   // que já está marcada não muda nada, então sempre devolve o ponto dela.
-  async function tabPoint(tipo) {
-    const scope = await waitForm();
-    if (!scope) return { ok: false, motivo: "formulario_de_login_nao_apareceu", textos: dialogTexts() };
+  // Acha a aba num documento de login (null se ainda não estiver lá).
+  function findTab(doc, tipo) {
     const match = TAB_TEXT[tipo];
-    if (!match) return { ok: false, motivo: "tipo_de_login_desconhecido" };
-    const clickable = QA("button, [role='tab'], label, a", scope.doc).find((el) => visible(el) && match(norm(text(el))) && !isDangerous(el));
-    // Sem elemento clicável com o texto exato: o texto pode estar num <span>
-    // solto — usa o clicável mais próximo dele.
-    const leaf =
-      clickable ??
-      QA("span, div, p", scope.doc)
-        .filter((el) => el.children.length === 0 && visible(el) && match(norm(text(el))))
-        .map((el) => el.closest("button, [role='tab'], label, a") ?? el)[0];
-    if (!leaf || isDangerous(leaf)) return { ok: false, motivo: "aba_do_tipo_de_login_nao_encontrada", tipo };
-    return { ok: true, ponto: point(leaf, scope.frame), alvo: describe(leaf) };
+    // 1º pelo data-qa real; senão pelo texto (se a Betano renomear).
+    const byQa = Q(`[data-qa="login-methods"] [data-qa="${TAB_QA[tipo]}"]`, doc);
+    if (byQa && visible(byQa)) return byQa;
+    const clickable = QA("button, [role='tab'], label, a", doc).find((el) => visible(el) && match(norm(text(el))) && !isDangerous(el));
+    if (clickable) return clickable;
+    // O texto pode estar num <span> solto — usa o clicável mais próximo dele.
+    const leaf = QA("span, div, p", doc)
+      .filter((el) => el.children.length === 0 && visible(el) && match(norm(text(el))))
+      .map((el) => el.closest("button, [role='tab'], label, a") ?? el)[0];
+    return leaf && !isDangerous(leaf) ? leaf : null;
+  }
+
+  // Aba do tipo de login ("Nome de usuário" / "E-mail" / "CPF"). Clicar na
+  // que já está marcada não muda nada, então sempre devolve o ponto dela.
+  // Procura de novo por até 8s: no login real de 2026-09-23 a falha veio em
+  // 3s com o modal aberto — provavelmente olhou uma vez só, antes do
+  // formulário terminar de montar.
+  async function tabPoint(tipo) {
+    if (!TAB_TEXT[tipo]) return { ok: false, motivo: "tipo_de_login_desconhecido" };
+    const scope = await waitForm();
+    if (!scope) return { ok: false, motivo: "formulario_de_login_nao_apareceu", textos: dialogTexts(), ...scopeDebug(null) };
+    let last = scope;
+    const found = await S.waitFor(() => {
+      last = formScope() ?? last; // o iframe pode ter sido trocado
+      const el = findTab(last.doc, tipo);
+      return el ? { el, frame: last.frame } : null;
+    }, 8000, 250);
+    if (!found) return { ok: false, motivo: "aba_do_tipo_de_login_nao_encontrada", tipo, ...scopeDebug(last) };
+    return { ok: true, ponto: point(found.el, found.frame), alvo: describe(found.el) };
   }
 
   function userInput(doc, pwd) {
+    // Real: o campo do Login ID é o input[data-qa="input"] que não é senha,
+    // dentro do form[data-qa="login"] (o id muda com a aba: taxid/email/…).
+    const real = QA('form[data-qa="login"] input[data-qa="input"]:not([type="password"])', doc).find(visible);
+    if (real) return real;
     const box = pwd.closest("form, [role='dialog'], dialog, [class*='modal'], [class*='Modal']") ?? doc.body;
     const sel = 'input:not([type="password"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"])';
     return QA(sel, box).find(visible) ?? QA(sel, doc).find(visible) ?? null;
@@ -189,6 +247,8 @@
   // fechar o modal (o login real de 2026-09-23 abriu o modal e o fechou).
   // Sem o botão, o background aperta Enter no campo de senha.
   function submitButton(doc) {
+    const real = Q('form[data-qa="login"] button[data-qa="submit"]', doc);
+    if (real && visible(real)) return real;
     return (
       QA("button, input[type='submit'], [role='button']", doc)
         .filter((b) => visible(b) && !isDangerous(b) && b.getAttribute("data-qa") !== "login-button")
@@ -203,10 +263,10 @@
   // posições são pedidas uma a uma depois (login_ponto).
   async function fields() {
     const scope = await waitForm();
-    if (!scope) return { ok: false, motivo: "formulario_de_login_nao_apareceu", textos: dialogTexts() };
+    if (!scope) return { ok: false, motivo: "formulario_de_login_nao_apareceu", textos: dialogTexts(), ...scopeDebug(null) };
     const pwd = passwordIn(scope.doc);
     const user = userInput(scope.doc, pwd);
-    if (!user) return { ok: false, motivo: "campo_de_usuario_nao_encontrado", textos: dialogTexts() };
+    if (!user) return { ok: false, motivo: "campo_de_usuario_nao_encontrado", textos: dialogTexts(), ...scopeDebug(scope) };
     const win = scope.doc.defaultView ?? window;
     const setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value").set;
     for (const input of [user, pwd]) {
