@@ -38,6 +38,9 @@ function toRunnerTask(task, unitValueReais, config) {
     unitValueReais,
     maxStakeReais: config.maxStakeReais,
     limitReais: task.limitReais,
+    // Texto original da mensagem: numa múltipla pura é o único lugar com
+    // todos os jogos (a tip gravada só guarda o 1º) — ver planPureMultiple.
+    rawMessage: task.rawMessage ?? null,
     legs: task.legs.map((l) => ({ id: l.tipId, match: l.match, selection: l.selection, odd: l.odd, unit: l.unit })),
   };
 }
@@ -55,8 +58,9 @@ async function runInTab(tabId, runnerTask) {
       last = { ok: false, abort: "aba_nao_respondeu", erro: String(e?.message ?? e) };
       continue;
     }
-    const slipNotReady =
-      last?.abort === "bilhete_nao_encontrado" || /^contagem_diferente \(tip tem \d+, bilhete tem 0\)/.test(last?.abort ?? "");
+    // Bilhete vazio ou com MENOS seleções que a tip = ainda montando.
+    const count = /^contagem_diferente \(tip tem (\d+), bilhete tem (\d+)\)/.exec(last?.abort ?? "");
+    const slipNotReady = last?.abort === "bilhete_nao_encontrado" || (count && Number(count[2]) < Number(count[1]));
     if (!slipNotReady) return last;
   }
   return last;

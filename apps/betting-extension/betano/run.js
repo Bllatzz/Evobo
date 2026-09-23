@@ -4,7 +4,7 @@
 // fase 2 (ex.: se o total do botão da aba Simples soma as stakes).
 (function (root) {
   if (root.BetanoRun) return; // content script pode ser injetado mais de uma vez
-  const { planSingles, planMultiple } = root.BetanoPlan;
+  const { planSingles, planMultiple, planPureMultiple } = root.BetanoPlan;
   const S = root.BetanoSlip;
 
   const cents = (n) => Math.round(Number(n) * 100);
@@ -44,6 +44,28 @@
     if (!(await S.selectTab(1))) return { ...report, abort: "aba_simples_indisponivel" };
 
     const snapS = S.readSnapshot();
+
+    // Tip que é uma múltipla só (1 tip, N seleções no bilhete): nada na aba
+    // Simples, stake única na aba Múltiplas.
+    const pure = planPureMultiple(task, snapS);
+    if (pure) {
+      report.multiplaPura = true;
+      if (pure.abort) return { ...report, abort: pure.abort };
+      for (const c of snapS.cards) if (c.stakeInputId) S.setStake(c.stakeInputId, null);
+      if (!(await S.selectTab(2))) return { ...report, abort: "aba_multiplas_indisponivel" };
+      const snapM = S.readSnapshot();
+      const plan = planMultiple({ ...task, multiple: pure.multiple }, snapM);
+      report.multiple = { ...plan, legId: pure.multiple.id, pernas: pure.legs };
+      if (plan.action === "stake") {
+        const v = await fillAndVerify([{ inputId: snapM.accumulator.stakeInputId, reais: plan.stakeReais }], plan.stakeReais);
+        report.multiple.totalConfere = v.totalConfere;
+        report.multiple.decimalUsado = v.decimal;
+        report.multiple.botao = S.readSnapshot()?.placeButton ?? null;
+      }
+      report.ok = true;
+      return report;
+    }
+
     const singles = planSingles(task, snapS);
     report.singles = singles;
     if (singles.abort) return { ...report, abort: singles.abort };

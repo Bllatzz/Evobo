@@ -24,6 +24,15 @@ function resumo(entry) {
   const r = entry.relatorio;
   if (!r) return { classe: "skip", texto: "sem resposta da aba" };
   if (r.abort) return { classe: "skip", texto: `✘ Abortou: ${r.abort}` };
+  if (r.multiplaPura) {
+    const m = r.multiple;
+    return m?.action === "stake"
+      ? {
+          classe: "ok",
+          texto: `✔ Múltipla de ${m.pernas}: apostaria R$ ${brl(m.stakeReais)} @ ${m.realOdd} (tip ${m.tipOdd}) — stake preenchida, não apostou${m.totalConfere === false ? "\n⚠ o total do botão da Betano NÃO confere com a stake" : ""}`,
+        }
+      : { classe: "skip", texto: `✘ Múltipla ignorada: ${MOTIVOS[m?.reason] ?? m?.reason} (tip ${m?.tipOdd}, Betano ${m?.realOdd ?? "?"})` };
+  }
   const legs = r.singles?.legs ?? [];
   return {
     classe: legs.some((l) => l.action === "stake") ? "ok" : "skip",
