@@ -25,6 +25,12 @@ function linhaAposta(a) {
   return `\n✘ Não clicou: ${a.reason}${a.erro ? ` (${a.erro})` : ""}`;
 }
 
+function linhaTempos(t) {
+  if (!t) return "";
+  const ocr = t.esperouOcrS > 0 ? `, ${t.esperouOcrS}s disso esperando a odd/unidade da foto` : "";
+  return `\n⏱ aba aberta ${t.mensagemAteAbaS}s depois da mensagem${ocr}; bilhete resolvido em ${t.abaAteFimS ?? "?"}s`;
+}
+
 function resumo(entry) {
   if (entry.tipo !== "dry_run") {
     const classe = entry.tipo === "resultado_enviado" ? "ok" : entry.tipo === "erro_resultado" ? "skip" : "neutro";
@@ -34,7 +40,7 @@ function resumo(entry) {
   if (!r) return { classe: "skip", texto: "sem resposta da aba" };
   if (r.abort) return { classe: "skip", texto: `✘ Abortou: ${r.abort}` };
   const out = resumoPlano(r);
-  return { classe: r.aposta && !r.aposta.confirmed ? "skip" : out.classe, texto: out.texto + linhaAposta(r.aposta) };
+  return { classe: r.aposta && !r.aposta.confirmed ? "skip" : out.classe, texto: out.texto + linhaAposta(r.aposta) + linhaTempos(entry.tempos) };
 }
 
 function resumoPlano(r) {
@@ -92,14 +98,26 @@ async function renderStatus() {
     : `Dry-run: abre o link, confere a odd e preenche a stake — <b>nunca aposta</b>.`;
 }
 
-// Ligar pede confirmação; desligar é imediato.
+// Ligar pede confirmação num botão da própria tela (confirm() dentro do popup
+// da extensão não é confiável); desligar é imediato.
 $("placeReal").addEventListener("change", async (e) => {
   const c = await loadConfig();
-  if (e.target.checked && !confirm(`Apostar de verdade na Betano?\n\nA extensão vai clicar em "APOSTE JÁ" sozinha nas tips novas da fila, até R$ ${brl(c.maxStakeReais)} por aposta.`)) {
-    e.target.checked = false;
+  if (e.target.checked) {
+    e.target.checked = false; // só fica marcado depois do "Sim"
+    $("confirmarRealTexto").textContent = `A extensão vai clicar em "APOSTE JÁ" sozinha nas tips novas da fila, até R$ ${brl(c.maxStakeReais)} por aposta.`;
+    $("confirmarRealBox").hidden = false;
     return;
   }
-  await chrome.storage.local.set({ config: { ...c, placeReal: e.target.checked } });
+  $("confirmarRealBox").hidden = true;
+  await chrome.storage.local.set({ config: { ...c, placeReal: false } });
+});
+$("confirmarReal").addEventListener("click", async () => {
+  const c = await loadConfig();
+  $("confirmarRealBox").hidden = true;
+  await chrome.storage.local.set({ config: { ...c, placeReal: true } });
+});
+$("cancelarReal").addEventListener("click", () => {
+  $("confirmarRealBox").hidden = true;
 });
 
 (async () => {
