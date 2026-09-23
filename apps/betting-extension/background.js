@@ -1,9 +1,10 @@
-// Fase 2 (dry-run): consulta a fila do Evobo, abre cada tip nova da Betano
-// numa aba, confere a odd e preenche a stake — e PARA. Nenhum código aqui ou
-// no content script clica em "APOSTE JÁ".
+// Consulta a fila do Evobo, abre cada tip nova da Betano numa aba, confere a
+// odd e preenche a stake. Por padrão PARA aí (dry-run); só com a chave
+// "Apostar de verdade" (config.placeReal) o content script clica em
+// "APOSTE JÁ" — ver placeBet em betano/run.js.
 //
 // Estado em chrome.storage.local:
-//   config  { apiUrl, extensionKey, maxStakeReais, unitValueReais, enabled }
+//   config  { apiUrl, extensionKey, maxStakeReais, unitValueReais, enabled, placeReal }
 //   since   ISO — só tips recebidas depois disso entram (definido ao ligar)
 //   done    { [taskKey]: true } — tips já processadas (ou desistidas)
 //   waiting { [taskKey]: firstSeenMs } — tips esperando a OCR preencher odd/unidade
@@ -76,13 +77,22 @@ async function runInTab(tabId, runnerTask) {
   return last;
 }
 
-async function openAndRun(task, unitValueReais, config) {
+async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
+  // Quanto tempo se passou da mensagem no Telegram até a aba abrir (e
+  // quanto disso foi esperando a OCR preencher odd/unidade) — pra saber
+  // onde está a demora em vez de chutar.
+  const abriuEm = Date.now();
+  const tempos = {
+    mensagemAteAbaS: Math.round((abriuEm - new Date(task.receivedAt).getTime()) / 1000),
+    esperouOcrS: Math.round(esperouOcrMs / 1000),
+  };
   // Sem esperar o load completo: o content script entra em document_idle e
   // runInTab já tenta de novo a cada 1s até o bilhete aparecer.
   const tab = await chrome.tabs.create({ url: task.betUrl, active: true });
   const runnerTask = toRunnerTask(task, unitValueReais, config);
   const report = await runInTab(tab.id, runnerTask);
-  await pushLog({ tipo: "dry_run", tip: task, relatorio: report });
+  tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
+  await pushLog({ tipo: "dry_run", tip: task, relatorio: report, tempos });
   if (runnerTask.placeReal && report?.aposta?.confirmed) await reportResult(task, report, config);
   return report;
 }
@@ -173,13 +183,14 @@ async function poll({ manualSince } = {}) {
       }
 
       done[task.key] = true; // marca antes: nunca abrir a mesma tip duas vezes
+      const esperouOcrMs = waiting[task.key] ? Date.now() - waiting[task.key] : 0;
       delete waiting[task.key];
       await set("done", done);
 
       // "Testar agora" reprocessa tips já feitas de propósito — nunca pode
       // apostar de verdade, senão apostaria de novo numa aba nova (a marca
       // anti-clique-duplo é por aba).
-      await openAndRun(task, unitValueReais, manualSince ? { ...config, placeReal: false } : config);
+      await openAndRun(task, unitValueReais, manualSince ? { ...config, placeReal: false } : config, esperouOcrMs);
       processed++;
     }
 

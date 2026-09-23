@@ -3,10 +3,10 @@
 // (2026-09-21): abas Simples/Múltiplas, um input por cartão na aba Simples,
 // linha `accumulator` na aba Múltiplas, botão que soma as stakes. Não é a
 // Betano: valida a lógica da extensão, não o site.
-export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", receipt = false }) {
+export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", receipt = false, debounceMs = 0 }) {
   await page.setContent('<body><div id="root"></div></body>');
   await page.evaluate(
-    ({ cards, accOdd, decimal, receipt }) => {
+    ({ cards, accOdd, decimal, receipt, debounceMs }) => {
       const st = { tab: 1, singles: {}, acc: "" };
       const num = (v) => {
         if (v === "" || v == null) return 0;
@@ -50,6 +50,20 @@ export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", r
         }
         document.querySelectorAll("input[data-qa^='stake-area']").forEach((inp) => {
           inp.addEventListener("input", () => {
+            // debounceMs: imita o que se viu na Betano real (2026-09-23, 3
+            // simples): a stake só é gravada um tempo depois de digitar, com
+            // UM temporizador pro bilhete todo, e aí o bilhete é redesenhado
+            // a partir do que foi gravado. Preencher os campos um atrás do
+            // outro sem esperar grava só o último — o resto some.
+            if (debounceMs) {
+              clearTimeout(st.timer);
+              st.timer = setTimeout(() => {
+                if (inp.dataset.qa === "stake-area-multiple") st.acc = inp.value;
+                else st.singles[inp.id.split(":").pop()] = inp.value;
+                render();
+              }, debounceMs);
+              return;
+            }
             if (inp.dataset.qa === "stake-area-multiple") st.acc = inp.value;
             else st.singles[inp.id.split(":").pop()] = inp.value;
             const btnHost = document.querySelector("footer");
@@ -73,6 +87,6 @@ export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", r
       });
       render();
     },
-    { cards, accOdd, decimal, receipt },
+    { cards, accOdd, decimal, receipt, debounceMs },
   );
 }

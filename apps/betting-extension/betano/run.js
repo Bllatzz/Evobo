@@ -8,21 +8,46 @@
 
   const cents = (n) => Math.round(Number(n) * 100);
 
-  // Preenche as stakes e espera o botão refletir o total esperado. Se a
-  // Betano não aceitar o separador decimal usado, tenta a vírgula.
+  const FIELD_SETTLE_MS = 250;
+  const FILL_ROUNDS = 3;
+
+  // Valor atual do campo (o elemento pode ter sido trocado pelo Vue — sempre
+  // busca de novo pelo id).
+  const fieldValue = (inputId) => document.getElementById(inputId)?.value ?? null;
+
+  // Um campo por vez: preenche, tira o foco e dá um tempo pra Betano gravar e
+  // redesenhar antes do próximo. Com as 3 simples de 2026-09-23 (preenchidas
+  // uma atrás da outra, sem pausa) só uma stake ficou no bilhete; a causa
+  // exata não foi vista — o bilhete falso imita a hipótese mais provável
+  // (gravação com atraso + redesenho), e fillAndVerify ainda confere cada
+  // campo e preenche de novo o que sumir.
+  async function fillOne(f, decimal) {
+    f.result = S.setStake(f.inputId, f.reais, decimal);
+    document.getElementById(f.inputId)?.blur();
+    await S.sleep(FIELD_SETTLE_MS);
+  }
+
+  // Preenche as stakes e espera o botão refletir o total esperado. Depois de
+  // cada rodada confere campo a campo e preenche de novo o que a Betano
+  // apagou. Se ela não aceitar o separador decimal usado, tenta a vírgula.
   async function fillAndVerify(fills, expectedTotal) {
     let decimal = ".";
+    const campos = () => fills.map((f) => ({ inputId: f.inputId, esperado: f.result?.value ?? null, valor: fieldValue(f.inputId) }));
     for (const attempt of [".", ","]) {
       decimal = attempt;
-      for (const f of fills) f.result = S.setStake(f.inputId, f.reais, attempt);
+      let pending = fills;
+      for (let round = 0; round < FILL_ROUNDS && pending.length; round++) {
+        for (const f of pending) await fillOne(f, attempt);
+        pending = fills.filter((f) => f.result?.ok && fieldValue(f.inputId) !== f.result.value);
+      }
       const ok = await S.waitFor(() => {
         const b = S.readSnapshot()?.placeButton;
         return b && b.totalReais !== null && cents(b.totalReais) === cents(expectedTotal);
       }, 1500);
-      if (ok) return { totalConfere: true, decimal };
+      if (ok) return { totalConfere: true, decimal, campos: campos() };
       if (!fills.some((f) => f.reais !== null && !Number.isInteger(f.reais))) break; // separador não importa
     }
-    return { totalConfere: false, decimal };
+    return { totalConfere: false, decimal, campos: campos() };
   }
 
   // Clique real em "APOSTE JÁ", uma vez só por tip. Travas, na ordem:
@@ -99,6 +124,7 @@
         const v = await fillAndVerify([{ inputId: snapM.accumulator.stakeInputId, reais: plan.stakeReais }], plan.stakeReais);
         report.multiple.totalConfere = v.totalConfere;
         report.multiple.decimalUsado = v.decimal;
+        report.multiple.campos = v.campos;
         report.multiple.botao = S.readSnapshot()?.placeButton ?? null;
         if (real && v.totalConfere) {
           report.aposta = await placeBet(task, plan.stakeReais, (snap) => {
@@ -127,11 +153,12 @@
     for (const leg of singles.legs) {
       if (leg.action === "stake") fills[leg.cardIndex].reais = leg.stakeReais;
     }
-    for (const f of fills) S.setStake(f.inputId, null);
+    // fillAndVerify também zera (um campo por vez) os que ficam com reais null.
     if (singles.expectedTotalReais > 0) {
       const v = await fillAndVerify(fills, singles.expectedTotalReais);
       singles.totalConfere = v.totalConfere;
       singles.decimalUsado = v.decimal;
+      singles.campos = v.campos;
       singles.botao = S.readSnapshot()?.placeButton ?? null;
       // Combo simples + múltipla precisaria apostar as simples, reabrir o
       // bilhete e ir pra aba Múltiplas — ainda não feito: aí fica em dry-run.
@@ -163,6 +190,7 @@
           const v = await fillAndVerify([{ inputId: snapM.accumulator.stakeInputId, reais: plan.stakeReais }], plan.stakeReais);
           plan.totalConfere = v.totalConfere;
           plan.decimalUsado = v.decimal;
+          plan.campos = v.campos;
           plan.botao = S.readSnapshot()?.placeButton ?? null;
         }
       }

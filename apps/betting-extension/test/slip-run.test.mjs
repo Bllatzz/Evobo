@@ -202,3 +202,28 @@ test("sem placeReal continua dry-run: nunca clica", async () => {
   assert.equal(await page.evaluate(() => window.__placeClicks), 0);
   await page.close();
 });
+
+// Bug real de 2026-09-23: 3 simples, só uma stake ficou no bilhete.
+test("simples: Betano que grava a stake com atraso não perde os campos anteriores", async () => {
+  const cards = [
+    { selection: "Natasha Andonova 3+", market: "Chutes", teams: ["Servette FC Chenois", "Lyon"], odd: 21 },
+    { selection: "Natasha Andonova 2+", market: "Chutes", teams: ["Servette FC Chenois", "Lyon"], odd: 9.5 },
+    { selection: "Natasha Andonova 1+", market: "Chutes", teams: ["Servette FC Chenois", "Lyon"], odd: 2.6 },
+  ];
+  const page = await setup({ cards, accOdd: 518.7, debounceMs: 120 });
+  const r = await run(page, {
+    tipId: "grp:andonova",
+    unitValueReais: 10,
+    maxStakeReais: 50,
+    legs: [
+      { id: "a", match: "Servette FC Chenois x Lyon", selection: "Natasha Andonova 3+ chutes", odd: 21, unit: 0.5 },
+      { id: "b", match: "Servette FC Chenois x Lyon", selection: "Natasha Andonova 2+ chutes", odd: 9.5, unit: 1 },
+      { id: "c", match: "Servette FC Chenois x Lyon", selection: "Natasha Andonova 1+ chutes", odd: 2.6, unit: 2 },
+    ],
+  });
+  assert.equal(r.abort, null);
+  assert.deepEqual(r.singles.legs.map((l) => l.stakeReais), [5, 10, 20]);
+  assert.equal(r.singles.totalConfere, true, JSON.stringify(r.singles.campos));
+  assert.equal(r.singles.botao.totalReais, 35);
+  await page.close();
+});
