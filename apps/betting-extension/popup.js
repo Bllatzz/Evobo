@@ -70,7 +70,7 @@ async function renderLog() {
 
 async function renderStatus() {
   const c = await loadConfig();
-  $("status").textContent = !c.extensionKey ? "⚠ Falta a chave da extensão (só pro automático)" : c.enabled ? "🟢 Ligado — olhando tips novas a cada 30s" : "⚪ Desligado";
+  $("status").textContent = !c.extensionKey ? "⚠ Falta a chave da extensão (só pro automático)" : c.enabled ? "🟢 Ligado — olhando tips novas a cada 4s" : "⚪ Desligado";
 }
 
 (async () => {
