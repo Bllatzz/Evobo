@@ -83,7 +83,9 @@
   // dizer se está logado ou não.
   async function status() {
     const ready = await S.waitFor(() => Q('[data-qa="brand-logo"]'), 15000);
-    if (!ready) return { pronto: false };
+    // Sem o logo: diz o que a página mostrou (ex.: a tela "Access to this
+    // page is restricted" que a Betano deu pro Playwright em 2026-09-21).
+    if (!ready) return { pronto: false, url: location.href, titulo: document.title, texto: text(document.body).slice(0, 300) };
     // O botão ENTRAR pode demorar um pouco mais que o logo pra renderizar.
     const btn = await S.waitFor(() => headerLoginButton(), 1500);
     return { pronto: true, logado: !btn };
