@@ -31,6 +31,10 @@ test.after(async () => {
 
 async function setup(fake) {
   const page = await browser.newPage();
+  // Origem de verdade (servida localmente pelo Playwright, sem rede): em
+  // about:blank o sessionStorage lança erro e o placeBet se recusa a clicar.
+  await page.route("https://fake.betano.test/**", (r) => r.fulfill({ contentType: "text/html", body: "<body></body>" }));
+  await page.goto("https://fake.betano.test/");
   await installFakeBetslip(page, fake);
   for (const f of ["plan.js", "slip.js", "run.js"]) await page.addScriptTag({ path: join(root, f) });
   return page;
@@ -128,6 +132,73 @@ test("múltipla pura: preenche só a aba Múltiplas e não clica em apostar", as
   assert.equal(r.multiplaPura, true);
   assert.equal(r.singles, null);
   assert.deepEqual([r.multiple.action, r.multiple.stakeReais, r.multiple.takeOdd, r.multiple.totalConfere], ["stake", 5, 8.7, true]);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 0);
+  await page.close();
+});
+
+// Apostar de verdade (placeReal) — sempre no bilhete FALSO.
+const MULTI_CARDS = [
+  { selection: "Menos de 3.5", market: "Total de Cartões", teams: ["OH Leuven", "Roma"], odd: 1.8 },
+  { selection: "Menos de 2.5", market: "Total de Cartões", teams: ["Servette Chenois", "Lyon"], odd: 1.55 },
+];
+const MULTI_TASK = (extra = {}) => ({
+  tipId: "grp:1171",
+  unitValueReais: 10,
+  maxStakeReais: 50,
+  rawMessage: "⚽ MÚLTIPLA de 2 jogos\n1️⃣ Oud-Heverlee Leuven x Roma\n • Menos de 3.5 total de cartões\n2️⃣ Servette FC Chenois x Lyon\n • Menos de 2.5 total de cartões\n💰 0,5u @ 2,79",
+  legs: [{ id: "x", match: "Oud-Heverlee Leuven x Roma", selection: "Menos de 3.5 total de cartões", odd: 2.79, unit: 0.5 }],
+  ...extra,
+});
+
+test("placeReal: clica uma vez, lê o comprovante e não clica de novo na mesma aba", async () => {
+  const page = await setup({ cards: MULTI_CARDS, accOdd: 2.79, receipt: true });
+  const r = await run(page, MULTI_TASK({ placeReal: true }));
+  assert.equal(r.dryRun, false);
+  assert.equal(r.nadaFoiApostado, false);
+  assert.deepEqual([r.aposta.clicked, r.aposta.confirmed, r.aposta.betId], [true, true, "BET123"]);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 1);
+
+  // Mesmo pedido de novo (ex.: background repetiu): a marca impede o 2º clique.
+  await installFakeBetslip(page, { cards: MULTI_CARDS, accOdd: 2.79, receipt: true });
+  const r2 = await run(page, MULTI_TASK({ placeReal: true }));
+  assert.equal(r2.aposta.clicked, false);
+  assert.equal(r2.aposta.reason, "ja_clicado_antes");
+  assert.equal(await page.evaluate(() => window.__placeClicks), 0);
+  await page.close();
+});
+
+test("placeReal: sem comprovante vira 'verificar manualmente' (clicou, não confirmado)", async () => {
+  const page = await setup({ cards: MULTI_CARDS, accOdd: 2.79, receipt: false });
+  const r = await run(page, MULTI_TASK({ placeReal: true, tipId: "grp:sem-recibo" }));
+  assert.deepEqual([r.aposta.clicked, r.aposta.confirmed], [true, false]);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 1);
+  await page.close();
+});
+
+test("placeReal: odd total abaixo da tip não clica", async () => {
+  const page = await setup({ cards: MULTI_CARDS, accOdd: 2.5, receipt: true });
+  const r = await run(page, MULTI_TASK({ placeReal: true, tipId: "grp:odd-baixa" }));
+  assert.equal(r.multiple.action, "skip");
+  assert.equal(r.aposta, undefined);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 0);
+  await page.close();
+});
+
+test("placeReal: simples com odd maior apostam e devolvem a odd real", async () => {
+  const page = await setup({ cards: [{ ...CARDS[0], odd: 1.3 }, CARDS[1]], accOdd: 1.62, receipt: true });
+  const { multiple, ...task } = TASK();
+  const r = await run(page, { ...task, tipId: "grp:simples", placeReal: true });
+  assert.equal(r.aposta.confirmed, true);
+  assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd, l.takeOdd]), [["stake", 1.3, 1.3], ["stake", 1.27, null]]);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 1);
+  await page.close();
+});
+
+test("sem placeReal continua dry-run: nunca clica", async () => {
+  const page = await setup({ cards: MULTI_CARDS, accOdd: 2.79, receipt: true });
+  const r = await run(page, MULTI_TASK({ tipId: "grp:dry" }));
+  assert.equal(r.dryRun, true);
+  assert.equal(r.aposta, undefined);
   assert.equal(await page.evaluate(() => window.__placeClicks), 0);
   await page.close();
 });

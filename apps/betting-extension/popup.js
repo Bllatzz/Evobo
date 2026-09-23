@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const DEFAULT_CONFIG = { apiUrl: "https://evobo-api.fly.dev", extensionKey: "", maxStakeReais: 50, unitValueReais: 20, enabled: false };
+const DEFAULT_CONFIG = { apiUrl: "https://evobo-api.fly.dev", extensionKey: "", maxStakeReais: 50, unitValueReais: 20, enabled: false, placeReal: false };
 const parseNum = (v) => Number(String(v).trim().replace(",", "."));
 const brl = (n) => Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -17,19 +17,34 @@ const MOTIVOS = {
   sem_unidade: "tip sem unidade",
 };
 
+// Linha extra quando o modo "Apostar de verdade" tentou clicar.
+function linhaAposta(a) {
+  if (!a) return "";
+  if (a.confirmed) return `\n💰 APOSTOU — comprovante ${a.betId ?? "sem ID"}`;
+  if (a.clicked) return `\n⚠ Clicou em APOSTE JÁ mas o comprovante não apareceu — VERIFICAR MANUALMENTE na Betano${a.mensagens?.length ? ` (${a.mensagens.join(" | ")})` : ""}`;
+  return `\n✘ Não clicou: ${a.reason}${a.erro ? ` (${a.erro})` : ""}`;
+}
+
 function resumo(entry) {
   if (entry.tipo !== "dry_run") {
-    return { classe: "neutro", texto: `${entry.tipo}: ${entry.motivo ?? entry.erro ?? entry.status ?? ""}` };
+    const classe = entry.tipo === "resultado_enviado" ? "ok" : entry.tipo === "erro_resultado" ? "skip" : "neutro";
+    return { classe, texto: `${entry.tipo}: ${entry.motivo ?? entry.erro ?? entry.status ?? ""}` };
   }
   const r = entry.relatorio;
   if (!r) return { classe: "skip", texto: "sem resposta da aba" };
   if (r.abort) return { classe: "skip", texto: `✘ Abortou: ${r.abort}` };
+  const out = resumoPlano(r);
+  return { classe: r.aposta && !r.aposta.confirmed ? "skip" : out.classe, texto: out.texto + linhaAposta(r.aposta) };
+}
+
+function resumoPlano(r) {
+  const naoApostou = r.dryRun ? " — stake preenchida, não apostou" : "";
   if (r.multiplaPura) {
     const m = r.multiple;
     return m?.action === "stake"
       ? {
           classe: "ok",
-          texto: `✔ Múltipla de ${m.pernas}: apostaria R$ ${brl(m.stakeReais)} @ ${m.realOdd} (tip ${m.tipOdd}) — stake preenchida, não apostou${m.totalConfere === false ? "\n⚠ o total do botão da Betano NÃO confere com a stake" : ""}`,
+          texto: `✔ Múltipla de ${m.pernas}: R$ ${brl(m.stakeReais)} @ ${m.realOdd} (tip ${m.tipOdd})${naoApostou}${m.totalConfere === false ? "\n⚠ o total do botão da Betano NÃO confere com a stake" : ""}`,
         }
       : { classe: "skip", texto: `✘ Múltipla ignorada: ${MOTIVOS[m?.reason] ?? m?.reason} (tip ${m?.tipOdd}, Betano ${m?.realOdd ?? "?"})` };
   }
@@ -39,7 +54,7 @@ function resumo(entry) {
     texto: legs
       .map((l) =>
         l.action === "stake"
-          ? `✔ Apostaria R$ ${brl(l.stakeReais)} @ ${l.realOdd} (tip ${l.tipOdd}) — stake preenchida, não apostou${r.singles.totalConfere === false ? "\n⚠ o total do botão da Betano NÃO confere com a stake" : ""}`
+          ? `✔ R$ ${brl(l.stakeReais)} @ ${l.realOdd} (tip ${l.tipOdd})${naoApostou}${r.singles.totalConfere === false ? "\n⚠ o total do botão da Betano NÃO confere com a stake" : ""}`
           : `✘ Aposta ignorada: ${MOTIVOS[l.reason] ?? l.reason} (tip ${l.tipOdd}, Betano ${l.realOdd ?? "?"})`,
       )
       .join("\n"),
@@ -71,7 +86,21 @@ async function renderLog() {
 async function renderStatus() {
   const c = await loadConfig();
   $("status").textContent = !c.extensionKey ? "⚠ Falta a chave da extensão (só pro automático)" : c.enabled ? "🟢 Ligado — olhando tips novas a cada 4s" : "⚪ Desligado";
+  $("placeReal").checked = c.placeReal === true;
+  $("modo").innerHTML = c.placeReal
+    ? `💰 <b>APOSTANDO DE VERDADE</b> nas tips da fila (teto R$ ${brl(c.maxStakeReais)} por aposta). "Testar um link" continua só conferindo.`
+    : `Dry-run: abre o link, confere a odd e preenche a stake — <b>nunca aposta</b>.`;
 }
+
+// Ligar pede confirmação; desligar é imediato.
+$("placeReal").addEventListener("change", async (e) => {
+  const c = await loadConfig();
+  if (e.target.checked && !confirm(`Apostar de verdade na Betano?\n\nA extensão vai clicar em "APOSTE JÁ" sozinha nas tips novas da fila, até R$ ${brl(c.maxStakeReais)} por aposta.`)) {
+    e.target.checked = false;
+    return;
+  }
+  await chrome.storage.local.set({ config: { ...c, placeReal: e.target.checked } });
+});
 
 (async () => {
   const c = await loadConfig();
