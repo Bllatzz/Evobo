@@ -150,7 +150,10 @@ function startOfSpDay(dateStr: string): Date {
  * decide isso por conta (a lista respeita a aba/dropdown ativos; o resumo
  * força o critério de cada número, senão "pendentes"/"peguei" ficariam
  * sempre 0 assim que o usuário troca de aba). */
-function buildScopeWhere(query: { groupId?: string; bookmaker?: string; marketType?: string; search?: string; dateFrom?: string; dateTo?: string }): Prisma.TelegramTipWhereInput {
+function buildScopeWhere(
+  query: { groupId?: string; bookmaker?: string; marketType?: string; search?: string; dateFrom?: string; dateTo?: string },
+  userId: string,
+): Prisma.TelegramTipWhereInput {
   const { groupId, bookmaker, marketType, search, dateFrom, dateTo } = query;
   const groupIds = groupId ? groupId.split(",").filter(Boolean) : [];
   // dateTo é inclusivo — o corte real é o início do dia seguinte.
@@ -164,8 +167,24 @@ function buildScopeWhere(query: { groupId?: string; bookmaker?: string; marketTy
     // Betano nela. Usa AND (em vez de espalhar OR direto no objeto) porque
     // `search` abaixo também precisa do seu próprio OR — dois `OR` soltos no
     // mesmo objeto se sobrescreveriam.
+    // A casa onde EU peguei (take.bookmaker) manda sobre a casa oficial: uma
+    // tip que veio na R7 mas foi pega na 7games aparece no filtro "7games"
+    // e some do "R7" — mesma regra do saldo por casa do perfil (GET /banca,
+    // `mine.bookmaker ?? r.bookmaker`).
     ...(bookmaker
-      ? { AND: [{ OR: [{ bookmaker }, { bookmakerOptions: { array_contains: [{ bookmaker }] } }] }] }
+      ? {
+          AND: [
+            {
+              OR: [
+                { takes: { some: { userId, bookmaker } } },
+                {
+                  OR: [{ bookmaker }, { bookmakerOptions: { array_contains: [{ bookmaker }] } }],
+                  takes: { none: { userId, bookmaker: { not: null }, NOT: { bookmaker } } },
+                },
+              ],
+            },
+          ],
+        }
       : {}),
     ...(marketType ? { marketType } : {}),
     ...(search ? { OR: [{ match: { contains: search, mode: "insensitive" } }, { selection: { contains: search, mode: "insensitive" } }] } : {}),
@@ -451,7 +470,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         : {};
 
     const where: Prisma.TelegramTipWhereInput = {
-      ...buildScopeWhere(request.query),
+      ...buildScopeWhere(request.query, userId),
       ...(result ? { result } : {}),
       ...takenFilter,
       ...missingFilter,
@@ -504,7 +523,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const { result, takenStatus } = request.query;
     const userId = request.authUser!.id;
     const filtered: Prisma.TelegramTipWhereInput = {
-      AND: [buildScopeWhere(request.query), result ? { result } : {}, buildTakenFilter(takenStatus, userId)],
+      AND: [buildScopeWhere(request.query, userId), result ? { result } : {}, buildTakenFilter(takenStatus, userId)],
     };
     const notDecided: Prisma.TelegramTipWhereInput = { takes: { none: { userId, takenStatus: { in: ["taken", "skipped"] } } } };
     const isTaken: Prisma.TelegramTipWhereInput = { takes: { some: { userId, takenStatus: "taken" } } };
