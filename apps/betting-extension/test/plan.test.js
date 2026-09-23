@@ -129,3 +129,68 @@ test("teste manual (sem texto, 1 perna, 1 seleção): usa a seleção do bilhete
   const ok = planSingles(task, { cards: [{ ...CORINTHIANS, odd: 2.12 }] });
   assert.deepEqual([ok.legs[0].action, ok.legs[0].stakeReais], ["stake", 30]);
 });
+
+// Múltipla pura — mensagem real que abortou em 2026-09-23 (CALL #1171).
+const { planPureMultiple, legsInMessage } = require("../betano/plan.js");
+const RAW_1171 = `⚽ MÚLTIPLA de 4 jogos
+
+1️⃣ Oud-Heverlee Leuven x Roma
+ • Menos de 3.5 total de cartões
+2️⃣ Servette FC Chenois x Lyon
+ • Menos de 2.5 total de cartões
+3️⃣ Barcelona F x Paris FC F
+ • Menos de 2.5 total de cartões
+4️⃣ Chelsea LFC x Áustria Viena
+ • Menos de 2.5 total de cartões
+
+💰 0,5u @ 8,61
+🔗 Betano`;
+const CARDS_1171 = [
+  card("Menos de 3.5", ["OH Leuven", "Roma"], 1.8, "m1"),
+  card("Menos de 2.5", ["Servette Chenois", "Lyon"], 1.55, "m2"),
+  card("Menos de 2.5", ["Barcelona", "Paris FC"], 1.75, "m3"),
+  card("Menos de 2.5", ["Chelsea", "Austria Viena"], 1.76, "m4"),
+];
+const task1171 = () => ({
+  unitValueReais: 10,
+  maxStakeReais: 50,
+  rawMessage: RAW_1171,
+  legs: [{ id: "x", match: "Oud-Heverlee Leuven x Roma", selection: "Menos de 3.5 total de cartões Menos de 2.5 total de cartões Menos de 2.5 total de cartões Menos de 2.5 total de cartões", odd: 8.61, unit: 0.5 }],
+});
+
+test("legsInMessage: lê 'MÚLTIPLA de N' e ignora 'N jogos' fora da linha da múltipla", () => {
+  assert.equal(legsInMessage(RAW_1171), 4);
+  assert.equal(legsInMessage("🎯 Múltipla de 2\n 💰 0,5u @ 8,56"), 2);
+  assert.equal(legsInMessage("Over 2.5 — time marcou nos últimos 5 jogos"), null);
+});
+
+test("múltipla pura: 1 tip + 4 seleções vira aposta na aba Múltiplas com a odd/unidade da tip", () => {
+  const p = planPureMultiple(task1171(), { cards: CARDS_1171 });
+  assert.equal(p.abort, null);
+  assert.equal(p.legs, 4);
+  assert.deepEqual(p.multiple, { id: "x", odd: 8.61, unit: 0.5 });
+  const m = planMultiple({ ...task1171(), multiple: p.multiple }, { accumulator: { odd: 8.61, stakeInputId: "acc" } });
+  assert.deepEqual([m.action, m.stakeReais, m.takeOdd], ["stake", 5, null]);
+});
+
+test("múltipla pura: bilhete ainda montando (2 de 4) aborta com contagem", () => {
+  const p = planPureMultiple(task1171(), { cards: CARDS_1171.slice(0, 2) });
+  assert.equal(p.abort, "contagem_diferente (tip tem 4, bilhete tem 2)");
+});
+
+test("múltipla pura: seleção que não está na tip aborta", () => {
+  const cards = [...CARDS_1171.slice(0, 3), card("Mais de 8.5", ["Flamengo", "Vasco"], 1.9, "m9")];
+  const p = planPureMultiple(task1171(), { cards });
+  assert.match(p.abort, /^selecao_fora_da_tip/);
+});
+
+test("múltipla pura: odd total menor que a da tip não aposta", () => {
+  const p = planPureMultiple(task1171(), { cards: CARDS_1171 });
+  const m = planMultiple({ ...task1171(), multiple: p.multiple }, { accumulator: { odd: 8.4, stakeInputId: "acc" } });
+  assert.deepEqual([m.action, m.reason], ["skip", "odd_abaixo"]);
+});
+
+test("tip simples (1 perna, 1 seleção, sem 'múltipla' no texto) não entra no modo múltipla", () => {
+  const t = { unitValueReais: 10, maxStakeReais: 50, rawMessage: "Corinthians (F) @1.28 1u", legs: [baseTask().legs[0]] };
+  assert.equal(planPureMultiple(t, { cards: [CORINTHIANS] }), null);
+});

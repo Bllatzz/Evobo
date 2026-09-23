@@ -149,5 +149,41 @@
     };
   }
 
-  return { planSingles, planMultiple, matchLegsToCards, decideOdd, stakeFor, normalize };
+  // Quantas pernas a mensagem diz que a múltipla tem ("MÚLTIPLA de 4 jogos",
+  // "Múltipla de 4") — null quando o texto não diz.
+  function legsInMessage(raw) {
+    const t = String(raw ?? "");
+    // "N jogos" só vale na mesma linha de "múltipla" — uma tip simples pode
+    // citar "últimos 5 jogos" no texto.
+    const m = /m[uú]ltipla\s+de\s+(\d+)/i.exec(t) ?? /m[uú]ltipla[^\n]*?\b(\d+)\s+jogos\b/i.exec(t);
+    return m ? Number(m[1]) : null;
+  }
+
+  // Múltipla pura: a mensagem é UMA aposta combinada (ex.: "⚽ MÚLTIPLA de 4
+  // jogos ... 0,5u @ 8,61"), que o Evobo guarda como 1 tip só (jogo = 1º
+  // jogo, seleção = todas juntas, odd = total), mas o link monta N seleções
+  // no bilhete. Vai direto pra aba Múltiplas, decidida pela odd total.
+  // Devolve null quando a tip não é esse caso (segue pela aba Simples).
+  function planPureMultiple(task, snapshot) {
+    if (!task || !Array.isArray(task.legs) || task.legs.length !== 1) return null;
+    const expected = legsInMessage(task.rawMessage);
+    if (!(expected !== null && expected >= 2) && snapshot.cards.length < 2) return null;
+    const bad = checkTask(task);
+    if (bad) return { abort: bad };
+    const leg = task.legs[0];
+    // Bilhete ainda carregando (ou com sobra de outra aposta) não é o da tip.
+    if (expected !== null && snapshot.cards.length !== expected) {
+      return { abort: `contagem_diferente (tip tem ${expected}, bilhete tem ${snapshot.cards.length})` };
+    }
+    // Toda seleção do bilhete tem que estar no texto da tip — o jogo/seleção
+    // gravados só trazem o 1º jogo, então confere contra a mensagem inteira.
+    const tipText = [task.rawMessage, leg.match, leg.selection].filter(Boolean).join(" ");
+    if (tipText) {
+      const fora = snapshot.cards.findIndex((card) => cardScore({ match: tipText, selection: "" }, card) === 0);
+      if (fora !== -1) return { abort: `selecao_fora_da_tip (${snapshot.cards[fora].selection || "?"})` };
+    }
+    return { abort: null, legs: snapshot.cards.length, multiple: { id: leg.id, odd: leg.odd, unit: leg.unit } };
+  }
+
+  return { planSingles, planMultiple, planPureMultiple, legsInMessage, matchLegsToCards, decideOdd, stakeFor, normalize };
 });

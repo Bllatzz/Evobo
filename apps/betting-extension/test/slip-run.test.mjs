@@ -107,3 +107,27 @@ test("stake com centavos: usa a vírgula quando a Betano não entende o ponto", 
   assert.equal(r.singles.totalConfere, true);
   assert.equal(r.singles.botao.totalReais, 32.5);
 });
+
+test("múltipla pura: preenche só a aba Múltiplas e não clica em apostar", async () => {
+  const cards = [
+    { selection: "Menos de 3.5", market: "Total de Cartões", teams: ["OH Leuven", "Roma"], odd: 1.8 },
+    { selection: "Menos de 2.5", market: "Total de Cartões", teams: ["Servette Chenois", "Lyon"], odd: 1.55 },
+    { selection: "Menos de 2.5", market: "Total de Cartões", teams: ["Barcelona", "Paris FC"], odd: 1.75 },
+    { selection: "Menos de 2.5", market: "Total de Cartões", teams: ["Chelsea", "Austria Viena"], odd: 1.76 },
+  ];
+  const page = await setup({ cards, accOdd: 8.7 });
+  const r = await run(page, {
+    tipId: "t1171",
+    unitValueReais: 10,
+    maxStakeReais: 50,
+    rawMessage:
+      "⚽ MÚLTIPLA de 4 jogos\n1️⃣ Oud-Heverlee Leuven x Roma\n • Menos de 3.5 total de cartões\n2️⃣ Servette FC Chenois x Lyon\n • Menos de 2.5 total de cartões\n3️⃣ Barcelona F x Paris FC F\n • Menos de 2.5 total de cartões\n4️⃣ Chelsea LFC x Áustria Viena\n • Menos de 2.5 total de cartões\n💰 0,5u @ 8,61",
+    legs: [{ id: "x", match: "Oud-Heverlee Leuven x Roma", selection: "Menos de 3.5 total de cartões", odd: 8.61, unit: 0.5 }],
+  });
+  assert.equal(r.abort, null);
+  assert.equal(r.multiplaPura, true);
+  assert.equal(r.singles, null);
+  assert.deepEqual([r.multiple.action, r.multiple.stakeReais, r.multiple.takeOdd, r.multiple.totalConfere], ["stake", 5, 8.7, true]);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 0);
+  await page.close();
+});
