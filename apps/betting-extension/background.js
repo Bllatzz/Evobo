@@ -10,7 +10,12 @@
 //   log     últimos relatórios, mais novo primeiro
 
 const POLL_ALARM = "evobo-poll";
-const POLL_MINUTES = 0.5; // mínimo do chrome.alarms
+const POLL_MINUTES = 0.5; // mínimo do chrome.alarms — só a reserva do laço rápido
+// Laço rápido enquanto ligado: o alarme sozinho só acordava a cada 30s, o
+// que somava até 30s entre a tip chegar no Evobo e a aba da Betano abrir.
+// Cada volta chama chrome.storage, o que mantém o service worker vivo; se o
+// Chrome derrubar ele mesmo assim, o alarme de 30s religa o laço.
+const FAST_POLL_MS = 4000;
 const MAX_LOG = 30;
 const WAIT_FOR_OCR_MS = 10 * 60 * 1000;
 const SLIP_DEADLINE_MS = 45000; // tempo máximo pra página da Betano montar o bilhete
@@ -50,8 +55,10 @@ function toRunnerTask(task, unitValueReais, config) {
 async function runInTab(tabId, runnerTask) {
   let last = null;
   const deadline = Date.now() + SLIP_DEADLINE_MS;
+  let first = true;
   while (Date.now() < deadline) {
-    await sleep(SLIP_RETRY_MS);
+    await sleep(first ? 300 : SLIP_RETRY_MS);
+    first = false;
     try {
       last = await chrome.tabs.sendMessage(tabId, { acao: "rodar_dry_run", task: runnerTask });
     } catch (e) {
@@ -154,9 +161,29 @@ async function poll({ manualSince } = {}) {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => chrome.alarms.create(POLL_ALARM, { periodInMinutes: POLL_MINUTES }));
-chrome.runtime.onStartup.addListener(() => chrome.alarms.create(POLL_ALARM, { periodInMinutes: POLL_MINUTES }));
-chrome.alarms.onAlarm.addListener((a) => a.name === POLL_ALARM && poll());
+let fastLoopOn = false;
+async function fastLoop() {
+  if (fastLoopOn) return;
+  fastLoopOn = true;
+  try {
+    while ((await getConfig()).enabled) {
+      await poll();
+      await sleep(FAST_POLL_MS);
+    }
+  } finally {
+    fastLoopOn = false;
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.alarms.create(POLL_ALARM, { periodInMinutes: POLL_MINUTES });
+  fastLoop();
+});
+chrome.runtime.onStartup.addListener(() => {
+  chrome.alarms.create(POLL_ALARM, { periodInMinutes: POLL_MINUTES });
+  fastLoop();
+});
+chrome.alarms.onAlarm.addListener((a) => a.name === POLL_ALARM && fastLoop());
 
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
   // Pedido do content script (só pro cabeçalho do bilhete — ver slip.js).
@@ -178,7 +205,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
       await set("config", { ...(await getConfig()), enabled: true });
       await set("since", new Date().toISOString());
       send({ ok: true });
-      poll();
+      fastLoop();
     })();
     return true;
   }
