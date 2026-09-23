@@ -83,15 +83,38 @@ test("login: deslogado → acha ENTRAR, aba, campos e INICIAR SESSÃO dentro do 
 
   const campos = await page.evaluate(() => window.BetanoLogin.fields());
   assert.equal(campos.ok, true, JSON.stringify(campos));
-  assert.equal(await idAt(page, campos.usuario), "user");
-  assert.equal(await idAt(page, campos.senha), "pwd");
+  // Cada ponto é pedido na hora do clique (targetPoint), como o background faz.
+  for (const [alvo, id] of [["usuario", "user"], ["senha", "pwd"], ["enviar", "go"]]) {
+    const p = await page.evaluate((a) => window.BetanoLogin.targetPoint(a), alvo);
+    assert.equal(p.ok, true, JSON.stringify(p));
+    assert.equal(await idAt(page, p.ponto), id);
+  }
 
   const enviar = await page.evaluate(() => window.BetanoLogin.submitPoint());
-  assert.equal(await idAt(page, enviar.ponto), "go");
+  assert.match(enviar.alvo, /INICIAR SESSÃO/);
   await page.mouse.click(enviar.ponto.x, enviar.ponto.y);
 
   assert.deepEqual(await page.evaluate(() => window.BetanoLogin.waitLoggedIn()), { ok: true });
   assert.deepEqual(await page.evaluate(() => window.BetanoLogin.status()), { pronto: true, logado: true });
+  await page.close();
+});
+
+// O login real de 2026-09-23 abriu o modal e o fechou: nunca pode escolher o
+// X / "Precisa de ajuda?" / login social como aba ou como "INICIAR SESSÃO".
+test("login: sem botão com o texto certo, NÃO pega o X nem outro botão do modal", async () => {
+  const page = await setup();
+  const entrar = await page.evaluate(() => window.BetanoLogin.loginButtonPoint());
+  await page.mouse.click(entrar.x, entrar.y);
+  await page.waitForFunction(() => document.querySelector("iframe")?.contentDocument?.getElementById("go"));
+  const p = await page.evaluate(() => {
+    const doc = document.querySelector("iframe").contentDocument;
+    const go = doc.getElementById("go");
+    go.textContent = "Continuar"; // texto que não é o do botão de login
+    // botões perigosos ANTES do de login, como no modal real
+    go.insertAdjacentHTML("beforebegin", '<button aria-label="Fechar">×</button><button>Precisa de ajuda?</button><button>Login via Google</button>');
+    return window.BetanoLogin.targetPoint("enviar");
+  });
+  assert.deepEqual([p.ok, p.ponto], [true, null]); // sem botão → o background aperta Enter
   await page.close();
 });
 
