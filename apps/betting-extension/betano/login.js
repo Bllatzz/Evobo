@@ -82,12 +82,20 @@
   // Página carregou o cabeçalho? (logo da Betano) — antes disso não dá pra
   // dizer se está logado ou não.
   async function status() {
-    const ready = await S.waitFor(() => Q('[data-qa="brand-logo"]'), 15000);
-    // Sem o logo: diz o que a página mostrou (ex.: a tela "Access to this
-    // page is restricted" que a Betano deu pro Playwright em 2026-09-21).
-    if (!ready) return { pronto: false, url: location.href, titulo: document.title, texto: text(document.body).slice(0, 300) };
-    // O botão ENTRAR pode demorar um pouco mais que o logo pra renderizar.
-    const btn = await S.waitFor(() => headerLoginButton(), 1500);
+    // Qualquer sinal de que a Betano montou a página. Só o logo não bastou:
+    // em 2026-09-23 a página abriu normal (título certo, /bookingcode/ →
+    // "/") e o data-qa="brand-logo" não apareceu em 15s.
+    const READY = ['[data-qa="brand-logo"]', '[data-qa="login-button"]', '[data-qa="register-button"]', '[data-qa="bet-slip"]', '[data-qa="floating-betslip-header"]', '[data-qa="nav-menu"]'];
+    const ready = await S.waitFor(() => READY.some((sel) => Q(sel)), 15000, 250);
+    // Sem nenhum: diz o que a página tinha (ex.: a tela "Access to this page
+    // is restricted" que a Betano deu pro Playwright em 2026-09-21).
+    if (!ready) {
+      const dataQa = [...new Set(QA("[data-qa]").map((el) => el.getAttribute("data-qa")))].slice(0, 40);
+      return { pronto: false, url: location.href, titulo: document.title, dataQa, textoVisivel: (document.body?.innerText ?? "").replace(/\s+/g, " ").slice(0, 300) };
+    }
+    // O botão ENTRAR pode demorar mais que o resto do cabeçalho pra aparecer
+    // — esperar um pouco antes de concluir "logado".
+    const btn = await S.waitFor(() => headerLoginButton(), 3000, 200);
     return { pronto: true, logado: !btn };
   }
 
