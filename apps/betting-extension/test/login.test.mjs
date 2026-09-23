@@ -146,6 +146,26 @@ test("status: sem ENTRAR e sem sinal de logado → logado null (nunca 'logado')"
   });
   assert.equal(st.pronto, true);
   assert.equal(st.logado, null);
-  assert.ok(Array.isArray(st.dataQa));
+  assert.ok(Array.isArray(st.dataQa.cabecalho));
+  await page.close();
+});
+
+// A lista de data-qa da Betano real não tinha nada do cabeçalho: ele deve
+// ficar num shadow root. ENTRAR/saldo dentro de shadow DOM têm que ser vistos.
+test("status: cabeçalho dentro de shadow DOM — vê ENTRAR e o saldo", async () => {
+  const page = await setup();
+  const res = await page.evaluate(async () => {
+    const nav = document.querySelector("nav");
+    const host = document.createElement("betano-header");
+    nav.replaceWith(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = '<nav><button data-qa="login-button">ENTRAR</button></nav>';
+    const deslogado = await window.BetanoLogin.status();
+    shadow.innerHTML = '<nav><span data-qa="header-balance">R$ 50,00</span></nav>';
+    const logado = await window.BetanoLogin.status();
+    return { deslogado, logado };
+  });
+  assert.deepEqual([res.deslogado.pronto, res.deslogado.logado], [true, false]);
+  assert.deepEqual([res.logado.pronto, res.logado.logado], [true, true]);
   await page.close();
 });
