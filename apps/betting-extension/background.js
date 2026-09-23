@@ -89,6 +89,21 @@ async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
   // Sem esperar o load completo: o content script entra em document_idle e
   // runInTab já tenta de novo a cada 1s até o bilhete aparecer.
   const tab = await chrome.tabs.create({ url: task.betUrl, active: true });
+  // Sem a conexão (ex.: DevTools aberto na aba) os cliques ainda tentam,
+  // conectando um por um — o relatório mostra se falharem.
+  const held = await holdDebugger(tab.id).then(
+    () => true,
+    () => false,
+  );
+  try {
+    return await runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, held);
+  } finally {
+    if (held) await releaseDebugger(tab.id);
+  }
+}
+
+async function runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, held) {
+  tempos.depuradorFixo = held;
   const runnerTask = toRunnerTask(task, unitValueReais, config);
 
   // Deslogado = não dá pra apostar: loga primeiro. Depois do login a
@@ -102,7 +117,7 @@ async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
   }
   if (!login.ok) {
     tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
-    await pushLog({ tipo: "dry_run", tip: task, relatorio: { ok: false, abort: `login_falhou (${login.motivo})`, login }, tempos });
+    await pushLog({ tipo: "dry_run", tip: task, relatorio: { ok: false, abort: `login_falhou (${login.falhouEm ? `${login.falhouEm}: ` : ""}${login.motivo ?? "?"})`, login }, tempos });
     return null;
   }
   if (login.logou) {
@@ -111,7 +126,7 @@ async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
   }
 
   const report = await runInTab(tab.id, runnerTask);
-  if (report && login.logou) report.login = "logou_antes";
+  if (report && login.logou) report.login = { logouAntes: true, passos: login.passos };
   tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
   await pushLog({ tipo: "dry_run", tip: task, relatorio: report, tempos });
   if (runnerTask.placeReal && report?.aposta?.confirmed) await reportResult(task, report, config);
@@ -148,8 +163,31 @@ async function reportResult(task, report, config) {
 // Conecta só pelo tempo do clique — enquanto conectado o Chrome mostra a
 // faixa "Evobo Betano está depurando este navegador". Falha se o DevTools
 // estiver aberto nessa aba (só um depurador por vez).
+//
+// Conectar faz o Chrome mostrar a faixa de depuração no topo, que EMPURRA a
+// página pra baixo (e desconectar a puxa de volta). Conectando a cada clique,
+// o ponto medido antes do clique já estava fora do lugar quando o clique
+// acontecia — no login real de 2026-09-23 o modal abriu e depois fechou sem
+// logar. Por isso openAndRun deixa a aba conectada do começo ao fim
+// (holdDebugger) e os cliques reusam essa conexão.
+const heldTabs = new Set();
+
+chrome.debugger.onDetach.addListener((source) => heldTabs.delete(source.tabId));
+
+async function holdDebugger(tabId) {
+  await chrome.debugger.attach({ tabId }, "1.3");
+  heldTabs.add(tabId);
+  await sleep(600); // a faixa aparece e a página se reajusta antes de qualquer medida
+}
+
+async function releaseDebugger(tabId) {
+  heldTabs.delete(tabId);
+  await chrome.debugger.detach({ tabId }).catch(() => {});
+}
+
 async function withDebugger(tabId, fn) {
   const target = { tabId };
+  if (heldTabs.has(tabId)) return fn(target);
   await chrome.debugger.attach(target, "1.3");
   try {
     return await fn(target);
@@ -219,31 +257,54 @@ async function ensureLoggedIn(tabId, config) {
   });
   if (!res.ok) return { ok: false, motivo: res.status === 404 ? "login_da_betano_nao_salvo_no_evobo" : `erro_credencial_${res.status}` };
   let cred = await res.json();
+  // Cada passo vai pro histórico com o elemento em que clicou — se o modal
+  // fechar ou o login não passar, dá pra ver onde (login real de 2026-09-23
+  // abriu o modal e o fechou sem logar, sem dizer em que passo).
+  const passos = [];
+  const falhou = (r, passo) => ({ ok: false, ...r, falhouEm: passo, passos });
+  // Pede o ponto do alvo AGORA (nunca guardado de antes) e o usa na hora.
+  const ponto = async (alvo) => askTab(tabId, { acao: "login_ponto", alvo });
   try {
     const botao = await askTab(tabId, { acao: "login_botao" });
-    if (!botao) return { ok: false, motivo: "botao_entrar_nao_encontrado" };
+    if (!botao) return falhou({ motivo: "botao_entrar_nao_encontrado" }, "entrar");
     await trustedClick(tabId, botao.x, botao.y);
+    passos.push({ passo: "entrar", ponto: botao });
 
-    const aba = await askTab(tabId, { acao: "login_aba", tipo: loginKind(cred.username) }, 20000);
-    if (!aba?.ok) return { ok: false, ...aba };
+    const tipo = loginKind(cred.username);
+    const aba = await askTab(tabId, { acao: "login_aba", tipo }, 20000);
+    if (!aba?.ok) return falhou(aba, "aba");
     await trustedClick(tabId, aba.ponto.x, aba.ponto.y);
+    passos.push({ passo: `aba_${tipo}`, alvo: aba.alvo, ponto: aba.ponto });
     await sleep(400); // a aba troca o campo de Login ID
 
     const campos = await askTab(tabId, { acao: "login_campos" });
-    if (!campos?.ok) return { ok: false, ...campos };
-    await trustedType(tabId, campos.usuario, cred.username);
-    await trustedType(tabId, campos.senha, cred.password);
+    if (!campos?.ok) return falhou(campos, "campos");
+
+    const u = await ponto("usuario");
+    if (!u?.ok) return falhou(u, "usuario");
+    await trustedType(tabId, u.ponto, cred.username);
+    passos.push({ passo: "usuario", alvo: u.alvo, ponto: u.ponto });
+
+    const s = await ponto("senha");
+    if (!s?.ok) return falhou(s, "senha");
+    await trustedType(tabId, s.ponto, cred.password);
+    passos.push({ passo: "senha", alvo: s.alvo, ponto: s.ponto });
   } finally {
     cred = null; // não guardar a senha além do necessário
   }
   await sleep(300);
-  const enviar = await askTab(tabId, { acao: "login_enviar" });
-  if (!enviar?.ok) return { ok: false, ...enviar };
-  if (enviar.ponto && !enviar.desabilitado) await trustedClick(tabId, enviar.ponto.x, enviar.ponto.y);
-  else await pressEnter(tabId);
+  const enviar = await ponto("enviar");
+  if (!enviar?.ok) return falhou(enviar, "enviar");
+  if (enviar.ponto && !enviar.desabilitado) {
+    await trustedClick(tabId, enviar.ponto.x, enviar.ponto.y);
+    passos.push({ passo: "enviar", alvo: enviar.alvo, ponto: enviar.ponto });
+  } else {
+    await pressEnter(tabId); // o foco ficou no campo de senha
+    passos.push({ passo: "enter", alvo: enviar.alvo ?? "sem botão INICIAR SESSÃO", desabilitado: !!enviar.desabilitado });
+  }
 
   const fim = await askTab(tabId, { acao: "login_aguardar" }, 30000);
-  return fim?.ok ? { ok: true, logou: true } : { ok: false, ...fim };
+  return fim?.ok ? { ok: true, logou: true, passos } : falhou(fim, "aguardar");
 }
 
 let running = false;
