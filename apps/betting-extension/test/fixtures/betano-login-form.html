@@ -1,0 +1,33 @@
+<!-- Formulário de login REAL da Betano (iframe /myaccount/login), copiado
+     pelo usuário do DevTools em 2026-09-23. Resumido: classes Tailwind
+     longas e SVGs cortados, estrutura/atributos/textos mantidos. -->
+<div id="app" data-qa="myaccount">
+  <header>
+    <button type="button" aria-label="need help" data-qa="help-chat"><span>Precisa de ajuda?</span></button>
+    <div><span>Novo usuário?</span><a href="/myaccount/register" aria-label="redirect to Register">Cadastre-se aqui</a></div>
+    <button type="button" data-qa="exit-modal" aria-label="exit"><img alt="exit icon" style="width:12px;height:12px"></button>
+  </header>
+  <main>
+    <form class="fs-exclude" aria-label="login form" data-qa="login">
+      <span data-qa="user-id-label">Login ID</span>
+      <ul data-qa="login-methods">
+        <li><button type="button" class="tw-inline-flex tw-select-none disabled:tw-cursor-default tw-bg-sem-color-bg-disabled [&amp;:disabled&gt;.ripple]:tw-hidden" aria-busy="false" aria-disabled="false" data-qa="username"><svg width="16" height="16"></svg><span data-qa-translate="">Nome de usuário</span></button></li>
+        <li><button type="button" class="tw-inline-flex tw-select-none disabled:tw-cursor-default tw-bg-sem-color-bg-disabled [&amp;:disabled&gt;.ripple]:tw-hidden" aria-busy="false" aria-disabled="false" data-qa="email"><svg width="16" height="16"></svg><span data-qa-translate="">E-mail</span></button></li>
+        <li><button type="button" class="tw-inline-flex tw-select-none disabled:tw-cursor-default tw-bg-sem-color-bg-gray-emphasis-default [&amp;:disabled&gt;.ripple]:tw-hidden" aria-busy="false" aria-disabled="false" data-qa="taxid"><svg width="16" height="16"></svg><span data-qa-translate="">CPF</span></button></li>
+      </ul>
+      <div class="form-element__field" data-qa="taxid">
+        <div class="prefix-wrapper"><span><svg width="24" height="24"></svg></span>
+          <input placeholder="ex. 29684956312 ou 296.849.563-12" id="taxid" type="text" inputmode="numeric" name="taxid" required autocomplete="off" aria-label="taxid" data-qa="input" value=""></div>
+        <small>Escolha seu método preferido para fazer login: Nome de usuário, E-mail ou CPF</small>
+      </div>
+      <div class="form-element__field" data-qa="password">
+        <label for="password"><span>Senha</span></label>
+        <input id="password" name="Password" autocomplete="current-password" required type="password" placeholder="Entre com a sua senha" data-qa="input" value="">
+      </div>
+      <button type="submit" disabled aria-label="submit" data-qa="submit">INICIAR SESSÃO</button>
+    </form>
+    <div><span>Esqueceu sua senha?</span><a href="/myaccount/forgotpassword" data-qa="forgot-password-link">Clique aqui</a></div>
+    <div data-qa="socials-Login"><button type="button" aria-label="Login with facebook" data-qa="facebook"><span>Login via Facebook</span></button></div>
+    <div data-qa="socials-Login"><button type="button" aria-label="Login with google" data-qa="google"><span>Login via Google</span></button></div>
+  </main>
+</div>
