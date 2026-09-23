@@ -21,7 +21,7 @@ const WAIT_FOR_OCR_MS = 10 * 60 * 1000;
 const SLIP_DEADLINE_MS = 45000; // tempo máximo pra página da Betano montar o bilhete
 const SLIP_RETRY_MS = 1000;
 
-const DEFAULT_CONFIG = { apiUrl: "https://evobo-api.fly.dev", extensionKey: "", maxStakeReais: 50, unitValueReais: 20, enabled: false };
+const DEFAULT_CONFIG = { apiUrl: "https://evobo-api.fly.dev", extensionKey: "", maxStakeReais: 50, unitValueReais: 20, enabled: false, placeReal: false };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const get = async (k, fallback) => (await chrome.storage.local.get(k))[k] ?? fallback;
@@ -40,6 +40,9 @@ async function pushLog(entry) {
 function toRunnerTask(task, unitValueReais, config) {
   return {
     tipId: task.key,
+    // Aposta de verdade só com a chave ligada no popup E uma tip da fila do
+    // Evobo — o "Testar um link" (key manual:…) é sempre dry-run.
+    placeReal: config.placeReal === true && !task.key.startsWith("manual:"),
     unitValueReais,
     maxStakeReais: config.maxStakeReais,
     limitReais: task.limitReais,
@@ -77,9 +80,36 @@ async function openAndRun(task, unitValueReais, config) {
   // Sem esperar o load completo: o content script entra em document_idle e
   // runInTab já tenta de novo a cada 1s até o bilhete aparecer.
   const tab = await chrome.tabs.create({ url: task.betUrl, active: true });
-  const report = await runInTab(tab.id, toRunnerTask(task, unitValueReais, config));
+  const runnerTask = toRunnerTask(task, unitValueReais, config);
+  const report = await runInTab(tab.id, runnerTask);
   await pushLog({ tipo: "dry_run", tip: task, relatorio: report });
+  if (runnerTask.placeReal && report?.aposta?.confirmed) await reportResult(task, report, config);
   return report;
+}
+
+// Aposta confirmada pelo comprovante → grava o "peguei" com a odd real e a
+// API reage 👍 na mensagem do Telegram (POST /betting-queue/result). Sem
+// comprovante nada é enviado: fica no histórico como "verificar manualmente".
+async function reportResult(task, report, config) {
+  const legs = report.multiplaPura
+    ? [{ tipId: task.legs[0].tipId, placed: true, realOdd: report.multiple.realOdd, stakeReais: report.multiple.stakeReais }]
+    : report.singles.legs.map((l) => ({
+        tipId: l.legId,
+        placed: l.action === "stake",
+        realOdd: l.action === "stake" ? l.realOdd : null,
+        stakeReais: l.action === "stake" ? l.stakeReais : null,
+      }));
+  try {
+    const res = await fetch(`${config.apiUrl}/betting-queue/result`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-extension-key": config.extensionKey },
+      body: JSON.stringify({ key: task.key, legs, betId: report.aposta.betId ?? null }),
+    });
+    const body = await res.json().catch(() => null);
+    await pushLog({ tipo: res.ok ? "resultado_enviado" : "erro_resultado", status: res.status, motivo: body?.reaction ?? body?.error ?? null });
+  } catch (e) {
+    await pushLog({ tipo: "erro_resultado", erro: String(e?.message ?? e) });
+  }
 }
 
 // Clique "confiável" (isTrusted) via protocolo do DevTools: a Betano ignora
@@ -146,7 +176,10 @@ async function poll({ manualSince } = {}) {
       delete waiting[task.key];
       await set("done", done);
 
-      await openAndRun(task, unitValueReais, config);
+      // "Testar agora" reprocessa tips já feitas de propósito — nunca pode
+      // apostar de verdade, senão apostaria de novo numa aba nova (a marca
+      // anti-clique-duplo é por aba).
+      await openAndRun(task, unitValueReais, manualSince ? { ...config, placeReal: false } : config);
       processed++;
     }
 

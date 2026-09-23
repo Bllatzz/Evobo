@@ -3,10 +3,10 @@
 // (2026-09-21): abas Simples/Múltiplas, um input por cartão na aba Simples,
 // linha `accumulator` na aba Múltiplas, botão que soma as stakes. Não é a
 // Betano: valida a lógica da extensão, não o site.
-export async function installFakeBetslip(page, { cards, accOdd, decimal = "." }) {
+export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", receipt = false }) {
   await page.setContent('<body><div id="root"></div></body>');
   await page.evaluate(
-    ({ cards, accOdd, decimal }) => {
+    ({ cards, accOdd, decimal, receipt }) => {
       const st = { tab: 1, singles: {}, acc: "" };
       const num = (v) => {
         if (v === "" || v == null) return 0;
@@ -61,10 +61,18 @@ export async function installFakeBetslip(page, { cards, accOdd, decimal = "." })
       }
       window.__placeClicks = 0;
       document.addEventListener("click", (e) => {
-        if (e.target.closest('[data-qa="place-bet-button"]')) window.__placeClicks++;
+        if (!e.target.closest('[data-qa="place-bet-button"]')) return;
+        window.__placeClicks++;
+        // receipt: a "Betano" troca o bilhete pelo comprovante (mesmos data-qa do real).
+        if (receipt) {
+          document.getElementById("root").innerHTML = `
+            <div data-qa="bet-receipt"><span data-qa="receipt-header-text">A sua aposta foi realizada com sucesso</span>
+              <div data-qa="receipt-item"><span data-qa="bet-label-title">Múltipla</span><span data-qa="bet-label-amount">${brl(total())}</span>
+                <span data-qa="bet-odds">${accOdd}</span><span data-qa="unique-bet-identification-number">BET123</span></div></div>`;
+        }
       });
       render();
     },
-    { cards, accOdd, decimal },
+    { cards, accOdd, decimal, receipt },
   );
 }

@@ -1,7 +1,6 @@
-// Orquestra um dry-run: abre o bilhete, decide com o plano, preenche as stakes
-// e PARA — nunca clica em "APOSTE JÁ". Devolve um relatório do que faria e o
-// que a Betano mostrou (texto do botão, total), que é o dado que falta pra
-// fase 2 (ex.: se o total do botão da aba Simples soma as stakes).
+// Orquestra uma tip: abre o bilhete, decide com o plano e preenche as stakes.
+// Em dry-run (padrão) PARA aí. Só com `task.placeReal === true` (chave
+// "Apostar de verdade" no popup) clica em "APOSTE JÁ" — ver placeBet.
 (function (root) {
   if (root.BetanoRun) return; // content script pode ser injetado mais de uma vez
   const { planSingles, planMultiple, planPureMultiple } = root.BetanoPlan;
@@ -26,9 +25,49 @@
     return { totalConfere: false, decimal };
   }
 
+  // Clique real em "APOSTE JÁ", uma vez só por tip. Travas, na ordem:
+  //  1. marca em sessionStorage por tip — se a aba recarregar ou o background
+  //     repetir o pedido, nunca clica de novo (sobrevive a F5 na mesma aba);
+  //  2. relê o bilhete e refaz o plano: se alguma odd caiu abaixo da tip ou a
+  //     stake mudou desde o preenchimento, não clica;
+  //  3. o botão tem que estar habilitado e mostrar exatamente o total esperado
+  //     (pega aposta grátis/prêmio selecionado e stake digitada errada);
+  //  4. depois do clique espera o comprovante; sem comprovante = "verificar
+  //     manualmente", e NUNCA tenta de novo.
+  async function placeBet(task, expectedTotal, replan) {
+    const mark = `evobo-aposta:${task.tipId}`;
+    try {
+      if (sessionStorage.getItem(mark)) return { clicked: false, reason: "ja_clicado_antes" };
+    } catch {
+      return { clicked: false, reason: "sem_sessionStorage" };
+    }
+    const snap = S.readSnapshot();
+    const changed = snap ? replan(snap) : "bilhete_sumiu";
+    if (changed) return { clicked: false, reason: changed };
+    const b = snap.placeButton;
+    const btn = document.querySelector('[data-qa="place-bet-button"]');
+    if (!btn || !b || b.disabled) return { clicked: false, reason: "botao_desabilitado" };
+    if (b.totalReais === null || cents(b.totalReais) !== cents(expectedTotal)) {
+      return { clicked: false, reason: "total_do_botao_diferente", botao: b };
+    }
+    try {
+      sessionStorage.setItem(mark, new Date().toISOString());
+    } catch {
+      return { clicked: false, reason: "sem_sessionStorage" };
+    }
+    const click = await S.trustedClick(btn, "aposte_ja");
+    // Clique confiável que falhou (ex.: DevTools aberto na aba): não houve
+    // clique, mas a marca fica — melhor perder a tip que apostar duas vezes.
+    if (!click?.ok) return { clicked: false, reason: "clique_falhou", erro: click?.erro ?? null };
+    const receipt = await S.waitFor(() => S.readReceipt(), 20000, 200);
+    if (!receipt) return { clicked: true, confirmed: false, mensagens: S.readSlipMessages() };
+    return { clicked: true, confirmed: true, receipt, betId: receipt.betIds[0] ?? null };
+  }
+
   async function runTask(task) {
+    const real = task?.placeReal === true;
     const report = {
-      dryRun: true, // fase 1: sempre. task.dryRun=false é ignorado.
+      dryRun: !real,
       nadaFoiApostado: true,
       tipId: task?.tipId ?? null,
       startedAt: new Date().toISOString(),
@@ -61,6 +100,17 @@
         report.multiple.totalConfere = v.totalConfere;
         report.multiple.decimalUsado = v.decimal;
         report.multiple.botao = S.readSnapshot()?.placeButton ?? null;
+        if (real && v.totalConfere) {
+          report.aposta = await placeBet(task, plan.stakeReais, (snap) => {
+            const again = planMultiple({ ...task, multiple: pure.multiple }, snap);
+            if (again.action !== "stake") return `mudou_antes_de_apostar (${again.reason})`;
+            if (cents(again.stakeReais) !== cents(plan.stakeReais)) return "stake_mudou";
+            report.multiple.realOdd = again.realOdd;
+            report.multiple.takeOdd = again.takeOdd;
+            return null;
+          });
+          if (report.aposta.clicked) report.nadaFoiApostado = false;
+        }
       }
       report.ok = true;
       return report;
@@ -83,6 +133,22 @@
       singles.totalConfere = v.totalConfere;
       singles.decimalUsado = v.decimal;
       singles.botao = S.readSnapshot()?.placeButton ?? null;
+      // Combo simples + múltipla precisaria apostar as simples, reabrir o
+      // bilhete e ir pra aba Múltiplas — ainda não feito: aí fica em dry-run.
+      if (real && !task.multiple && v.totalConfere) {
+        report.aposta = await placeBet(task, singles.expectedTotalReais, (snap) => {
+          const again = planSingles(task, snap);
+          if (again.abort) return `mudou_antes_de_apostar (${again.abort})`;
+          for (const [k, leg] of singles.legs.entries()) {
+            const now = again.legs[k];
+            if (leg.action !== now.action) return `mudou_antes_de_apostar (${now.reason ?? "perna_nova"})`;
+            if (leg.action === "stake" && cents(leg.stakeReais) !== cents(now.stakeReais)) return "stake_mudou";
+          }
+          for (const [k, now] of again.legs.entries()) Object.assign(singles.legs[k], { realOdd: now.realOdd, takeOdd: now.takeOdd });
+          return null;
+        });
+        if (report.aposta.clicked) report.nadaFoiApostado = false;
+      }
     }
 
     // Múltipla: aba própria, decidida pela odd total dela.
