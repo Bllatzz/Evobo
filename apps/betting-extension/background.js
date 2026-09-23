@@ -89,6 +89,22 @@ async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
   // Sem esperar o load completo: o content script entra em document_idle e
   // runInTab já tenta de novo a cada 1s até o bilhete aparecer.
   const tab = await chrome.tabs.create({ url: task.betUrl, active: true });
+
+  // Espera a página da Betano carregar ANTES de conectar o depurador:
+  // conectando junto com a abertura da aba (2026-09-23) a página nunca
+  // mostrou o cabeçalho — "pagina_nao_carregou" em 16s.
+  let status;
+  try {
+    status = await askTab(tab.id, { acao: "login_status" }, 25000);
+  } catch (e) {
+    status = { pronto: false, erro: String(e?.message ?? e) };
+  }
+  if (!status?.pronto) {
+    tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
+    await pushLog({ tipo: "dry_run", tip: task, relatorio: { ok: false, abort: "pagina_nao_carregou", pagina: status }, tempos });
+    return null;
+  }
+
   // Sem a conexão (ex.: DevTools aberto na aba) os cliques ainda tentam,
   // conectando um por um — o relatório mostra se falharem.
   const held = await holdDebugger(tab.id).then(
@@ -96,13 +112,13 @@ async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
     () => false,
   );
   try {
-    return await runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, held);
+    return await runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, held, status);
   } finally {
     if (held) await releaseDebugger(tab.id);
   }
 }
 
-async function runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, held) {
+async function runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, held, status) {
   tempos.depuradorFixo = held;
   const runnerTask = toRunnerTask(task, unitValueReais, config);
 
@@ -111,7 +127,7 @@ async function runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, 
   // montar o bilhete do zero.
   let login;
   try {
-    login = await ensureLoggedIn(tab.id, config);
+    login = await ensureLoggedIn(tab.id, config, status);
   } catch (e) {
     login = { ok: false, motivo: "erro", erro: String(e?.message ?? e) };
   }
@@ -247,9 +263,7 @@ function loginKind(username) {
 // Loga na Betano se a aba estiver deslogada (botão ENTRAR no cabeçalho).
 // Usuário e senha vêm do Evobo (salvos criptografados no perfil → "Aposta
 // automática") e só existem nesta função, em memória.
-async function ensureLoggedIn(tabId, config) {
-  const st = await askTab(tabId, { acao: "login_status" }, 20000);
-  if (!st?.pronto) return { ok: false, motivo: "pagina_nao_carregou" };
+async function ensureLoggedIn(tabId, config, st) {
   if (st.logado) return { ok: true, jaLogado: true };
 
   const res = await fetch(`${config.apiUrl}/auto-betting/extension/credentials/betano`, {
