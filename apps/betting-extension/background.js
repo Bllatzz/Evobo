@@ -90,7 +90,28 @@ async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
   // runInTab já tenta de novo a cada 1s até o bilhete aparecer.
   const tab = await chrome.tabs.create({ url: task.betUrl, active: true });
   const runnerTask = toRunnerTask(task, unitValueReais, config);
+
+  // Deslogado = não dá pra apostar: loga primeiro. Depois do login a
+  // Betano pode redesenhar a página, então abre o link da tip de novo pra
+  // montar o bilhete do zero.
+  let login;
+  try {
+    login = await ensureLoggedIn(tab.id, config);
+  } catch (e) {
+    login = { ok: false, motivo: "erro", erro: String(e?.message ?? e) };
+  }
+  if (!login.ok) {
+    tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
+    await pushLog({ tipo: "dry_run", tip: task, relatorio: { ok: false, abort: `login_falhou (${login.motivo})`, login }, tempos });
+    return null;
+  }
+  if (login.logou) {
+    await chrome.tabs.update(tab.id, { url: task.betUrl });
+    await sleep(1500);
+  }
+
   const report = await runInTab(tab.id, runnerTask);
+  if (report && login.logou) report.login = "logou_antes";
   tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
   await pushLog({ tipo: "dry_run", tip: task, relatorio: report, tempos });
   if (runnerTask.placeReal && report?.aposta?.confirmed) await reportResult(task, report, config);
@@ -127,17 +148,102 @@ async function reportResult(task, report, config) {
 // Conecta só pelo tempo do clique — enquanto conectado o Chrome mostra a
 // faixa "Evobo Betano está depurando este navegador". Falha se o DevTools
 // estiver aberto nessa aba (só um depurador por vez).
-async function trustedClick(tabId, x, y) {
+async function withDebugger(tabId, fn) {
   const target = { tabId };
   await chrome.debugger.attach(target, "1.3");
   try {
-    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-    for (const type of ["mousePressed", "mouseReleased"]) {
-      await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
-    }
+    return await fn(target);
   } finally {
     await chrome.debugger.detach(target).catch(() => {});
   }
+}
+
+async function cdpClick(target, x, y) {
+  await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  for (const type of ["mousePressed", "mouseReleased"]) {
+    await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+  }
+}
+
+const trustedClick = (tabId, x, y) => withDebugger(tabId, (t) => cdpClick(t, x, y));
+
+// Clica no campo e digita com o teclado do Chrome (Input.insertText) — o
+// texto nunca passa pelo content script nem pelo JS da página.
+const trustedType = (tabId, { x, y }, value) =>
+  withDebugger(tabId, async (t) => {
+    await cdpClick(t, x, y);
+    await sleep(150);
+    await chrome.debugger.sendCommand(t, "Input.insertText", { text: value });
+  });
+
+const pressEnter = (tabId) =>
+  withDebugger(tabId, async (t) => {
+    for (const type of ["keyDown", "keyUp"]) {
+      await chrome.debugger.sendCommand(t, "Input.dispatchKeyEvent", { type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    }
+  });
+
+// Pergunta ao content script, tentando de novo enquanto ele ainda não
+// carregou na aba (a página acabou de abrir).
+async function askTab(tabId, msg, timeoutMs = 15000) {
+  const end = Date.now() + timeoutMs;
+  let lastErr = null;
+  while (Date.now() < end) {
+    try {
+      return await chrome.tabs.sendMessage(tabId, msg);
+    } catch (e) {
+      lastErr = e;
+      await sleep(500);
+    }
+  }
+  throw lastErr ?? new Error("aba_nao_respondeu");
+}
+
+// Tipo de login pela cara do usuário salvo no Evobo (aba do formulário).
+function loginKind(username) {
+  if (username.includes("@")) return "email";
+  if (/^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$/.test(username.trim())) return "cpf";
+  return "usuario";
+}
+
+// Loga na Betano se a aba estiver deslogada (botão ENTRAR no cabeçalho).
+// Usuário e senha vêm do Evobo (salvos criptografados no perfil → "Aposta
+// automática") e só existem nesta função, em memória.
+async function ensureLoggedIn(tabId, config) {
+  const st = await askTab(tabId, { acao: "login_status" }, 20000);
+  if (!st?.pronto) return { ok: false, motivo: "pagina_nao_carregou" };
+  if (st.logado) return { ok: true, jaLogado: true };
+
+  const res = await fetch(`${config.apiUrl}/auto-betting/extension/credentials/betano`, {
+    headers: { "x-extension-key": config.extensionKey },
+  });
+  if (!res.ok) return { ok: false, motivo: res.status === 404 ? "login_da_betano_nao_salvo_no_evobo" : `erro_credencial_${res.status}` };
+  let cred = await res.json();
+  try {
+    const botao = await askTab(tabId, { acao: "login_botao" });
+    if (!botao) return { ok: false, motivo: "botao_entrar_nao_encontrado" };
+    await trustedClick(tabId, botao.x, botao.y);
+
+    const aba = await askTab(tabId, { acao: "login_aba", tipo: loginKind(cred.username) }, 20000);
+    if (!aba?.ok) return { ok: false, ...aba };
+    await trustedClick(tabId, aba.ponto.x, aba.ponto.y);
+    await sleep(400); // a aba troca o campo de Login ID
+
+    const campos = await askTab(tabId, { acao: "login_campos" });
+    if (!campos?.ok) return { ok: false, ...campos };
+    await trustedType(tabId, campos.usuario, cred.username);
+    await trustedType(tabId, campos.senha, cred.password);
+  } finally {
+    cred = null; // não guardar a senha além do necessário
+  }
+  await sleep(300);
+  const enviar = await askTab(tabId, { acao: "login_enviar" });
+  if (!enviar?.ok) return { ok: false, ...enviar };
+  if (enviar.ponto && !enviar.desabilitado) await trustedClick(tabId, enviar.ponto.x, enviar.ponto.y);
+  else await pressEnter(tabId);
+
+  const fim = await askTab(tabId, { acao: "login_aguardar" }, 30000);
+  return fim?.ok ? { ok: true, logou: true } : { ok: false, ...fim };
 }
 
 let running = false;

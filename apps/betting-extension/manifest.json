@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Evobo Betano",
-  "version": "0.2.1",
-  "description": "Lê as tips da Betano do Evobo, abre o link, confere a odd e preenche a stake (dry-run: nunca aposta)",
+  "version": "0.4.0",
+  "description": "Lê as tips da Betano do Evobo, loga se precisar, abre o link, confere a odd e preenche a stake; só aposta com \"Apostar de verdade\" ligado",
   "permissions": [
     "storage",
     "alarms",
@@ -22,6 +22,7 @@
       "js": [
         "betano/plan.js",
         "betano/slip.js",
+        "betano/login.js",
         "betano/run.js"
       ],
       "run_at": "document_idle",
