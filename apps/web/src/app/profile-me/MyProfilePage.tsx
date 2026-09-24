@@ -1083,10 +1083,10 @@ export function MyProfilePage() {
         </div>
       )}
 
-      {me.role === "admin" && (
+      {canAccess("telegram_banca") && (
         <div className="mt-6 px-4 lg:px-0">
           <Link
-            to="/admin/auto-betting"
+            to="/auto-betting"
             className="flex items-center gap-3 rounded-2xl border border-border bg-surface p-4 lg:w-[500px] lg:p-5"
           >
             <div className="min-w-0 flex-1">

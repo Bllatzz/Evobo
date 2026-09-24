@@ -3,6 +3,7 @@ import { z } from "zod";
 import { extensionKeyGuard } from "../../middleware/extensionKeyGuard.js";
 import { prisma } from "../../db/prisma.js";
 import { autoBetSettingsView } from "../auto-betting/settings.js";
+import { env } from "../../config/env.js";
 
 /**
  * Queue the Betano Chrome extension (apps/betting-extension) polls: Telegram
@@ -164,7 +165,11 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
     // placed, some skipped) gets no reaction, or it would overwrite the
     // skipped legs as taken (or vice versa).
     const placedCount = legs.filter((l) => l.placed).length;
-    const emoji = placedCount === legs.length ? "👍" : placedCount === 0 ? "👎" : null;
+    // A reação sai pela conta do Telegram do worker, que é a do dono
+    // (OWNER_USER_ID) — pra outro usuário ela marcaria a tip na conta do
+    // dono. Pros outros fica só o "peguei" acima.
+    const isOwner = !!env.OWNER_USER_ID && env.OWNER_USER_ID === userId;
+    const emoji = !isOwner ? null : placedCount === legs.length ? "👍" : placedCount === 0 ? "👎" : null;
     let reaction: string | null = null;
     if (emoji) {
       try {

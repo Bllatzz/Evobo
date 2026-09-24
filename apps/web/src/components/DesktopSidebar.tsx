@@ -15,6 +15,7 @@ import {
   IconPlus,
   IconTrendingUp,
   IconTelegram,
+  IconSparkle,
 } from "./Icon";
 
 const navItems = [
@@ -26,6 +27,7 @@ const navItems = [
   { to: "/games", label: "Jogos", Icon: IconCalendar, end: false, screen: "jogos" },
   { to: "/search", label: "Buscar", Icon: IconSearch, end: false, screen: "busca" },
   { to: "/telegram-tips", label: "VIP Telegram", Icon: IconTelegram, end: false, screen: "telegram_banca" },
+  { to: "/auto-betting", label: "Aposta automática", Icon: IconSparkle, end: false, screen: "telegram_banca" },
 ] as const;
 
 /**

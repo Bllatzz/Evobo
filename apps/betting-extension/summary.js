@@ -89,5 +89,61 @@
     return task?.betUrl ?? null;
   }
 
-  return { summarize, title, motivo, brl };
+  // Motivo curto pra coluna "Resultado" do histórico ("Pulado · odd caiu").
+  const CURTO = {
+    odd_abaixo: "odd caiu",
+    mudou_antes_de_apostar: "odd mudou",
+    acima_do_teto: "acima do teto",
+    login_falhou: "sem login",
+    nao_sei_se_esta_logado: "login incerto",
+    pagina_nao_carregou: "casa não abriu",
+    bilhete_nao_encontrado: "bilhete não abriu",
+    aba_nao_respondeu: "aba não respondeu",
+    tip_sem_odd_ou_unidade: "sem odd/unidade",
+    sem_valor_da_unidade: "sem valor da unidade",
+    sem_unidade: "sem unidade",
+    contagem_diferente: "bilhete diferente",
+    selecao_fora_da_tip: "bilhete diferente",
+    sem_cartao_correspondente: "seleção não achada",
+    cartao_ambiguo: "seleção ambígua",
+    total_do_botao_diferente: "valor não conferiu",
+    botao_desabilitado: "botão desabilitado",
+    clique_falhou: "clique falhou",
+    ja_clicado_antes: "já apostada",
+    odd_ilegivel: "odd ilegível",
+    tip_sem_odd: "tip sem odd",
+  };
+  const curto = (code) => (code ? (CURTO[String(code).split(/[ (]/)[0]] ?? String(code).split(/[ (]/)[0].replace(/_/g, " ")) : null);
+  const numOrNull = (n) => (typeof n === "number" && Number.isFinite(n) ? n : null);
+
+  // Colunas do histórico: grupo, odd da tip → odd pega, stake e motivo curto.
+  function meta(task, relatorio) {
+    const r = relatorio ?? {};
+    let tipOdd = null;
+    let realOdd = null;
+    let stakeReais = null;
+    let reason = null;
+    if (r.multiplaPura && r.multiple) {
+      tipOdd = numOrNull(r.multiple.tipOdd);
+      realOdd = numOrNull(r.multiple.realOdd);
+      stakeReais = r.multiple.action === "stake" ? numOrNull(r.multiple.stakeReais) : null;
+      if (r.multiple.action !== "stake") reason = curto(r.multiple.reason);
+    } else if (r.singles?.legs?.length) {
+      const legs = r.singles.legs;
+      const first = legs.find((l) => l.action === "stake") ?? legs[0];
+      tipOdd = numOrNull(first.tipOdd);
+      realOdd = numOrNull(first.realOdd);
+      const staked = legs.filter((l) => l.action === "stake");
+      stakeReais = staked.length ? staked.reduce((s, l) => s + (l.stakeReais ?? 0), 0) : null;
+      if (!staked.length) reason = curto(legs[0].reason);
+    } else {
+      tipOdd = numOrNull(task?.legs?.[0]?.odd);
+    }
+    if (r.abort) reason = curto(r.abort);
+    else if (r.aposta && !r.aposta.clicked) reason = curto(r.aposta.reason);
+    else if (r.singles?.totalConfere === false || r.multiple?.totalConfere === false) reason = reason ?? "valor não conferiu";
+    return { groupName: task?.groupName ?? null, tipOdd, realOdd, stakeReais, reason };
+  }
+
+  return { summarize, title, meta, motivo, brl };
 });

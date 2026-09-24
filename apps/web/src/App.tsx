@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./stores/auth";
 import { FavoritesProvider } from "./stores/favorites";
 import { ThemeProvider } from "./stores/theme";
@@ -35,7 +35,7 @@ import { AdminRolesPage } from "./app/admin/roles/AdminRolesPage";
 import { AdminPaymentsPage } from "./app/admin/payments/AdminPaymentsPage";
 import { AdminScreensPage } from "./app/admin/screens/AdminScreensPage";
 import { AdminTelegramTipsPage } from "./app/admin/telegram-tips/AdminTelegramTipsPage";
-import { AutoBettingPage } from "./app/admin/auto-betting/AutoBettingPage";
+import { AutoBettingPage } from "./app/auto-betting/AutoBettingPage";
 import { LoginPage } from "./app/login/LoginPage";
 import { RegisterPage } from "./app/register/RegisterPage";
 import { ForgotPasswordPage } from "./app/forgot-password/ForgotPasswordPage";
@@ -371,15 +371,16 @@ function App() {
           />
 
           <Route
-            path="/admin/auto-betting"
+            path="/auto-betting"
             element={
-              <RouteGuard screen="admin">
-                <SidebarFrame>
+              <RouteGuard screen="telegram_banca">
+                <AppShell>
                   <AutoBettingPage />
-                </SidebarFrame>
+                </AppShell>
               </RouteGuard>
             }
           />
+          <Route path="/admin/auto-betting" element={<Navigate to="/auto-betting" replace />} />
 
           {/* Anything else: a "page not found" screen instead of a blank page. */}
           <Route path="*" element={<NotFoundPage />} />

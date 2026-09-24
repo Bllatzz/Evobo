@@ -1,6 +1,6 @@
 // Consulta a fila do Evobo, abre cada tip nova da Betano numa aba, confere a
-// odd e preenche a stake. Tudo é configurado no Evobo (Admin → Aposta
-// automática): ligada/desligada, modo (só conferir / apostar de verdade),
+// odd e preenche a stake. Tudo é configurado no Evobo (/auto-betting —
+// cada usuário a sua): ligada/desligada, modo (só conferir / apostar de verdade),
 // teto por aposta e valor da unidade vêm junto da fila; o que a extensão fez
 // com cada tip volta pro histórico de lá (POST /auto-betting/extension/runs).
 // Só com o modo "Apostar de verdade" o content script clica em "APOSTE JÁ" —
@@ -63,6 +63,7 @@ async function finish(task, relatorio, tempos, config, dryRun) {
         status,
         summary: texto,
         dryRun,
+        meta: EvoboSummary.meta(task, relatorio),
         report: { relatorio, tempos },
       }),
     });
@@ -483,6 +484,26 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
     fastLoop();
     send({ ok: true });
     return;
+  }
+  // Popup: ligar/desligar (grava no Evobo; modo, teto e logins só lá).
+  if (msg?.acao === "ligar" || msg?.acao === "desligar") {
+    (async () => {
+      const config = await getConfig();
+      try {
+        const res = await fetch(`${config.apiUrl}/auto-betting/extension/settings`, {
+          method: "PUT",
+          headers: apiHeaders(config),
+          body: JSON.stringify({ enabled: msg.acao === "ligar" }),
+        });
+        if (!res.ok) return send({ erro: `o Evobo recusou (HTTP ${res.status})` });
+        await set("estado", { at: new Date().toISOString(), settings: await res.json() });
+        send({ ok: true });
+        fastLoop();
+      } catch (e) {
+        send({ erro: `não consegui falar com o Evobo (${String(e?.message ?? e)})` });
+      }
+    })();
+    return true;
   }
   // "Testar um link": link + odd + unidade digitados da mensagem. Sempre só
   // confere (nunca aposta), com o valor da unidade e o teto do Evobo.
