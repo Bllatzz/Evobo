@@ -11,6 +11,13 @@
   const FIELD_SETTLE_MS = 250;
   const FILL_ROUNDS = 3;
 
+  // Perna "não encontrada"/"odd ilegível" costuma ser o cartão ainda sem os
+  // nomes dos times ou a odd (real, 2026-09-24: Austrália x Brasil pulada
+  // assim). Relê o bilhete antes de preencher/apostar qualquer coisa.
+  const RELER_MS = 3000;
+  const RELER_VEZES = 3;
+  const AINDA_CARREGANDO = new Set(["sem_cartao_correspondente", "odd_ilegivel"]);
+
   // Valor atual do campo (o elemento pode ter sido trocado pelo Vue — sempre
   // busca de novo pelo id).
   const fieldValue = (inputId) => document.getElementById(inputId)?.value ?? null;
@@ -164,7 +171,7 @@
     // tips da fila sempre ligam (odd maior nunca barra a aposta).
     report.turbinada = task.boost === false ? { pulou: true } : await S.ensureBoostOn();
 
-    const snapS = S.readSnapshot();
+    let snapS = S.readSnapshot();
 
     // Tip que é uma múltipla só (1 tip, N seleções no bilhete): nada na aba
     // Simples, stake única na aba Múltiplas.
@@ -200,8 +207,21 @@
       return report;
     }
 
-    const singles = planSingles(task, snapS);
+    let singles = planSingles(task, snapS);
+    for (let i = 0; i < RELER_VEZES && !singles.abort && singles.legs.some((l) => AINDA_CARREGANDO.has(l.reason)); i++) {
+      await S.sleep(RELER_MS);
+      const again = S.readSnapshot();
+      if (!again) break;
+      snapS = again;
+      singles = planSingles(task, snapS);
+      report.releituras = i + 1;
+    }
     report.singles = singles;
+    // O que os cartões mostravam quando alguma perna não foi achada — pra
+    // saber da próxima vez se era carregamento ou texto diferente.
+    if (singles.legs.some((l) => AINDA_CARREGANDO.has(l.reason))) {
+      singles.cartoes = snapS.cards.map(({ selection, market, teams, odd }) => ({ selection, market, teams, odd }));
+    }
     if (singles.abort) return { ...report, abort: singles.abort };
 
     // Zera o que sobrou de antes e preenche só as pernas aprovadas. Um campo

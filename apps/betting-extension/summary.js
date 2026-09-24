@@ -82,6 +82,7 @@
       const bloqueada = [...(r.turbinada?.detalhes ?? []), ...(r.turbinadaMultipla?.detalhes ?? [])].some((d) => d.bloqueado);
       linhas.push(`⚠️ Não conseguiu ligar a CA Turbinada${bloqueada ? " (bloqueada pela Betano)" : ""}`);
     }
+    if (r.releituras) linhas.push(`🔄 Releu o bilhete ${r.releituras}x esperando carregar`);
     const pernas = r.multiplaPura ? " (múltipla)" : "";
     for (const l of legs) {
       linhas.push(
