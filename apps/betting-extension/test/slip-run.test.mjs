@@ -375,3 +375,40 @@ test("fase da múltipla com odd abaixo: não aposta", async () => {
   assert.equal(await page.evaluate(() => window.__placeClicks), 0);
   await page.close();
 });
+
+// Real (2026-09-24): Austrália x Brasil pulada com "odd não encontrada" — o
+// cartão ainda não tinha os nomes dos times quando a extensão leu.
+test("cartão que termina de carregar depois: relê e aposta", async () => {
+  const cards = [{ selection: "Brasil (-1.5)", market: "Handicap", teams: [], odd: 2.02 }];
+  const page = await setup({ cards, accOdd: 2.02 });
+  const task = { tipId: "grp:aus-bra", unitValueReais: 10, maxStakeReais: 50, legs: [{ id: "a", match: "Austrália🦘 x 🇧🇷Brasil", selection: "Brasil (-1.5) Handicap", odd: 2.02, unit: 1 }] };
+  const pending = run(page, task);
+  await page.waitForTimeout(1000);
+  await page.evaluate(() => {
+    document.querySelector(".participants").innerHTML = '<span class="participants__participant-name">Austrália</span><span class="participants__participant-name">Brasil</span>';
+  });
+  const r = await pending;
+  assert.equal(r.releituras, 1);
+  assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd]), [["stake", 2.02]]);
+  assert.equal(r.singles.totalConfere, true);
+  await page.close();
+});
+
+test("cartão que nunca bate: relê 3x, pula e guarda o que o cartão mostrava", async () => {
+  const cards = [{ selection: "Argentina (-1.5)", market: "Handicap", teams: ["Argentina", "Chile"], odd: 2.02 }];
+  const page = await setup({ cards, accOdd: 2.02 });
+  const r = await run(page, { tipId: "grp:nunca", unitValueReais: 10, maxStakeReais: 50, legs: [{ id: "a", match: "Austrália x Brasil", selection: "Brasil (-1.5)", odd: 2.02, unit: 1 }] });
+  assert.equal(r.releituras, 3);
+  assert.deepEqual(r.singles.legs.map((l) => l.reason), ["sem_cartao_correspondente"]);
+  assert.deepEqual(r.singles.cartoes[0].teams, ["Argentina", "Chile"]);
+  await page.close();
+});
+
+test("odd abaixo não relê (não é carregamento)", async () => {
+  const cards = [{ selection: "Brasil (-1.5)", market: "Handicap", teams: ["Austrália", "Brasil"], odd: 1.9 }];
+  const page = await setup({ cards, accOdd: 1.9 });
+  const r = await run(page, { tipId: "grp:baixa", unitValueReais: 10, maxStakeReais: 50, legs: [{ id: "a", match: "Austrália x Brasil", selection: "Brasil (-1.5)", odd: 2.02, unit: 1 }] });
+  assert.equal(r.releituras, undefined);
+  assert.deepEqual(r.singles.legs.map((l) => l.reason), ["odd_abaixo"]);
+  await page.close();
+});
