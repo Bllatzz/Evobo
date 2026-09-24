@@ -25,8 +25,12 @@ export async function extensionKeyGuard(request: FastifyRequest, reply: FastifyR
   }
 
   request.authUser = { id: row.user.id, roleId: row.user.roleId, roleName: row.user.role.name };
-  // Best-effort "last seen" for the profile card; never blocks the request.
-  void prisma.extensionKey.update({ where: { userId: row.userId }, data: { lastUsedAt: new Date() } }).catch(() => {});
+  // Best-effort "last seen" for the profile card ("extensão conectada");
+  // never blocks the request. The extension polls every few seconds, so
+  // write at most every 30s.
+  if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 30_000) {
+    void prisma.extensionKey.update({ where: { userId: row.userId }, data: { lastUsedAt: new Date() } }).catch(() => {});
+  }
 }
 
 /** Must run after authGuard. "Aposta automática" is admin-only for now. */

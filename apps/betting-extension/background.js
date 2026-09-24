@@ -1,14 +1,20 @@
 // Consulta a fila do Evobo, abre cada tip nova da Betano numa aba, confere a
-// odd e preenche a stake. Por padrão PARA aí (dry-run); só com a chave
-// "Apostar de verdade" (config.placeReal) o content script clica em
-// "APOSTE JÁ" — ver placeBet em betano/run.js.
+// odd e preenche a stake. Tudo é configurado no Evobo (Admin → Aposta
+// automática): ligada/desligada, modo (só conferir / apostar de verdade),
+// teto por aposta e valor da unidade vêm junto da fila; o que a extensão fez
+// com cada tip volta pro histórico de lá (POST /auto-betting/extension/runs).
+// Só com o modo "Apostar de verdade" o content script clica em "APOSTE JÁ" —
+// ver placeBet em betano/run.js.
 //
 // Estado em chrome.storage.local:
-//   config  { apiUrl, extensionKey, maxStakeReais, unitValueReais, enabled, placeReal }
-//   since   ISO — só tips recebidas depois disso entram (definido ao ligar)
-//   done    { [taskKey]: true } — tips já processadas (ou desistidas)
+//   config  { apiUrl, extensionKey } — a única coisa configurada aqui
+//   estado  { settings, at, erro } — última resposta do Evobo (pro popup)
+//   done    { [taskKey]: true } — tips já processadas (reforço local; o
+//           Evobo também não devolve tip que já tem linha no histórico)
 //   waiting { [taskKey]: firstSeenMs } — tips esperando a OCR preencher odd/unidade
-//   log     últimos relatórios, mais novo primeiro
+//   log     últimos resultados, mais novo primeiro (o popup mostra o último teste)
+
+importScripts("summary.js");
 
 const POLL_ALARM = "evobo-poll";
 const POLL_MINUTES = 0.5; // mínimo do chrome.alarms — só a reserva do laço rápido
@@ -17,12 +23,12 @@ const POLL_MINUTES = 0.5; // mínimo do chrome.alarms — só a reserva do laço
 // Cada volta chama chrome.storage, o que mantém o service worker vivo; se o
 // Chrome derrubar ele mesmo assim, o alarme de 30s religa o laço.
 const FAST_POLL_MS = 4000;
-const MAX_LOG = 30;
+const MAX_LOG = 10;
 const WAIT_FOR_OCR_MS = 10 * 60 * 1000;
 const SLIP_DEADLINE_MS = 45000; // tempo máximo pra página da Betano montar o bilhete
 const SLIP_RETRY_MS = 1000;
 
-const DEFAULT_CONFIG = { apiUrl: "https://evobo-api.fly.dev", extensionKey: "", maxStakeReais: 50, unitValueReais: 20, enabled: false, placeReal: false };
+const DEFAULT_CONFIG = { apiUrl: "https://evobo-api.fly.dev", extensionKey: "" };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const get = async (k, fallback) => (await chrome.storage.local.get(k))[k] ?? fallback;
@@ -38,14 +44,42 @@ async function pushLog(entry) {
   await set("log", log.slice(0, MAX_LOG));
 }
 
-function toRunnerTask(task, unitValueReais, config) {
+const apiHeaders = (config) => ({ "content-type": "application/json", "x-extension-key": config.extensionKey });
+
+// Fim de uma tip (ou teste): guarda o último resultado pro popup e manda pro
+// histórico do Evobo. Falhar o envio não desfaz nada — só fica anotado.
+async function finish(task, relatorio, tempos, config, dryRun) {
+  const { status, texto } = EvoboSummary.summarize(relatorio, tempos);
+  await pushLog({ tip: task, relatorio, tempos, status, texto });
+  try {
+    const res = await fetch(`${config.apiUrl}/auto-betting/extension/runs`, {
+      method: "POST",
+      headers: apiHeaders(config),
+      body: JSON.stringify({
+        bookmaker: "betano",
+        taskKey: task.key,
+        betUrl: task.betUrl ?? null,
+        title: EvoboSummary.title(task),
+        status,
+        summary: texto,
+        dryRun,
+        report: { relatorio, tempos },
+      }),
+    });
+    if (!res.ok) await pushLog({ status: "erro", texto: `não consegui salvar no histórico do Evobo (HTTP ${res.status})` });
+  } catch (e) {
+    await pushLog({ status: "erro", texto: `não consegui salvar no histórico do Evobo (${String(e?.message ?? e)})` });
+  }
+}
+
+function toRunnerTask(task, settings) {
   return {
     tipId: task.key,
-    // Aposta de verdade só com a chave ligada no popup E uma tip da fila do
-    // Evobo — o "Testar um link" (key manual:…) é sempre dry-run.
-    placeReal: config.placeReal === true && !task.key.startsWith("manual:"),
-    unitValueReais,
-    maxStakeReais: config.maxStakeReais,
+    // Aposta de verdade só com o modo "Apostar de verdade" no Evobo E uma tip
+    // da fila — o "Testar um link" (key manual:…) é sempre dry-run.
+    placeReal: settings.placeReal === true && !task.key.startsWith("manual:"),
+    unitValueReais: settings.unitValueReais,
+    maxStakeReais: settings.maxStakeReais,
     limitReais: task.limitReais,
     // Texto original da mensagem: numa múltipla pura é o único lugar com
     // todos os jogos (a tip gravada só guarda o 1º) — ver planPureMultiple.
@@ -77,7 +111,9 @@ async function runInTab(tabId, runnerTask) {
   return last;
 }
 
-async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
+async function openAndRun(task, settings, config, esperouOcrMs = 0) {
+  const runnerTask = toRunnerTask(task, settings);
+  const dryRun = !runnerTask.placeReal;
   // Quanto tempo se passou da mensagem no Telegram até a aba abrir (e
   // quanto disso foi esperando a OCR preencher odd/unidade) — pra saber
   // onde está a demora em vez de chutar.
@@ -101,14 +137,14 @@ async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
   }
   if (!status?.pronto) {
     tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
-    await pushLog({ tipo: "dry_run", tip: task, relatorio: { ok: false, abort: "pagina_nao_carregou", pagina: status }, tempos });
+    await finish(task, { ok: false, abort: "pagina_nao_carregou", pagina: status }, tempos, config, dryRun);
     return null;
   }
   // Nunca ir pra aposta sem saber se está logado (pedido do usuário,
   // 2026-09-23): nem ENTRAR nem sinal de logado em 20s = para aqui.
   if (status.logado === null) {
     tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
-    await pushLog({ tipo: "dry_run", tip: task, relatorio: { ok: false, abort: "nao_sei_se_esta_logado", pagina: status }, tempos });
+    await finish(task, { ok: false, abort: "nao_sei_se_esta_logado", pagina: status }, tempos, config, dryRun);
     return null;
   }
 
@@ -119,15 +155,15 @@ async function openAndRun(task, unitValueReais, config, esperouOcrMs = 0) {
     () => false,
   );
   try {
-    return await runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, held, status);
+    return await runOpenedTab(tab, task, runnerTask, config, abriuEm, tempos, held, status);
   } finally {
     if (held) await releaseDebugger(tab.id);
   }
 }
 
-async function runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, held, status) {
+async function runOpenedTab(tab, task, runnerTask, config, abriuEm, tempos, held, status) {
   tempos.depuradorFixo = held;
-  const runnerTask = toRunnerTask(task, unitValueReais, config);
+  const dryRun = !runnerTask.placeReal;
 
   // Deslogado = não dá pra apostar: loga primeiro. Depois do login a
   // Betano pode redesenhar a página, então abre o link da tip de novo pra
@@ -140,7 +176,7 @@ async function runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, 
   }
   if (!login.ok) {
     tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
-    await pushLog({ tipo: "dry_run", tip: task, relatorio: { ok: false, abort: `login_falhou (${login.falhouEm ? `${login.falhouEm}: ` : ""}${login.motivo ?? "?"})`, login }, tempos });
+    await finish(task, { ok: false, abort: `login_falhou (${login.falhouEm ? `${login.falhouEm}: ` : ""}${login.motivo ?? "?"})`, login }, tempos, config, dryRun);
     return null;
   }
   if (login.logou) {
@@ -151,7 +187,7 @@ async function runOpenedTab(tab, task, unitValueReais, config, abriuEm, tempos, 
   const report = await runInTab(tab.id, runnerTask);
   if (report) report.login = login.logou ? { logouAntes: true, passos: login.passos } : { jaEstavaLogado: true, sinal: login.sinal };
   tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
-  await pushLog({ tipo: "dry_run", tip: task, relatorio: report, tempos });
+  await finish(task, report, tempos, config, dryRun);
   if (runnerTask.placeReal && report?.aposta?.confirmed) await reportResult(task, report, config);
   return report;
 }
@@ -175,9 +211,10 @@ async function reportResult(task, report, config) {
       body: JSON.stringify({ key: task.key, legs, betId: report.aposta.betId ?? null }),
     });
     const body = await res.json().catch(() => null);
-    await pushLog({ tipo: res.ok ? "resultado_enviado" : "erro_resultado", status: res.status, motivo: body?.reaction ?? body?.error ?? null });
+    // Só local (o histórico do Evobo já tem a aposta): se o "peguei"/👍 falhar, aparece no popup.
+    if (!res.ok) await pushLog({ status: "erro", texto: `apostou, mas não consegui marcar "peguei"/👍 no Evobo (${body?.error ?? res.status})` });
   } catch (e) {
-    await pushLog({ tipo: "erro_resultado", erro: String(e?.message ?? e) });
+    await pushLog({ status: "erro", texto: `apostou, mas não consegui marcar "peguei"/👍 no Evobo (${String(e?.message ?? e)})` });
   }
 }
 
@@ -330,43 +367,53 @@ async function ensureLoggedIn(tabId, config, st) {
 
 let running = false;
 
-async function poll({ manualSince } = {}) {
+// Configuração vinda do Evobo pro teste manual (a fila já traz a dela).
+async function fetchSettings(config) {
+  const res = await fetch(`${config.apiUrl}/auto-betting/extension/settings`, { headers: apiHeaders(config) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function poll() {
   if (running) return { skipped: "ja_rodando" };
   running = true;
   try {
     const config = await getConfig();
-    if (!config.extensionKey) return { skipped: "sem_chave" };
-    if (!config.enabled && !manualSince) return { skipped: "desligado" };
+    if (!config.extensionKey) {
+      await set("estado", { at: new Date().toISOString(), erro: "sem_chave" });
+      return { skipped: "sem_chave" };
+    }
 
-    const since = manualSince ?? (await get("since", new Date().toISOString()));
-    const res = await fetch(`${config.apiUrl}/betting-queue/betano?since=${encodeURIComponent(since)}`, {
-      headers: { "x-extension-key": config.extensionKey },
-    });
+    const res = await fetch(`${config.apiUrl}/betting-queue/betano`, { headers: apiHeaders(config) });
     if (!res.ok) {
-      await pushLog({ tipo: "erro_api", status: res.status });
+      await set("estado", { at: new Date().toISOString(), erro: res.status === 401 ? "chave_invalida" : `http_${res.status}` });
       return { erro: res.status };
     }
-    const { unitValueReais, tasks } = await res.json();
+    const { settings, tasks } = await res.json();
+    await set("estado", { at: new Date().toISOString(), settings });
+    if (!settings?.enabled) return { skipped: "desligado_no_evobo" };
 
     const done = await get("done", {});
     const waiting = await get("waiting", {});
     let processed = 0;
 
     for (const task of tasks) {
-      // "Testar agora" reprocessa de propósito — é pra repetir o teste.
-      if (done[task.key] && !manualSince) continue;
+      if (done[task.key]) continue;
 
       // A OCR pode ainda não ter preenchido odd/unidade — espera um pouco.
       if (task.legs.some((l) => l.odd === null || l.unit === null)) {
         waiting[task.key] ??= Date.now();
         if (Date.now() - waiting[task.key] < WAIT_FOR_OCR_MS) continue;
         done[task.key] = true;
-        await pushLog({ tipo: "desistiu", motivo: "tip_sem_odd_ou_unidade", tip: task });
+        delete waiting[task.key];
+        await set("done", done);
+        await finish(task, { ok: false, abort: "tip_sem_odd_ou_unidade" }, null, config, !settings.placeReal);
         continue;
       }
-      if (!unitValueReais) {
-        await pushLog({ tipo: "desistiu", motivo: "sem_valor_da_unidade_no_evobo", tip: task });
+      if (!settings.unitValueReais) {
         done[task.key] = true;
+        await set("done", done);
+        await finish(task, { ok: false, abort: "sem_valor_da_unidade" }, null, config, !settings.placeReal);
         continue;
       }
 
@@ -375,10 +422,7 @@ async function poll({ manualSince } = {}) {
       delete waiting[task.key];
       await set("done", done);
 
-      // "Testar agora" reprocessa tips já feitas de propósito — nunca pode
-      // apostar de verdade, senão apostaria de novo numa aba nova (a marca
-      // anti-clique-duplo é por aba).
-      await openAndRun(task, unitValueReais, manualSince ? { ...config, placeReal: false } : config, esperouOcrMs);
+      await openAndRun(task, settings, config, esperouOcrMs);
       processed++;
     }
 
@@ -386,20 +430,23 @@ async function poll({ manualSince } = {}) {
     await set("waiting", waiting);
     return { tarefas: tasks.length, processadas: processed };
   } catch (e) {
-    await pushLog({ tipo: "erro", erro: String(e?.message ?? e) });
+    await set("estado", { at: new Date().toISOString(), erro: String(e?.message ?? e) });
     return { erro: String(e?.message ?? e) };
   } finally {
     running = false;
   }
 }
 
+// Ligada no Evobo: consulta a cada 4s. Desligada: só o alarme de 30s
+// pergunta (pra perceber quando ligarem), sem gastar requisição à toa.
 let fastLoopOn = false;
 async function fastLoop() {
   if (fastLoopOn) return;
   fastLoopOn = true;
   try {
-    while ((await getConfig()).enabled) {
+    for (;;) {
       await poll();
+      if (!(await get("estado", {})).settings?.enabled) break;
       await sleep(FAST_POLL_MS);
     }
   } finally {
@@ -418,7 +465,7 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.alarms.onAlarm.addListener((a) => a.name === POLL_ALARM && fastLoop());
 
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
-  // Pedido do content script (só pro cabeçalho do bilhete — ver slip.js).
+  // Pedido do content script (cabeçalho do bilhete / APOSTE JÁ — ver slip.js).
   if (msg?.acao === "clique_confiavel") {
     const tabId = sender.tab?.id;
     if (!tabId || !/^https:\/\/([^/]+\.)?betano\.bet\.br\//.test(sender.tab.url ?? "")) {
@@ -431,27 +478,27 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
     );
     return true;
   }
-  if (msg?.acao === "ligar") {
-    // Ligar = só tips que chegarem daqui pra frente.
-    (async () => {
-      await set("config", { ...(await getConfig()), enabled: true });
-      await set("since", new Date().toISOString());
-      send({ ok: true });
-      fastLoop();
-    })();
-    return true;
+  // Popup: chave salva/trocada — pergunta ao Evobo na hora.
+  if (msg?.acao === "atualizar") {
+    fastLoop();
+    send({ ok: true });
+    return;
   }
-  if (msg?.acao === "desligar") {
-    getConfig().then((c) => set("config", { ...c, enabled: false })).then(() => send({ ok: true }));
-    return true;
-  }
-  // Teste local sem a API: o link vem colado e odd/unidade digitadas da mensagem.
+  // "Testar um link": link + odd + unidade digitados da mensagem. Sempre só
+  // confere (nunca aposta), com o valor da unidade e o teto do Evobo.
   if (msg?.acao === "testar_link") {
     (async () => {
       if (running) return send({ skipped: "ja_rodando" });
+      const config = await getConfig();
+      let settings;
+      try {
+        settings = await fetchSettings(config);
+      } catch (e) {
+        return send({ erro: `não consegui falar com o Evobo (${String(e?.message ?? e)}) — confira a chave` });
+      }
+      if (!settings.unitValueReais) return send({ erro: "defina o valor da unidade no Evobo (Meu perfil → Unidade & saldos)" });
       running = true;
       try {
-        const config = await getConfig();
         const task = {
           key: `manual:${Date.now()}`,
           groupName: "teste manual",
@@ -461,15 +508,11 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
           legs: [{ tipId: "manual", match: null, selection: null, odd: msg.odd, unit: msg.unit }],
         };
         send({ ok: true });
-        await openAndRun(task, config.unitValueReais, config);
+        await openAndRun(task, { ...settings, placeReal: false }, config);
       } finally {
         running = false;
       }
     })();
-    return true;
-  }
-  if (msg?.acao === "processar_desde") {
-    poll({ manualSince: msg.since }).then(send);
     return true;
   }
 });

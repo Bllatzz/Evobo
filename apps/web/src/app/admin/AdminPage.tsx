@@ -25,6 +25,7 @@ import {
   IconSparkle,
   IconProfile,
   IconRobotMonitor,
+  IconRobot,
   IconTelegram,
   IconPencil,
   IconTrash,
@@ -61,6 +62,12 @@ const navCards = [
     Icon: IconTelegram,
     label: "VIP Telegram · Tips oficiais",
     description: "Corrigir unidade/odd/casa e marcar green/red/reembolso",
+  },
+  {
+    to: "/admin/auto-betting",
+    Icon: IconRobot,
+    label: "Aposta automática",
+    description: "Ligar a extensão da Betano, modo, teto por aposta e histórico",
   },
 ] as const;
 

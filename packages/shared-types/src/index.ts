@@ -105,6 +105,55 @@ export const SaveBookmakerCredentialInput = z.object({
 });
 export type SaveBookmakerCredentialInput = z.infer<typeof SaveBookmakerCredentialInput>;
 
+/** Configuração da aposta automática, editada no perfil do Evobo. */
+export const UpdateAutoBetSettingsInput = z
+  .object({
+    enabled: z.boolean(),
+    placeReal: z.boolean(),
+    maxStakeReais: z.number().positive().max(100000),
+  })
+  .partial();
+export type UpdateAutoBetSettingsInput = z.infer<typeof UpdateAutoBetSettingsInput>;
+
+export type AutoBetSettingsView = {
+  enabled: boolean;
+  placeReal: boolean;
+  maxStakeReais: number;
+  enabledSince: string | null;
+  /** Vem de "Unidade & saldos" (TelegramBancaSettings) — null se não configurado. */
+  unitValueReais: number | null;
+};
+
+export const AUTO_BET_RUN_STATUSES = ["apostou", "conferiu", "pulou", "abortou", "verificar", "erro"] as const;
+export const AutoBetRunStatus = z.enum(AUTO_BET_RUN_STATUSES);
+export type AutoBetRunStatus = z.infer<typeof AutoBetRunStatus>;
+
+/** O que a extensão manda depois de processar uma tip (ou um teste manual). */
+export const RecordAutoBetRunInput = z.object({
+  bookmaker: AutoBetBookmaker,
+  taskKey: z.string().min(1).max(120),
+  betUrl: z.string().url().max(500).nullable().optional(),
+  title: z.string().max(300).nullable().optional(),
+  status: AutoBetRunStatus,
+  summary: z.string().min(1).max(2000),
+  dryRun: z.boolean(),
+  report: z.unknown().optional(),
+});
+export type RecordAutoBetRunInput = z.infer<typeof RecordAutoBetRunInput>;
+
+export type AutoBetRunView = {
+  id: string;
+  bookmaker: AutoBetBookmaker;
+  taskKey: string;
+  betUrl: string | null;
+  title: string | null;
+  status: AutoBetRunStatus;
+  summary: string;
+  dryRun: boolean;
+  report: unknown;
+  createdAt: string;
+};
+
 export const UserSchema = z.object({
   id: z.string().uuid(),
   username: z.string().min(3).max(30),
