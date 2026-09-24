@@ -80,9 +80,7 @@ async function renderResult() {
   if (!e) return;
   $("resBadge").className = `badge ${e.status}`;
   $("resBadge").textContent = String(e.status ?? "").toUpperCase();
-  $("resQuando").textContent = new Date(e.at).toLocaleTimeString("pt-BR");
   $("resTexto").textContent = e.texto ?? "";
-  $("resDetalhes").textContent = JSON.stringify({ relatorio: e.relatorio, tempos: e.tempos }, null, 2);
 }
 
 (async () => {

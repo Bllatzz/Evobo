@@ -544,6 +544,14 @@ function CredentialForm({
   );
 }
 
+// Texto do histórico: só login, stake e resultado. Entradas gravadas por
+// versões antigas da extensão ainda trazem "⏱ aba aberta…" — some aqui.
+const cleanSummary = (text: string) =>
+  text
+    .split("\n")
+    .filter((line) => !line.startsWith("⏱"))
+    .join("\n");
+
 // Selo do resultado, como na tabela do design ("Pulado · odd caiu").
 function resultBadge(r: AutoBetRunView): { text: string; className: string } {
   const amber = "border-vip-border bg-vip-soft text-vip";
@@ -641,12 +649,7 @@ function HistoryCard({ runs, days, setDays }: { runs: AutoBetRunView[] | null; d
                   </button>
                   {isOpen && (
                     <div className="mb-3 rounded-[10px] bg-surface-chip p-3">
-                      <div className="whitespace-pre-wrap text-[12px] text-text-secondary">{r.summary}</div>
-                      {r.betUrl && (
-                        <a href={r.betUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[12px] font-semibold text-accent">
-                          abrir o link da tip ↗
-                        </a>
-                      )}
+                      <div className="whitespace-pre-wrap text-[12px] text-text-secondary">{cleanSummary(r.summary)}</div>
                     </div>
                   )}
                 </div>
