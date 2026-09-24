@@ -48,8 +48,13 @@ export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", r
               <span>APOSTE JÁ</span>${t > 0 ? `<span> &nbsp;${brl(t)}&nbsp; </span><span>Ganhos Potenciais ${brl(t * 1.6)}</span>` : ""}</button></footer>
           </section>`;
         // Toggle da turbinada: o rótulo alterna o checkbox (como o real).
+        // boost.mode "input-only" imita o HTML real: o <label> não tem `for`
+        // nem envolve o checkbox, então só o checkbox liga.
         const boostLabel = document.querySelector(".toggle-switch__slider");
-        if (boostLabel) boostLabel.onclick = () => { st.boostOn = !st.boostOn; render(); };
+        const boostBox = document.querySelector(".toggle-switch input");
+        if (boost?.mode === "input-only") {
+          if (boostBox) boostBox.onchange = () => { st.boostOn = boostBox.checked; render(); };
+        } else if (boostLabel) boostLabel.onclick = () => { st.boostOn = !st.boostOn; render(); };
         // Cliques nos rótulos das abas (o rótulo real alterna o radio pelo `for`).
         for (const n of [1, 2]) {
           document.querySelector(`[data-qa="tab-${n}"]`).onclick = () => {
