@@ -1,4 +1,4 @@
-import type { AutoBetBookmaker, SaveBookmakerCredentialInput } from "@evobo/shared-types";
+import type { AutoBetBookmaker, AutoBetRunView, AutoBetSettingsView, SaveBookmakerCredentialInput, UpdateAutoBetSettingsInput } from "@evobo/shared-types";
 import { apiFetch } from "./api";
 
 /** Login salvo de uma casa — só a dica mascarada, a API nunca devolve o login pra tela. */
@@ -22,3 +22,10 @@ export const createExtensionKey = (): Promise<{ key: string }> =>
   apiFetch("/auto-betting/extension-key", { method: "POST" });
 
 export const revokeExtensionKey = (): Promise<null> => apiFetch("/auto-betting/extension-key", { method: "DELETE" });
+
+export const fetchAutoBetSettings = (): Promise<AutoBetSettingsView> => apiFetch("/auto-betting/settings");
+
+export const updateAutoBetSettings = (input: UpdateAutoBetSettingsInput): Promise<AutoBetSettingsView> =>
+  apiFetch("/auto-betting/settings", { method: "PUT", body: JSON.stringify(input) });
+
+export const fetchAutoBetRuns = (limit = 30): Promise<AutoBetRunView[]> => apiFetch(`/auto-betting/runs?limit=${limit}`);

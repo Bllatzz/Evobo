@@ -87,6 +87,8 @@ model User {
   favorites                UserFavorite[]
   bookmakerCredentials     BookmakerCredential[]
   extensionKey             ExtensionKey?
+  autoBetSettings          AutoBetSettings?
+  autoBetRuns              AutoBetRun[]
 
   @@map("users")
 }
@@ -612,4 +614,41 @@ model ExtensionKey {
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("extension_keys")
+}
+
+/// "Aposta automática" configurada no Evobo: liga/desliga, modo e teto. O
+/// valor da unidade fica em TelegramBancaSettings.unitValue.
+model AutoBetSettings {
+  userId        String    @id @map("user_id") @db.Uuid
+  enabled       Boolean   @default(false)
+  placeReal     Boolean   @default(false) @map("place_real")
+  maxStakeReais Decimal   @default(50) @map("max_stake_reais") @db.Decimal(10, 2)
+  /// Última vez que foi ligado — só tips recebidas depois disso entram na fila.
+  enabledSince  DateTime? @map("enabled_since")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("auto_bet_settings")
+}
+
+/// O que a extensão fez com cada tip (ou teste manual) — o histórico do perfil.
+model AutoBetRun {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  bookmaker String
+  /// `${groupId}:${telegramMessageId}` da fila, ou "manual:<ms>".
+  taskKey   String   @map("task_key")
+  betUrl    String?  @map("bet_url")
+  title     String?
+  /// apostou | conferiu | pulou | abortou | verificar | erro
+  status    String
+  summary   String
+  dryRun    Boolean  @map("dry_run")
+  report    Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)], map: "auto_bet_runs_user_created_idx")
+  @@index([userId, taskKey], map: "auto_bet_runs_user_task_idx")
+  @@map("auto_bet_runs")
 }

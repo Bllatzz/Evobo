@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { extensionKeyGuard } from "../../middleware/extensionKeyGuard.js";
 import { prisma } from "../../db/prisma.js";
+import { autoBetSettingsView } from "../auto-betting/settings.js";
 
 /**
  * Queue the Betano Chrome extension (apps/betting-extension) polls: Telegram
@@ -60,10 +61,19 @@ const ResultInput = z.object({
 export async function bettingQueueRoutes(app: FastifyInstance) {
   app.addHook("preHandler", extensionKeyGuard);
 
+  // Liga/desliga, modo e teto vêm do perfil do Evobo (auto_bet_settings) e
+  // vão junto da fila — a extensão não guarda configuração própria.
+  // Desligado = fila vazia. Só entram tips recebidas depois de ligar
+  // (enabledSince) e que ainda não têm linha no histórico (auto_bet_runs),
+  // então reiniciar o navegador nunca reprocessa uma tip.
   app.get<{ Querystring: { since?: string } }>("/betano", async (request, reply) => {
-    const since = request.query.since ? new Date(request.query.since) : new Date(Date.now() - 60 * 60 * 1000);
+    const userId = request.authUser!.id;
+    const settings = await autoBetSettingsView(userId);
+    if (!settings.enabled || !settings.enabledSince) return { settings, unitValueReais: settings.unitValueReais, tasks: [] };
+
+    const since = request.query.since ? new Date(request.query.since) : new Date(0);
     if (Number.isNaN(since.getTime())) return reply.code(400).send({ error: "invalid_since" });
-    const floor = new Date(Math.max(since.getTime(), Date.now() - MAX_LOOKBACK_MS));
+    const floor = new Date(Math.max(since.getTime(), new Date(settings.enabledSince).getTime(), Date.now() - MAX_LOOKBACK_MS));
 
     const tips = await prisma.telegramTip.findMany({
       where: {
@@ -94,9 +104,14 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
       task.legs.push({ tipId: t.id, match: t.match, selection: t.selection, odd: num(t.odd), unit: num(t.unit) });
     }
 
-    // Stake = unit × the owner's configured unit value (Banca settings).
-    const settings = await bettorSettings(request.authUser!.id);
-    return { unitValueReais: num(settings?.unitValue ?? null), tasks: [...byMessage.values()] };
+    const keys = [...byMessage.keys()];
+    const done = keys.length
+      ? await prisma.autoBetRun.findMany({ where: { userId, taskKey: { in: keys } }, select: { taskKey: true } })
+      : [];
+    const doneKeys = new Set(done.map((r) => r.taskKey));
+
+    // Stake = unit × the owner's unit value ("Unidade & saldos").
+    return { settings, unitValueReais: settings.unitValueReais, tasks: [...byMessage.values()].filter((t) => !doneKeys.has(t.key)) };
   });
 
   // Only called for a REAL run (never dry-run). Placed legs become "taken"

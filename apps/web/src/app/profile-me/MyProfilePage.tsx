@@ -4,7 +4,6 @@ import { fetchMyBets, type ProfileTip } from "../../lib/profile";
 import { formatOdds, formatUnits } from "../../lib/format";
 import { Avatar } from "../../components/Avatar";
 import { AccountMenu } from "../../components/AccountMenu";
-import { AutoBettingCard } from "./AutoBettingCard";
 import { useAuth } from "../../stores/auth";
 import { bookmakerLabel } from "../../lib/bookmakers";
 import { IconCheck, IconX, IconPlus, IconPencil } from "../../components/Icon";
@@ -1086,7 +1085,16 @@ export function MyProfilePage() {
 
       {me.role === "admin" && (
         <div className="mt-6 px-4 lg:px-0">
-          <AutoBettingCard />
+          <Link
+            to="/admin/auto-betting"
+            className="flex items-center gap-3 rounded-2xl border border-border bg-surface p-4 lg:w-[500px] lg:p-5"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-bold">Aposta automática</div>
+              <div className="text-[12px] text-text-tertiary">Ligar a extensão, modo, teto por aposta e histórico</div>
+            </div>
+            <span className="text-[18px] text-text-tertiary">›</span>
+          </Link>
         </div>
       )}
     </div>

@@ -1,6 +1,14 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { AutoBetBookmaker, SaveBookmakerCredentialInput } from "@evobo/shared-types";
+import {
+  AutoBetBookmaker,
+  RecordAutoBetRunInput,
+  SaveBookmakerCredentialInput,
+  UpdateAutoBetSettingsInput,
+  type AutoBetRunView,
+} from "@evobo/shared-types";
+import { Prisma } from "@prisma/client";
+import { autoBetSettingsView } from "./settings.js";
 import { authGuard } from "../../middleware/authGuard.js";
 import { adminOnly, extensionKeyGuard, hashExtensionKey } from "../../middleware/extensionKeyGuard.js";
 import { recordAuditLog } from "../../middleware/auditLog.js";
@@ -88,6 +96,40 @@ export async function autoBettingRoutes(app: FastifyInstance) {
       return { key };
     });
 
+    profile.get("/settings", async (request) => autoBetSettingsView(request.authUser!.id));
+
+    // Ligar grava enabledSince = agora: só tips que chegarem depois entram na
+    // fila (nunca apostar em tip antiga ao religar).
+    profile.put("/settings", async (request, reply) => {
+      const parsed = UpdateAutoBetSettingsInput.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      const userId = request.authUser!.id;
+      const input = parsed.data;
+      const current = await prisma.autoBetSettings.findUnique({ where: { userId } });
+      const turningOn = input.enabled === true && !current?.enabled;
+      const data = {
+        ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        ...(input.placeReal !== undefined ? { placeReal: input.placeReal } : {}),
+        ...(input.maxStakeReais !== undefined ? { maxStakeReais: input.maxStakeReais } : {}),
+        ...(turningOn ? { enabledSince: new Date() } : {}),
+      };
+      await prisma.autoBetSettings.upsert({ where: { userId }, create: { userId, ...data }, update: data });
+      if (input.enabled !== undefined || input.placeReal !== undefined || input.maxStakeReais !== undefined) {
+        await recordAuditLog({ actorId: userId, action: "auto_bet_settings.update", targetType: "auto_bet_settings", targetId: userId, metadata: input });
+      }
+      return autoBetSettingsView(userId);
+    });
+
+    profile.get<{ Querystring: { limit?: string } }>("/runs", async (request): Promise<AutoBetRunView[]> => {
+      const limit = Math.min(100, Math.max(1, Number(request.query.limit) || 30));
+      const rows = await prisma.autoBetRun.findMany({
+        where: { userId: request.authUser!.id },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+      return rows.map(runView);
+    });
+
     profile.delete("/extension-key", async (request, reply) => {
       const userId = request.authUser!.id;
       await prisma.extensionKey.deleteMany({ where: { userId } });
@@ -118,5 +160,62 @@ export async function autoBettingRoutes(app: FastifyInstance) {
         password: open(row.passwordEnc, ctx(userId, bookmaker.data, "password")),
       };
     });
+
+    // Status/limites pro popup (teste manual) — a fila (betting-queue) manda
+    // o mesmo junto das tips.
+    extension.get("/extension/settings", async (request) => autoBetSettingsView(request.authUser!.id));
+
+    // Histórico: uma linha por tip processada (ou teste manual). Relatório
+    // grande demais é descartado, o resumo fica.
+    extension.post("/extension/runs", async (request, reply) => {
+      const parsed = RecordAutoBetRunInput.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+      const input = parsed.data;
+      const reportJson = input.report === undefined ? undefined : JSON.stringify(input.report);
+      const report =
+        reportJson === undefined ? Prisma.DbNull : reportJson.length > MAX_REPORT_CHARS ? { descartado: "relatorio_grande_demais", tamanho: reportJson.length } : (input.report as Prisma.InputJsonValue);
+      const row = await prisma.autoBetRun.create({
+        data: {
+          userId: request.authUser!.id,
+          bookmaker: input.bookmaker,
+          taskKey: input.taskKey,
+          betUrl: input.betUrl ?? null,
+          title: input.title ?? null,
+          status: input.status,
+          summary: input.summary,
+          dryRun: input.dryRun,
+          report,
+        },
+      });
+      return reply.code(201).send({ id: row.id });
+    });
   });
+}
+
+const MAX_REPORT_CHARS = 100_000;
+
+function runView(r: {
+  id: string;
+  bookmaker: string;
+  taskKey: string;
+  betUrl: string | null;
+  title: string | null;
+  status: string;
+  summary: string;
+  dryRun: boolean;
+  report: Prisma.JsonValue;
+  createdAt: Date;
+}): AutoBetRunView {
+  return {
+    id: r.id,
+    bookmaker: r.bookmaker as AutoBetRunView["bookmaker"],
+    taskKey: r.taskKey,
+    betUrl: r.betUrl,
+    title: r.title,
+    status: r.status as AutoBetRunView["status"],
+    summary: r.summary,
+    dryRun: r.dryRun,
+    report: r.report,
+    createdAt: r.createdAt.toISOString(),
+  };
 }

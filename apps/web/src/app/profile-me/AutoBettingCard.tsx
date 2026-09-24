@@ -19,7 +19,7 @@ function formatDateTime(iso: string) {
 const inputClass = "w-full rounded-[10px] border border-border-strong bg-surface-chip px-3 py-2 text-[13px]";
 const labelClass = "mb-1 font-mono text-[10px] tracking-[0.05em] text-text-tertiary";
 
-/** "Aposta automática" — logins das casas (criptografados na API) e a chave da extensão. Só admin. */
+/** Setup da aposta automática (tela /admin/auto-betting): logins das casas (criptografados na API) e a chave da extensão. Só admin. */
 export function AutoBettingCard() {
   const [enabled, setEnabled] = useState(true);
   const [credentials, setCredentials] = useState<SavedCredential[] | null>(null);
@@ -86,11 +86,8 @@ export function AutoBettingCard() {
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4 lg:w-[500px] lg:p-5">
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-[14px] font-bold">Aposta automática</span>
-        <span className="rounded-full border border-vip-border bg-vip-soft px-2 py-0.5 font-mono text-[10px] text-vip">ADMIN</span>
-      </div>
+    <div className="rounded-2xl border border-border bg-surface p-4 lg:p-5">
+      <div className="mb-1 text-[14px] font-bold">Login da casa</div>
       <p className="mb-4 text-[12px] text-text-tertiary">
         Login da casa pra extensão entrar sozinha. Fica criptografado, e esta tela nunca mostra a senha de volta.
       </p>
