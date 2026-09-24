@@ -135,7 +135,6 @@ export function AutoBettingPage() {
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-3">
             <span className="text-[20px] font-bold tracking-[-0.02em] lg:text-[22px]">Aposta automática</span>
-            <span className="hidden font-mono text-[11px] text-text-tertiary lg:inline">a extensão do Chrome segue o que está aqui</span>
           </div>
           <div className="lg:hidden">{status}</div>
         </div>
@@ -326,7 +325,7 @@ function ValuesCard({ settings, onSave }: { settings: AutoBetSettingsView; onSav
       <div className="mt-2 grid grid-cols-2 gap-3 text-[11px]">
         <span className="text-text-tertiary">Stake maior que isso não é apostada.</span>
         <Link to="/profile" className="font-semibold text-accent">
-          alterar em Meu perfil →
+          alterar em Meu perfil
         </Link>
       </div>
       {settings.unitValueReais === null && (
@@ -576,7 +575,6 @@ function HistoryCard({ runs, days, setDays }: { runs: AutoBetRunView[] | null; d
     <div className={card}>
       <div className="mb-3 flex items-center gap-2">
         <span className="text-[14px] font-bold">Histórico</span>
-        <span className="hidden font-mono text-[10.5px] text-text-tertiary sm:inline">atualiza sozinho</span>
         <div className="ml-auto flex gap-1">
           {filters.map(([d, text]) => (
             <button
@@ -596,11 +594,11 @@ function HistoryCard({ runs, days, setDays }: { runs: AutoBetRunView[] | null; d
         <p className="py-6 text-center text-[12px] text-text-tertiary">Nada nesse período. Cada tip que a extensão abrir aparece aqui.</p>
       ) : (
         <>
-          <div className="hidden grid-cols-[52px_minmax(0,1fr)_76px_104px_64px_148px] gap-3 border-b border-border pb-2 font-mono text-[9.5px] tracking-[0.06em] text-text-tertiary lg:grid">
+          <div className="hidden grid-cols-[52px_minmax(0,1fr)_76px_132px_64px_148px] gap-3 border-b border-border pb-2 font-mono text-[9.5px] tracking-[0.06em] text-text-tertiary lg:grid">
             <span>HORA</span>
             <span>TIP</span>
             <span>CASA</span>
-            <span>ODD TIP → PEGA</span>
+            <span>ODD RECEBIDA → PEGA</span>
             <span>STAKE</span>
             <span>RESULTADO</span>
           </div>
@@ -614,7 +612,7 @@ function HistoryCard({ runs, days, setDays }: { runs: AutoBetRunView[] | null; d
                 <div key={r.id}>
                   <button onClick={() => setOpen(isOpen ? null : r.id)} className="w-full py-2.5 text-left">
                     {/* desktop: linha da tabela */}
-                    <div className="hidden grid-cols-[52px_minmax(0,1fr)_76px_104px_64px_148px] items-center gap-3 lg:grid">
+                    <div className="hidden grid-cols-[52px_minmax(0,1fr)_76px_132px_64px_148px] items-center gap-3 lg:grid">
                       <span className="font-mono text-[11.5px] text-text-secondary">{days === 1 ? hourMin(r.createdAt) : dayMonth(r.createdAt)}</span>
                       <span className="min-w-0">
                         <span className="block truncate text-[12.5px] font-semibold">{title}</span>
