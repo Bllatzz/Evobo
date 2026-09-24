@@ -7,7 +7,7 @@
 // ver placeBet em betano/run.js.
 //
 // Estado em chrome.storage.local:
-//   config  { apiUrl, extensionKey } — a única coisa configurada aqui
+//   config  { extensionKey } — a única coisa configurada aqui (a chave)
 //   estado  { settings, at, erro } — última resposta do Evobo (pro popup)
 //   done    { [taskKey]: true } — tips já processadas (reforço local; o
 //           Evobo também não devolve tip que já tem linha no histórico)
@@ -28,14 +28,18 @@ const WAIT_FOR_OCR_MS = 10 * 60 * 1000;
 const SLIP_DEADLINE_MS = 45000; // tempo máximo pra página da Betano montar o bilhete
 const SLIP_RETRY_MS = 1000;
 
-const DEFAULT_CONFIG = { apiUrl: "https://evobo-api.fly.dev", extensionKey: "" };
+// Endereço do Evobo fixo: o usuário só cola a chave. Um apiUrl que tenha
+// ficado salvo de versões antigas (ex.: localhost em teste) é ignorado.
+const API_URL = "https://evobo-api.fly.dev";
+const DEFAULT_CONFIG = { extensionKey: "" };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const get = async (k, fallback) => (await chrome.storage.local.get(k))[k] ?? fallback;
 const set = (k, v) => chrome.storage.local.set({ [k]: v });
 
 async function getConfig() {
-  return { ...DEFAULT_CONFIG, ...(await get("config", {})) };
+  const saved = await get("config", {});
+  return { extensionKey: saved.extensionKey ?? DEFAULT_CONFIG.extensionKey, apiUrl: API_URL };
 }
 
 async function pushLog(entry) {
