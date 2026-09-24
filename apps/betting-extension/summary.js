@@ -8,78 +8,89 @@
 })(typeof self !== "undefined" ? self : this, function () {
   const brl = (n) => Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  // Texto que aparece no histórico do Evobo e no popup — curto, uma linha
+  // por coisa (pedido do usuário, 2026-09-24):
+  //   🔐 Já estava logado
+  //   ❌ Ignorada: odd abaixo do enviado
+  //   ✅ Apostou — comprovante ID: 21163180418
+  // O relatório completo continua indo junto (report), só não é mostrado.
   const MOTIVOS = {
-    odd_abaixo: "odd menor que a da tip",
-    odd_ilegivel: "não consegui ler a odd",
-    sem_cartao_correspondente: "seleção não encontrada no bilhete",
+    odd_abaixo: "odd abaixo do enviado",
+    odd_ilegivel: "odd não encontrada no bilhete",
+    sem_cartao_correspondente: "odd não encontrada no bilhete",
     cartao_ambiguo: "seleção ambígua no bilhete",
     acima_do_teto: "stake acima do teto",
     sem_unidade: "tip sem unidade",
+    tip_sem_odd: "tip sem odd",
     sem_valor_da_unidade: "valor da unidade não definido no Evobo",
-    tip_sem_odd_ou_unidade: "a tip ficou sem odd/unidade (a leitura da foto não completou)",
+    tip_sem_odd_ou_unidade: "tip sem odd ou unidade",
     nao_sei_se_esta_logado: "não deu pra saber se a Betano está logada",
-    pagina_nao_carregou: "a página da Betano não carregou",
+    pagina_nao_carregou: "a Betano não carregou",
+    login_falhou: "não conseguiu logar na Betano",
+    bilhete_nao_encontrado: "bilhete não abriu",
+    aba_nao_respondeu: "a aba da Betano não respondeu",
+    aba_simples_indisponivel: "bilhete não abriu",
+    aba_multiplas_indisponivel: "aba Múltiplas indisponível",
+    contagem_diferente: "bilhete diferente da tip",
+    selecao_fora_da_tip: "bilhete diferente da tip",
+    sem_multipla_na_aba: "múltipla não encontrada no bilhete",
+    total_do_botao_diferente: "valor do bilhete não conferiu",
+    mudou_antes_de_apostar: "odd mudou antes de apostar",
+    stake_mudou: "valor mudou antes de apostar",
+    botao_desabilitado: "botão de apostar desabilitado",
+    clique_falhou: "o clique em apostar falhou",
+    ja_clicado_antes: "já tinha sido apostada",
+    bilhete_sumiu: "bilhete sumiu",
   };
-  const motivo = (m) => MOTIVOS[m] ?? m;
+  const codeOf = (m) => String(m ?? "").split(/[ (]/)[0];
+  const motivo = (m) => MOTIVOS[codeOf(m)] ?? codeOf(m).replace(/_/g, " ");
 
-  function linhaLogin(l) {
-    if (!l) return "";
-    if (l.logouAntes) return "🔐 Estava deslogado — logou antes\n";
-    if (l.jaEstavaLogado) return "🔐 Já estava logado\n";
+  function linhaLogin(r) {
+    if (codeOf(r.abort) === "login_falhou") return "🔐 Não conseguiu logar";
+    if (r.login?.logouAntes) return "🔐 Estava deslogado — logou";
+    if (r.login?.jaEstavaLogado) return "🔐 Já estava logado";
     return "";
   }
 
   function linhaAposta(a) {
-    if (!a) return "";
-    if (a.confirmed) return `\n💰 Apostou — comprovante ${a.betId ?? "sem ID"}`;
-    if (a.clicked) return `\n⚠ Clicou em APOSTE JÁ mas o comprovante não apareceu — verificar na Betano${a.mensagens?.length ? ` (${a.mensagens.join(" | ")})` : ""}`;
-    return `\n✘ Não clicou: ${motivo(a.reason)}${a.erro ? ` (${a.erro})` : ""}`;
-  }
-
-  function linhaTempos(t) {
-    if (!t) return "";
-    const ocr = t.esperouOcrS > 0 ? `, ${t.esperouOcrS}s esperando a foto` : "";
-    return `\n⏱ aba aberta ${t.mensagemAteAbaS}s depois da mensagem${ocr}; resolvido em ${t.abaAteFimS ?? "?"}s`;
-  }
-
-  function linhasPlano(r) {
-    const naoApostou = r.dryRun ? " — stake preenchida, não apostou" : "";
-    const naoConfere = "\n⚠ o total do botão da Betano NÃO confere com a stake";
-    if (r.multiplaPura) {
-      const m = r.multiple;
-      return m?.action === "stake"
-        ? { temStake: true, texto: `✔ Múltipla de ${m.pernas}: R$ ${brl(m.stakeReais)} @ ${m.realOdd} (tip ${m.tipOdd})${naoApostou}${m.totalConfere === false ? naoConfere : ""}` }
-        : { temStake: false, texto: `✘ Múltipla ignorada: ${motivo(m?.reason)} (tip ${m?.tipOdd}, Betano ${m?.realOdd ?? "?"})` };
-    }
-    const legs = r.singles?.legs ?? [];
-    return {
-      temStake: legs.some((l) => l.action === "stake"),
-      texto: legs
-        .map((l) =>
-          l.action === "stake"
-            ? `✔ R$ ${brl(l.stakeReais)} @ ${l.realOdd} (tip ${l.tipOdd})${naoApostou}${r.singles.totalConfere === false ? naoConfere : ""}`
-            : `✘ Ignorada: ${motivo(l.reason)} (tip ${l.tipOdd}, Betano ${l.realOdd ?? "?"})`,
-        )
-        .join("\n"),
-    };
+    if (a.confirmed) return `✅ Apostou — comprovante ID: ${a.betId ?? "sem ID"}`;
+    if (a.clicked) return "⚠️ Clicou em apostar mas o comprovante não apareceu — confira na Betano";
+    return `❌ Não apostou: ${motivo(a.reason)}`;
   }
 
   // status: apostou | conferiu | pulou | abortou | verificar | erro
   // (os mesmos de AUTO_BET_RUN_STATUSES em @evobo/shared-types).
-  function summarize(relatorio, tempos) {
+  function summarize(relatorio) {
     const r = relatorio;
-    if (!r) return { status: "erro", texto: "a aba da Betano não respondeu" };
+    if (!r) return { status: "erro", texto: "❌ Erro: a aba da Betano não respondeu" };
+    const linhas = [linhaLogin(r)];
     if (r.abort) {
-      const [code, ...rest] = String(r.abort).split(" ");
-      return { status: "abortou", texto: `✘ Parou: ${motivo(code)}${rest.length ? ` ${rest.join(" ")}` : ""}` };
+      if (codeOf(r.abort) !== "login_falhou") linhas.push(`❌ Parou: ${motivo(r.abort)}`);
+      return { status: "abortou", texto: linhas.filter(Boolean).join("\n") };
     }
-    const plano = linhasPlano(r);
-    const texto = linhaLogin(r.login) + plano.texto + linhaAposta(r.aposta) + linhaTempos(tempos);
-    if (r.aposta?.confirmed) return { status: "apostou", texto };
-    if (r.aposta?.clicked) return { status: "verificar", texto };
-    if (r.aposta) return { status: "pulou", texto };
-    if (!plano.temStake) return { status: "pulou", texto };
-    return { status: r.dryRun ? "conferiu" : "pulou", texto };
+
+    // Pernas ignoradas (odd abaixo, não achada…) — uma linha cada.
+    const legs = r.multiplaPura ? [r.multiple].filter(Boolean) : (r.singles?.legs ?? []);
+    for (const l of legs) if (l.action !== "stake") linhas.push(`❌ Ignorada: ${motivo(l.reason)}`);
+    const temStake = legs.some((l) => l.action === "stake");
+    const naoConfere = (r.multiplaPura ? r.multiple?.totalConfere : r.singles?.totalConfere) === false;
+
+    let status;
+    if (r.aposta) {
+      linhas.push(linhaAposta(r.aposta));
+      status = r.aposta.confirmed ? "apostou" : r.aposta.clicked ? "verificar" : "pulou";
+    } else if (!temStake) {
+      status = "pulou";
+    } else if (naoConfere) {
+      linhas.push(`❌ Não apostou: ${MOTIVOS.total_do_botao_diferente}`);
+      status = "pulou";
+    } else if (r.dryRun) {
+      linhas.push("✅ Conferiu — stake preenchida, não apostou (modo só conferir)");
+      status = "conferiu";
+    } else {
+      status = "pulou";
+    }
+    return { status, texto: linhas.filter(Boolean).join("\n") };
   }
 
   // Título da tip pro histórico: "Jogo — seleção" ou o link.

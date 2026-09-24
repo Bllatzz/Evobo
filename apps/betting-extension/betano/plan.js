@@ -22,6 +22,10 @@
       .replace(/[̀-ͯ]/g, "")
       .toLowerCase()
       .replace(/(\d),(\d)/g, "$1.$2")
+      // Tipster escreve "+0.5 HT -4.5 Cards"; a Betano, "Mais de 0.5" /
+      // "Menos de 4.5" — sem isto a direção nunca batia (2026-09-24).
+      .replace(/(^|[\s(])\+(?=\d)/g, "$1 mais ")
+      .replace(/(^|[\s(])[-−](?=\d)/g, "$1 menos ")
       .replace(/[^a-z0-9.\s]/g, " ")
       .replace(/\s+/g, " ")
       .trim();

@@ -647,10 +647,6 @@ function HistoryCard({ runs, days, setDays }: { runs: AutoBetRunView[] | null; d
                           abrir o link da tip ↗
                         </a>
                       )}
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-[11px] text-text-tertiary">relatório completo</summary>
-                        <pre className="mt-2 max-h-72 overflow-auto font-mono text-[10.5px] text-text-tertiary">{JSON.stringify(r.report, null, 2)}</pre>
-                      </details>
                     </div>
                   )}
                 </div>

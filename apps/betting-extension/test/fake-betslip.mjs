@@ -3,11 +3,12 @@
 // (2026-09-21): abas Simples/Múltiplas, um input por cartão na aba Simples,
 // linha `accumulator` na aba Múltiplas, botão que soma as stakes. Não é a
 // Betano: valida a lógica da extensão, não o site.
-export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", receipt = false, debounceMs = 0 }) {
+export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", receipt = false, debounceMs = 0, boost = null }) {
   await page.setContent('<body><div id="root"></div></body>');
   await page.evaluate(
-    ({ cards, accOdd, decimal, receipt, debounceMs }) => {
-      const st = { tab: 1, singles: {}, acc: "" };
+    ({ cards, accOdd, decimal, receipt, debounceMs, boost }) => {
+      // boost: { on, boostedOdd } — "CA Turbinada" do Criar Aposta no 1º cartão.
+      const st = { tab: 1, singles: {}, acc: "", boostOn: !!boost?.on };
       const num = (v) => {
         if (v === "" || v == null) return 0;
         // decimal "," = a "Betano" não entende ponto (simula o separador errado → vira 0)
@@ -35,12 +36,20 @@ export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", r
               <input type="radio" name="tab" value="2" ${st.tab === 2 ? "checked" : ""} ${cards.length < 2 ? "disabled" : ""}><label data-qa="tab-2">Múltiplas</label>
               <input type="radio" name="tab" value="3" disabled><label data-qa="tab-3">Sistema</label>
             </form>
-            <div data-qa="selections-list">${cards.map((c, i) => cardHtml(c, i, st.tab === 1)).join("")}</div>
+            ${boost ? `<section class="bet-builder-booster-toggle-wrapper"><div data-qa="bet-builder-boost"><span>CA TURBINADA</span><span data-qa="bet-builder-booster-percentage">25%</span></div>
+              <div class="toggle-switch" data-qa="bet-builder-boost-toggle-${st.boostOn ? "enabled" : "disabled"}"><input type="checkbox" ${st.boostOn ? "checked" : ""}><label class="toggle-switch__slider" style="display:inline-block;width:30px;height:16px"></label></div></section>` : ""}
+            <div data-qa="selections-list">${cards
+              .map((c, i) => (boost && i === 0 ? (st.boostOn ? { ...c, oddOriginal: c.odd, odd: boost.boostedOdd } : c) : c))
+              .map((c, i) => cardHtml(c, i, st.tab === 1))
+              .join("")}</div>
             ${st.tab === 2 ? `<div data-qa="accumulator"><div>Dupla = 1</div><span data-qa="bet-odds">${accOdd}</span>
               <input id="stakeInput_2:DBL:x" type="text" data-qa="stake-area-multiple" value="${st.acc}"></div>` : ""}
             <footer><button data-qa="${t > 0 ? "place-bet-button" : "place-bet-button-disabled"}" ${t > 0 ? "" : "disabled"}>
               <span>APOSTE JÁ</span>${t > 0 ? `<span> &nbsp;${brl(t)}&nbsp; </span><span>Ganhos Potenciais ${brl(t * 1.6)}</span>` : ""}</button></footer>
           </section>`;
+        // Toggle da turbinada: o rótulo alterna o checkbox (como o real).
+        const boostLabel = document.querySelector(".toggle-switch__slider");
+        if (boostLabel) boostLabel.onclick = () => { st.boostOn = !st.boostOn; render(); };
         // Cliques nos rótulos das abas (o rótulo real alterna o radio pelo `for`).
         for (const n of [1, 2]) {
           document.querySelector(`[data-qa="tab-${n}"]`).onclick = () => {
@@ -87,6 +96,6 @@ export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", r
       });
       render();
     },
-    { cards, accOdd, decimal, receipt, debounceMs },
+    { cards, accOdd, decimal, receipt, debounceMs, boost },
   );
 }
