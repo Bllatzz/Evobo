@@ -88,7 +88,7 @@ test("combo: simples apostadas, uma suspensa, múltipla ignorada", () => {
     aposta: { clicked: true, confirmed: true, betId: "B1" },
   });
   assert.equal(status, "apostou");
-  assert.match(texto, /❌ Ignorada: seleção suspensa\/bloqueada na Betano/);
+  assert.match(texto, /❌ Ignorada: seleção suspensa\/bloqueada na casa/);
   assert.match(texto, /❌ Múltipla ignorada: nem todas as simples foram apostadas/);
 });
 

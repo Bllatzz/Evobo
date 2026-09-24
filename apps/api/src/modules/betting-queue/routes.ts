@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { AUTO_BET_BOOKMAKERS, AutoBetBookmaker } from "@evobo/shared-types";
 import { extensionKeyGuard } from "../../middleware/extensionKeyGuard.js";
 import { prisma } from "../../db/prisma.js";
 import { autoBetSettingsView } from "../auto-betting/settings.js";
@@ -20,6 +21,22 @@ import { env } from "../../config/env.js";
 
 const MAX_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
+/** Links de tip que MONTAM o bilhete em cada casa — só esses entram na fila.
+ * Bet365: "/dl/sportsbookredirect?…&bs=…" (Padovan) e o curto "/s/r/…"
+ * (Lemos), que redireciona pra ele. Link de página de jogo ("/#/AC/…")
+ * não monta bilhete e fica de fora. */
+const SLIP_LINKS: Record<AutoBetBookmaker, (url: string) => boolean> = {
+  betano: (url) => url.includes("betano.bet.br"),
+  bet365: (url) => /bet365\.bet\.br\/(dl\/sportsbookredirect|s\/r\/)/.test(url),
+};
+const HOST: Record<AutoBetBookmaker, string> = { betano: "betano.bet.br", bet365: "bet365.bet.br" };
+
+/** Casa de um link de tip (pro "peguei"), ou null. */
+export function bookmakerOfUrl(url: string | null): AutoBetBookmaker | null {
+  if (!url) return null;
+  return (AUTO_BET_BOOKMAKERS.find((b) => url.includes(HOST[b])) ?? null) as AutoBetBookmaker | null;
+}
+
 export type BettingTaskLeg = {
   tipId: string;
   match: string | null;
@@ -31,6 +48,7 @@ export type BettingTaskLeg = {
 export type BettingTask = {
   /** `${groupId}:${telegramMessageId}` — stable id the extension dedupes on. */
   key: string;
+  bookmaker: AutoBetBookmaker;
   groupName: string;
   receivedAt: string;
   betUrl: string;
@@ -93,7 +111,10 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
   // Desligado = fila vazia. Só entram tips recebidas depois de ligar
   // (enabledSince) e que ainda não têm linha no histórico (auto_bet_runs),
   // então reiniciar o navegador nunca reprocessa uma tip.
-  app.get<{ Querystring: { since?: string } }>("/betano", async (request, reply) => {
+  app.get<{ Params: { bookmaker: string }; Querystring: { since?: string } }>("/:bookmaker", async (request, reply) => {
+    const parsedBookmaker = AutoBetBookmaker.safeParse(request.params.bookmaker);
+    if (!parsedBookmaker.success) return reply.code(404).send({ error: "unsupported_bookmaker" });
+    const bookmaker = parsedBookmaker.data;
     const userId = request.authUser!.id;
     const settings = await autoBetSettingsView(userId);
     if (!settings.enabled || !settings.enabledSince) return { settings, unitValueReais: settings.unitValueReais, tasks: [] };
@@ -106,7 +127,7 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
       where: {
         receivedAt: { gte: floor },
         result: "pending",
-        betUrl: { contains: "betano.bet.br" },
+        betUrl: { contains: HOST[bookmaker] },
       },
       include: { group: { select: { name: true } } },
       orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
@@ -116,11 +137,13 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
     const patterns = new Map<string, Set<string | null>>();
     const selections = new Map<string, string | null>();
     for (const t of tips) {
+      if (!SLIP_LINKS[bookmaker](t.betUrl!)) continue;
       const key = `${t.groupId}:${t.telegramMessageId}`;
       let task = byMessage.get(key);
       if (!task) {
         task = {
           key,
+          bookmaker,
           groupName: t.group.name,
           receivedAt: t.receivedAt.toISOString(),
           betUrl: t.betUrl!,
@@ -202,7 +225,7 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
           takenStatus: "taken",
           odd: leg.realOdd,
           unit: leg.stakeReais !== null ? Math.round((leg.stakeReais / unitValue) * 100) / 100 : num(tip.unit),
-          bookmaker: "betano",
+          bookmaker: bookmakerOfUrl(tip.betUrl) ?? "betano",
           betUrl: tip.betUrl,
         };
         await prisma.telegramTipTake.upsert({

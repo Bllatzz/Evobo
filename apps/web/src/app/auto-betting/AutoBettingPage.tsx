@@ -53,7 +53,7 @@ const fieldLabel = "mb-1.5 font-mono text-[10px] tracking-[0.06em] text-text-ter
 const inputClass = "w-full rounded-[10px] border border-border-strong bg-surface-chip px-3 py-2 text-[13px] outline-none focus:border-accent";
 
 // Casas: as suportadas pela extensão + as que ainda vão chegar.
-const COMING_SOON: { slug: string; label: string }[] = [{ slug: "bet365", label: "Bet365" }];
+const COMING_SOON: { slug: string; label: string }[] = [];
 const BOOKMAKER_BADGE: Record<string, { letter: string; className: string }> = {
   betano: { letter: "B", className: "bg-orange text-white" },
   bet365: { letter: "3", className: "bg-[#126E51] text-[#FFDF1B]" },

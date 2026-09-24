@@ -34,6 +34,16 @@ const API_URL = "https://evobo-api.fly.dev";
 const DEFAULT_CONFIG = { extensionKey: "" };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Casas suportadas e como reconhecer cada uma pelo link/aba.
+const HOSTS = { betano: /^https:\/\/([^/]+\.)?betano\.bet\.br\//, bet365: /^https:\/\/([^/]+\.)?bet365\.bet\.br\// };
+const bookmakerOf = (url) => Object.keys(HOSTS).find((b) => HOSTS[b].test(url ?? "")) ?? null;
+const LABEL = { betano: "Betano", bet365: "Bet365" };
+
+// Bet365 ainda NÃO clica em "Fazer aposta", nem com "Apostar de verdade"
+// ligado no Evobo: só confere, até o fluxo (login, "Simples e Múltiplas",
+// stakes, comprovante) ser validado no site real com o usuário.
+const BET365_REAL_ENABLED = false;
 const get = async (k, fallback) => (await chrome.storage.local.get(k))[k] ?? fallback;
 const set = (k, v) => chrome.storage.local.set({ [k]: v });
 
@@ -60,7 +70,7 @@ async function finish(task, relatorio, tempos, config, dryRun) {
       method: "POST",
       headers: apiHeaders(config),
       body: JSON.stringify({
-        bookmaker: "betano",
+        bookmaker: task.bookmaker ?? bookmakerOf(task.betUrl) ?? "betano",
         taskKey: task.key,
         betUrl: task.betUrl ?? null,
         title: EvoboSummary.title(task),
@@ -82,7 +92,10 @@ function toRunnerTask(task, settings) {
     tipId: task.key,
     // Aposta de verdade só com o modo "Apostar de verdade" no Evobo E uma tip
     // da fila — o "Testar um link" (key manual:…) é sempre dry-run.
-    placeReal: settings.placeReal === true && !task.key.startsWith("manual:"),
+    placeReal:
+      settings.placeReal === true &&
+      !task.key.startsWith("manual:") &&
+      ((task.bookmaker ?? bookmakerOf(task.betUrl)) !== "bet365" || BET365_REAL_ENABLED),
     unitValueReais: settings.unitValueReais,
     maxStakeReais: settings.maxStakeReais,
     limitReais: task.limitReais,
@@ -179,7 +192,7 @@ async function runOpenedTab(tab, task, runnerTask, config, abriuEm, tempos, held
   // montar o bilhete do zero.
   let login;
   try {
-    login = await ensureLoggedIn(tab.id, config, status);
+    login = await ensureLoggedIn(tab.id, config, status, task.bookmaker ?? bookmakerOf(task.betUrl) ?? "betano");
   } catch (e) {
     login = { ok: false, motivo: "erro", erro: String(e?.message ?? e) };
   }
@@ -297,11 +310,22 @@ const trustedClick = (tabId, x, y) => withDebugger(tabId, (t) => cdpClick(t, x, 
 
 // Clica no campo e digita com o teclado do Chrome (Input.insertText) — o
 // texto nunca passa pelo content script nem pelo JS da página.
+// Ctrl+A antes: substitui o que o campo já tiver (a Bet365 deixa o usuário
+// preenchido no login; o campo de stake pode ter valor lembrado).
 const trustedType = (tabId, { x, y }, value) =>
   withDebugger(tabId, async (t) => {
     await cdpClick(t, x, y);
     await sleep(150);
-    await chrome.debugger.sendCommand(t, "Input.insertText", { text: value });
+    for (const type of ["rawKeyDown", "keyUp"]) {
+      await chrome.debugger.sendCommand(t, "Input.dispatchKeyEvent", { type, modifiers: 2, key: "a", code: "KeyA", windowsVirtualKeyCode: 65 });
+    }
+    if (value === "") {
+      for (const type of ["rawKeyDown", "keyUp"]) {
+        await chrome.debugger.sendCommand(t, "Input.dispatchKeyEvent", { type, key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
+      }
+    } else {
+      await chrome.debugger.sendCommand(t, "Input.insertText", { text: value });
+    }
   });
 
 const pressEnter = (tabId) =>
@@ -337,14 +361,14 @@ function loginKind(username) {
 // Loga na Betano se a aba estiver deslogada (botão ENTRAR no cabeçalho).
 // Usuário e senha vêm do Evobo (salvos criptografados no perfil → "Aposta
 // automática") e só existem nesta função, em memória.
-async function ensureLoggedIn(tabId, config, st) {
+async function ensureLoggedIn(tabId, config, st, bookmaker = "betano") {
   if (st.logado) return { ok: true, jaLogado: true, sinal: st.sinal };
 
-  const res = await fetch(`${config.apiUrl}/auto-betting/extension/credentials/betano`, {
+  const res = await fetch(`${config.apiUrl}/auto-betting/extension/credentials/${bookmaker}`, {
     headers: { "x-extension-key": config.extensionKey },
   });
   if (!res.ok) {
-    const motivo = res.status === 404 ? "login_da_betano_nao_salvo_no_evobo" : res.status === 409 ? "recadastre_o_login_da_betano_no_evobo" : `erro_credencial_${res.status}`;
+    const motivo = res.status === 404 ? `login_da_${bookmaker}_nao_salvo_no_evobo` : res.status === 409 ? `recadastre_o_login_da_${bookmaker}_no_evobo` : `erro_credencial_${res.status}`;
     return { ok: false, motivo };
   }
   let cred = await res.json();
@@ -358,15 +382,22 @@ async function ensureLoggedIn(tabId, config, st) {
   try {
     const botao = await askTab(tabId, { acao: "login_botao" });
     if (!botao) return falhou({ motivo: "botao_entrar_nao_encontrado" }, "entrar");
-    await trustedClick(tabId, botao.x, botao.y);
-    passos.push({ passo: "entrar", ponto: botao });
+    // Bet365: o modal de login já abre sozinho com o link da tip.
+    if (botao.jaAberto) passos.push({ passo: "entrar", alvo: "modal já aberto" });
+    else {
+      await trustedClick(tabId, botao.x, botao.y);
+      passos.push({ passo: "entrar", ponto: botao });
+    }
 
     const tipo = loginKind(cred.username);
     const aba = await askTab(tabId, { acao: "login_aba", tipo }, 20000);
     if (!aba?.ok) return falhou(aba, "aba");
-    await trustedClick(tabId, aba.ponto.x, aba.ponto.y);
-    passos.push({ passo: `aba_${tipo}`, alvo: aba.alvo, ponto: aba.ponto });
-    await sleep(400); // a aba troca o campo de Login ID
+    // Bet365 não tem abas (ponto null).
+    if (aba.ponto) {
+      await trustedClick(tabId, aba.ponto.x, aba.ponto.y);
+      passos.push({ passo: `aba_${tipo}`, alvo: aba.alvo, ponto: aba.ponto });
+      await sleep(400); // a aba troca o campo de Login ID
+    }
 
     const campos = await askTab(tabId, { acao: "login_campos" });
     if (!campos?.ok) return falhou(campos, "campos");
@@ -417,12 +448,21 @@ async function poll() {
       return { skipped: "sem_chave" };
     }
 
+    // Uma fila por casa; a configuração vem igual nas duas.
     const res = await fetch(`${config.apiUrl}/betting-queue/betano`, { headers: apiHeaders(config) });
     if (!res.ok) {
       await set("estado", { at: new Date().toISOString(), erro: res.status === 401 ? "chave_invalida" : `http_${res.status}` });
       return { erro: res.status };
     }
-    const { settings, tasks } = await res.json();
+    const { settings, tasks: betanoTasks } = await res.json();
+    let bet365Tasks = [];
+    if (settings?.enabled) {
+      const r365 = await fetch(`${config.apiUrl}/betting-queue/bet365`, { headers: apiHeaders(config) }).catch(() => null);
+      if (r365?.ok) bet365Tasks = (await r365.json()).tasks ?? [];
+    }
+    const tasks = [...betanoTasks.map((t) => ({ bookmaker: "betano", ...t })), ...bet365Tasks.map((t) => ({ bookmaker: "bet365", ...t }))].sort(
+      (a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime(),
+    );
     await set("estado", { at: new Date().toISOString(), settings });
     if (!settings?.enabled) return { skipped: "desligado_no_evobo" };
 
@@ -510,11 +550,25 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
   // Pedido do content script (cabeçalho do bilhete / APOSTE JÁ — ver slip.js).
   if (msg?.acao === "clique_confiavel") {
     const tabId = sender.tab?.id;
-    if (!tabId || !/^https:\/\/([^/]+\.)?betano\.bet\.br\//.test(sender.tab.url ?? "")) {
+    if (!tabId || !bookmakerOf(sender.tab.url)) {
       send({ ok: false, erro: "aba_invalida" });
       return;
     }
     trustedClick(tabId, msg.x, msg.y).then(
+      () => send({ ok: true }),
+      (e) => send({ ok: false, erro: String(e?.message ?? e) }),
+    );
+    return true;
+  }
+  // Pedido do content script da Bet365: digitar a stake (os campos só
+  // aceitam teclado "de verdade").
+  if (msg?.acao === "digitar_confiavel") {
+    const tabId = sender.tab?.id;
+    if (!tabId || !bookmakerOf(sender.tab.url) || typeof msg.texto !== "string" || msg.texto.length > 20) {
+      send({ ok: false, erro: "aba_invalida" });
+      return;
+    }
+    trustedType(tabId, { x: msg.x, y: msg.y }, msg.texto).then(
       () => send({ ok: true }),
       (e) => send({ ok: false, erro: String(e?.message ?? e) }),
     );
@@ -551,6 +605,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
   if (msg?.acao === "testar_link") {
     (async () => {
       if (running) return send({ skipped: "ja_rodando" });
+      if (!bookmakerOf(msg.betUrl)) return send({ erro: "cole um link da Betano ou da Bet365" });
       const config = await getConfig();
       let settings;
       try {
@@ -566,6 +621,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
           groupName: "teste manual",
           receivedAt: new Date().toISOString(),
           betUrl: msg.betUrl,
+          bookmaker: bookmakerOf(msg.betUrl),
           limitReais: null,
           boost: msg.boost !== false,
           legs: [{ tipId: "manual", match: null, selection: null, odd: msg.odd, unit: msg.unit }],

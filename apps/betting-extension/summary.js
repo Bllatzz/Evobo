@@ -25,11 +25,11 @@
     tip_sem_odd: "tip sem odd",
     sem_valor_da_unidade: "valor da unidade não definido no Evobo",
     tip_sem_odd_ou_unidade: "tip sem odd ou unidade",
-    nao_sei_se_esta_logado: "não deu pra saber se a Betano está logada",
-    pagina_nao_carregou: "a Betano não carregou",
-    login_falhou: "não conseguiu logar na Betano",
+    nao_sei_se_esta_logado: "não deu pra saber se a casa está logada",
+    pagina_nao_carregou: "a página da casa não carregou",
+    login_falhou: "não conseguiu logar na casa",
     bilhete_nao_encontrado: "bilhete não abriu",
-    aba_nao_respondeu: "a aba da Betano não respondeu",
+    aba_nao_respondeu: "a aba da casa não respondeu",
     aba_simples_indisponivel: "bilhete não abriu",
     aba_multiplas_indisponivel: "aba Múltiplas indisponível",
     contagem_diferente: "bilhete diferente da tip",
@@ -42,7 +42,8 @@
     clique_falhou: "o clique em apostar falhou",
     ja_clicado_antes: "já tinha sido apostada",
     bilhete_sumiu: "bilhete sumiu",
-    cartao_sem_campo_de_stake: "seleção suspensa/bloqueada na Betano",
+    modo_do_bilhete: "não conseguiu passar o bilhete pra Simples e Múltiplas",
+    cartao_sem_campo_de_stake: "seleção suspensa/bloqueada na casa",
     simples_nao_foram_todas: "nem todas as simples foram apostadas",
     simples_sem_comprovante: "as simples não foram confirmadas",
     combo_sem_multipla_identificada: "não deu pra separar a múltipla das simples",
@@ -59,7 +60,7 @@
 
   function linhaAposta(a) {
     if (a.confirmed) return `💰 Apostou — comprovante ID: ${a.betId ?? "sem ID"}`;
-    if (a.clicked) return "⚠️ Clicou em apostar mas o comprovante não apareceu — confira na Betano";
+    if (a.clicked) return "⚠️ Clicou em apostar mas o comprovante não apareceu — confira na casa";
     return `❌ Não apostou: ${motivo(a.reason)}`;
   }
 
@@ -67,7 +68,7 @@
   // (os mesmos de AUTO_BET_RUN_STATUSES em @evobo/shared-types).
   function summarize(relatorio) {
     const r = relatorio;
-    if (!r) return { status: "erro", texto: "❌ Erro: a aba da Betano não respondeu" };
+    if (!r) return { status: "erro", texto: "❌ Erro: a aba da casa não respondeu" };
     const linhas = [linhaLogin(r)];
     if (r.abort) {
       if (codeOf(r.abort) !== "login_falhou") linhas.push(`❌ Parou: ${motivo(r.abort)}`);
