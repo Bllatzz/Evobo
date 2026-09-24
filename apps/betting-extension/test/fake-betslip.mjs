@@ -23,7 +23,7 @@ export async function installFakeBetslip(page, { cards, accOdd, decimal = ".", r
             ${c.oddOriginal ? `<span data-qa="bet-odds" class="odds-ticker odds-ticker-enhanced">${c.oddOriginal}</span><span data-qa="bet-odds" class="odds-ticker odds-ticker-solid">${c.odd}</span>` : `<span data-qa="bet-odds">${c.odd}</span>`}</div>
           <div data-qa="leg-info-main"><a data-qa="market-label">${c.market ?? ""}</a>
             <div class="participants">${c.teams.map((t) => `<span class="participants__participant-name">${t}</span>`).join("")}</div></div>
-          ${withStake ? `<div class="stake-area"><input id="stakeInput_1:SGL:${i}" type="text" inputmode="decimal" data-qa="stake-area" value="${st.singles[i] ?? ""}"></div>` : ""}
+          ${withStake && !c.suspended ? `<div class="stake-area"><input id="stakeInput_1:SGL:${i}" type="text" inputmode="decimal" data-qa="stake-area" value="${st.singles[i] ?? ""}"></div>` : ""}
         </div>`;
       const total = () => (st.tab === 1 ? Object.values(st.singles).reduce((s, v) => s + num(v), 0) : num(st.acc));
       function render() {

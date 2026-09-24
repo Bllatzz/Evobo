@@ -1,42 +1,31 @@
 # Evobo Betano (extensão Chrome)
 
-Lê as tips da Betano que chegam no Evobo (via Telegram), abre o link de cada uma, confere a odd e preenche a stake.
-**Dry-run** — preenche as stakes e para; não existe código que clique em "APOSTE JÁ".
+Pega as tips da Betano que chegam no Evobo (via Telegram), abre o link de cada uma, confere as odds, preenche as stakes e — no modo **"Apostar de verdade"** — clica em **APOSTE JÁ** com dinheiro real. No modo **"Só conferir"** preenche e para, sem clicar.
 
-## Automático (fase 2)
-1. No popup: API do Evobo (`https://evobo-api.fly.dev`, ou `http://localhost:3000` local), a chave da extensão (Perfil → Aposta automática → Gerar chave; só admin) e teto por aposta → Salvar.
-2. **Ligar**: a cada 30s pergunta `GET /betting-queue/betano` e processa só as tips que chegarem **depois** de ligar.
-3. **Testar agora**: processa as tips das últimas N horas (mesmo as já processadas) — pra testar sem esperar tip nova.
-4. Cada tip abre numa aba nova; o resultado (aposta / não aposta e por quê) aparece no Histórico do popup.
+Tudo é controlado pelo Evobo (**Aposta automática**): ligar/desligar, modo (conferir × apostar de verdade), teto por aposta, valor da unidade (Meu perfil → Unidade & saldos) e o login da Betano. A extensão não guarda configuração própria além da chave. O endereço da API é fixo (`background.js`, `API_URL`).
 
-Tip sem odd/unidade (OCR ainda rodando) espera até 10 min antes de desistir. A stake usa o valor da unidade da Banca do Evobo.
+## Instalar
+1. No Evobo, **Aposta automática** → baixar a extensão (.zip, gerado a cada deploy pelo `apps/web/scripts/build-extension.mjs`) e descompactar.
+2. `chrome://extensions` → "Modo do desenvolvedor" → **"Carregar sem compactação"** → escolher a pasta `evobo-extensao/`.
+3. No Evobo, **Gerar chave** (aparece uma vez só) → colar no popup da extensão.
 
-## Instalar (modo manual, fase 1)
-1. `chrome://extensions` → ativar "Modo do desenvolvedor" → "Carregar sem compactação" → escolher esta pasta.
-2. Abrir a tip pelo link da Betano (o bilhete já vem montado) e **recarregar a aba (F5)** depois de instalar/atualizar.
-3. Clicar no ícone da extensão, colar a tip em JSON e "Rodar dry-run".
+Para desenvolver, dá pra carregar esta pasta direto em vez do .zip.
 
-## Formato da tip (JSON)
-```json
-{
-  "tipId": "…",
-  "unitValueReais": 10,
-  "maxStakeReais": 50,
-  "limitReais": null,
-  "legs": [{ "id": "a", "match": "Time A x Time B", "selection": "Menos de 8.5 …", "odd": 1.65, "unit": 1 }],
-  "multiple": { "odd": 1.62, "unit": 2 }
-}
-```
-`maxStakeReais` é obrigatório (teto de segurança por aposta). `multiple` é opcional.
+## Como roda
+- A cada poucos segundos pergunta `GET /betting-queue/betano`: tips com link da Betano, uma tarefa por mensagem do Telegram, só as recebidas depois de ligar e que ainda não têm linha no histórico.
+- Cada tip abre numa aba; se a Betano estiver deslogada, loga antes com o login cadastrado no Evobo.
+- O resultado vai pro histórico do Evobo (`POST /auto-betting/extension/runs`). Aposta de verdade com comprovante → `POST /betting-queue/result`: a API reage 👍 na mensagem do Telegram (👎 se nada entrou) e **depois** grava peguei/não peguei perna por perna.
+- **"Testar um link"** (popup): link + odd + unidade digitados; sempre só confere, nunca aposta.
+- Tip sem odd/unidade (OCR ainda rodando) espera um pouco antes de desistir.
 
 ## Regras
-- Odd real **menor** que a da tip → não aposta aquela perna. **Maior** → aposta e reporta `takeOdd` (odd a gravar no take pessoal; o registro oficial/admin fica com a odd da tip).
-- Várias individuais: a perna com odd menor é ignorada, as certas seguem. A múltipla é decidida pela odd **total** dela.
+- Odd real **menor** que a da tip → não aposta aquela perna. **Maior** → aposta (nunca barra) e grava a odd real no peguei; o registro oficial fica com a odd da tip.
+- Várias simples: a perna com odd menor, suspensa ou não encontrada é pulada; as outras seguem, cada uma no seu campo.
+- **Simples + múltipla**: a múltipla só entra se **todas** as simples entraram. Aí as simples são apostadas, o link é reaberto e a múltipla é apostada na aba Múltiplas (decidida pela odd **total**). Se a API não conseguir separar a múltipla das simples, nada é apostado.
+- **Múltipla pura** (uma tip, várias seleções no bilhete): vai direto pra aba Múltiplas.
 - Número de seleções no bilhete ≠ pernas da tip → aborta sem preencher nada.
-- Odd acima da tip, por maior que seja, **nunca** barra a aposta.
-
-## O que o relatório mostra
-`singles.botao` / `multiple.botao`: o texto e o total que a Betano exibiu no botão depois do preenchimento — é o que confirma que a stake entrou certa (e qual separador decimal a Betano aceita).
+- Antes de clicar: replaneja com o bilhete atual, confere o total no botão e marca a aba (sessionStorage) pra nunca clicar duas vezes na mesma tip. Sem comprovante → "verificar" no histórico, nunca tenta de novo.
+- A "CA Turbinada" é ligada antes de ler as odds (o "Testar um link" "sem aumento" não mexe nela).
 
 ## Testes
-`node --test apps/betting-extension/test/*.test.*` — o planejador (puro) e o orquestrador contra um bilhete **falso** no Chromium do Playwright. O falso valida a lógica; **não** valida a Betano real (isso é o dry-run no seu Chrome).
+`node --test apps/betting-extension/test/*.test.*` — o planejador (puro), o resumo e o orquestrador contra um bilhete **falso** no Chromium do Playwright. O falso valida a lógica, **não** a Betano real — isso se confere no modo "Só conferir" antes de ligar o "Apostar de verdade".

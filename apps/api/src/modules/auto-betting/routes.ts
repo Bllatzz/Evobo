@@ -16,10 +16,14 @@ import { recordAuditLog } from "../../middleware/auditLog.js";
 import { prisma } from "../../db/prisma.js";
 import { open, seal, secretBoxEnabled } from "../../lib/secretBox.js";
 
-/** "b****@hotmail.com" / "jo****" — enough to recognize the account, never the full login. */
+/** "br****@hotmail.com" / "jo****" — enough to recognize the account, never
+ * the full login: at most 2 characters shown, only 1 for a short (≤3) name,
+ * none for a 1-character one. */
 function maskUsername(username: string): string {
-  const [local, domain] = username.split("@") as [string, string | undefined];
-  const shown = local.slice(0, Math.min(2, Math.max(1, local.length - 1)));
+  const at = username.lastIndexOf("@");
+  const local = at === -1 ? username : username.slice(0, at);
+  const domain = at === -1 ? null : username.slice(at + 1);
+  const shown = local.slice(0, local.length <= 1 ? 0 : local.length <= 3 ? 1 : 2);
   return `${shown}****${domain ? `@${domain}` : ""}`;
 }
 
@@ -69,9 +73,12 @@ export async function autoBettingRoutes(app: FastifyInstance) {
     });
 
     profile.delete<{ Params: { bookmaker: string } }>("/credentials/:bookmaker", async (request, reply) => {
+      const bookmaker = AutoBetBookmaker.safeParse(request.params.bookmaker);
+      if (!bookmaker.success) return reply.code(400).send({ error: "unsupported_bookmaker" });
       const userId = request.authUser!.id;
-      await prisma.bookmakerCredential.deleteMany({ where: { userId, bookmaker: request.params.bookmaker } });
-      await recordAuditLog({ actorId: userId, action: "bookmaker_credential.delete", targetType: "bookmaker_credential", metadata: { bookmaker: request.params.bookmaker } });
+      const { count } = await prisma.bookmakerCredential.deleteMany({ where: { userId, bookmaker: bookmaker.data } });
+      if (count === 0) return reply.code(404).send({ error: "no_credentials" });
+      await recordAuditLog({ actorId: userId, action: "bookmaker_credential.delete", targetType: "bookmaker_credential", metadata: { bookmaker: bookmaker.data } });
       return reply.code(204).send();
     });
 
@@ -122,9 +129,10 @@ export async function autoBettingRoutes(app: FastifyInstance) {
     });
 
     // days: 1 = hoje (desde 00:00 em São Paulo), 7 / 30 = últimos N dias.
-    profile.get<{ Querystring: { limit?: string; days?: string } }>("/runs", async (request): Promise<AutoBetRunView[]> => {
-      const limit = Math.min(200, Math.max(1, Number(request.query.limit) || 50));
-      const days = Number(request.query.days) || null;
+    profile.get<{ Querystring: { limit?: string; days?: string } }>("/runs", async (request, reply): Promise<AutoBetRunView[] | void> => {
+      const limit = Math.min(200, Math.max(1, Math.trunc(Number(request.query.limit)) || 50));
+      const days = request.query.days === undefined ? null : Number(request.query.days);
+      if (days !== null && !(Number.isInteger(days) && days >= 1 && days <= 90)) return reply.code(400).send({ error: "invalid_days" });
       const since = days === 1 ? startOfTodaySaoPaulo() : days ? new Date(Date.now() - days * 86_400_000) : null;
       const rows = await prisma.autoBetRun.findMany({
         where: { userId: request.authUser!.id, ...(since ? { createdAt: { gte: since } } : {}) },
@@ -158,11 +166,20 @@ export async function autoBettingRoutes(app: FastifyInstance) {
       });
       if (!row) return reply.code(404).send({ error: "no_credentials" });
 
+      let login: { username: string; password: string };
+      try {
+        login = {
+          username: open(row.usernameEnc, ctx(userId, bookmaker.data, "username")),
+          password: open(row.passwordEnc, ctx(userId, bookmaker.data, "password")),
+        };
+      } catch (err) {
+        // Chave de criptografia trocada ou dado corrompido: o login tem que
+        // ser cadastrado de novo no Evobo.
+        request.log.error({ err, bookmaker: bookmaker.data }, "auto-betting: stored login failed to decrypt");
+        return reply.code(409).send({ error: "credencial_invalida" });
+      }
       await recordAuditLog({ actorId: userId, action: "bookmaker_credential.read_by_extension", targetType: "bookmaker_credential", metadata: { bookmaker: bookmaker.data } });
-      return {
-        username: open(row.usernameEnc, ctx(userId, bookmaker.data, "username")),
-        password: open(row.passwordEnc, ctx(userId, bookmaker.data, "password")),
-      };
+      return login;
     });
 
     // Status/limites pro popup (teste manual) — a fila (betting-queue) manda

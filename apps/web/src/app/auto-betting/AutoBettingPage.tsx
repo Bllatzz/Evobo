@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AUTO_BET_BOOKMAKERS, type AutoBetBookmaker, type AutoBetRunView, type AutoBetSettingsView } from "@evobo/shared-types";
 import { IconCheck, IconChevronLeft } from "../../components/Icon";
@@ -32,6 +32,19 @@ const dayMonth = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { da
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const hourMin = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
+/** Valor digitado em reais → número. Vírgula é decimal ("50,50"); ponto com
+ * 3 dígitos depois é milhar ("1.000", "1.000,50"); ponto com 1-2 dígitos é
+ * decimal ("50.50" — teclado de celular que só tem ponto). */
+function parseReais(raw: string): number {
+  const t = raw.replace(/R\$|\s/g, "");
+  if (t.includes(",")) return Number(t.replace(/\./g, "").replace(",", "."));
+  if (/^\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ""));
+  return Number(t);
+}
+
+/** "50" / "50,50" — o valor exato, sem arredondar. */
+const formatReais = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ","));
+
 /** A extensão consulta o Evobo a cada poucos segundos e o "último uso" é gravado a cada 30s. */
 const ONLINE_MS = 90_000;
 
@@ -47,6 +60,8 @@ const BOOKMAKER_BADGE: Record<string, { letter: string; className: string }> = {
 };
 
 type Tab = "configurar" | "casas" | "historico";
+
+const LOAD_ERROR = "Não foi possível carregar a aposta automática.";
 
 export function AutoBettingPage() {
   const navigate = useNavigate();
@@ -67,10 +82,12 @@ export function AutoBettingPage() {
     setCredentials(c.credentials);
     setEncryptionOn(c.enabled);
     setExtensionKey(k.key);
+    // Carregou: o aviso de falha da 1ª carga não vale mais (um erro de salvar fica).
+    setError((e) => (e === LOAD_ERROR ? null : e));
   }
 
   useEffect(() => {
-    loadBase().catch(() => setError("Não foi possível carregar a aposta automática."));
+    loadBase().catch(() => setError(LOAD_ERROR));
     // "Extensão conectada" e o estado ligado/desligado ao vivo (a extensão também liga/desliga).
     const poll = setInterval(() => loadBase().catch(() => {}), 15_000);
     const tick = setInterval(() => setTick((t) => t + 1), 10_000);
@@ -81,11 +98,19 @@ export function AutoBettingPage() {
   }, []);
 
   useEffect(() => {
-    const load = () => fetchAutoBetRuns(days).then(setRuns).catch(() => {});
+    // Resposta de um período anterior (Hoje → 30 dias rápido) é descartada.
+    let cancelled = false;
+    const load = () =>
+      fetchAutoBetRuns(days)
+        .then((r) => !cancelled && setRuns(r))
+        .catch(() => {});
     setRuns(null);
     load();
     const poll = setInterval(load, 10_000);
-    return () => clearInterval(poll);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
   }, [days]);
 
   async function save(input: Parameters<typeof updateAutoBetSettings>[0]) {
@@ -287,13 +312,15 @@ function ModeCard({
 }
 
 function ValuesCard({ settings, onSave }: { settings: AutoBetSettingsView; onSave: (i: { maxStakeReais: number }) => Promise<void> }) {
-  const [raw, setRaw] = useState(settings.maxStakeReais.toFixed(0));
-  useEffect(() => setRaw(settings.maxStakeReais.toFixed(0)), [settings.maxStakeReais]);
+  const [raw, setRaw] = useState(formatReais(settings.maxStakeReais));
+  useEffect(() => setRaw(formatReais(settings.maxStakeReais)), [settings.maxStakeReais]);
 
   function commit() {
-    const value = Number(raw.replace(/\./g, "").replace(",", "."));
-    if (!Number.isFinite(value) || value <= 0) return setRaw(settings.maxStakeReais.toFixed(0));
+    if (raw.trim() === formatReais(settings.maxStakeReais)) return; // só saiu do campo
+    const value = Math.round(parseReais(raw) * 100) / 100;
+    if (!Number.isFinite(value) || value <= 0) return setRaw(formatReais(settings.maxStakeReais));
     if (value !== settings.maxStakeReais) void onSave({ maxStakeReais: value });
+    else setRaw(formatReais(value));
   }
 
   return (
@@ -351,27 +378,61 @@ function HousesCard({
 }) {
   const [editing, setEditing] = useState<AutoBetBookmaker | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"sim" | "falhou" | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const keyRef = useRef<HTMLElement>(null);
+
+  // Falha de rede/API em remover, gerar ou revogar: avisa em vez de ficar
+  // quieto (o pedido não chegou, então o estado anterior continua valendo).
+  async function attempt(run: () => Promise<void>, failure: string) {
+    setActionError(null);
+    try {
+      await run();
+    } catch {
+      setActionError(failure);
+    }
+  }
 
   async function onRemove(b: AutoBetBookmaker) {
     if (!confirm(`Remover o login da ${bookmakerLabel(b)}?`)) return;
-    await deleteCredential(b);
-    onChanged();
+    await attempt(async () => {
+      await deleteCredential(b);
+      onChanged();
+    }, `Não foi possível remover o login da ${bookmakerLabel(b)}.`);
   }
 
   async function onCreateKey() {
     if (extensionKey && !confirm("Gerar uma chave nova? A atual para de funcionar na extensão.")) return;
-    const { key } = await createExtensionKey();
-    setNewKey(key);
-    setCopied(false);
-    onChanged();
+    await attempt(
+      async () => {
+        const { key } = await createExtensionKey();
+        setNewKey(key);
+        setCopied(null);
+        onChanged();
+      },
+      extensionKey ? "Não foi possível gerar a chave. A atual continua valendo." : "Não foi possível gerar a chave.",
+    );
   }
 
   async function onRevokeKey() {
     if (!confirm("Revogar a chave? A extensão para até você colar uma nova.")) return;
-    await revokeExtensionKey();
-    setNewKey(null);
-    onChanged();
+    await attempt(async () => {
+      await revokeExtensionKey();
+      setNewKey(null);
+      onChanged();
+    }, "Não foi possível revogar a chave. Ela continua funcionando.");
+  }
+
+  // Sem permissão/contexto seguro a cópia falha: seleciona a chave pra Ctrl+C.
+  function onCopy(key: string) {
+    navigator.clipboard.writeText(key).then(
+      () => setCopied("sim"),
+      () => {
+        setCopied("falhou");
+        const el = keyRef.current;
+        if (el) window.getSelection()?.selectAllChildren(el);
+      },
+    );
   }
 
   return (
@@ -463,18 +524,21 @@ function HousesCard({
           </button>
         )}
       </div>
+      {actionError && <p className="mt-3 text-[12px] text-live">{actionError}</p>}
       {newKey && (
         <div className="mt-3 flex flex-col gap-2 rounded-[12px] border border-accent-border bg-accent-soft p-3">
           <p className="text-[12px]">
             Cole no popup da extensão. <b>Ela só aparece agora</b> — se perder, gere outra.
           </p>
-          <code className="break-all rounded-[8px] bg-surface-chip px-3 py-2 font-mono text-[11.5px]">{newKey}</code>
-          <button
-            onClick={() => void navigator.clipboard.writeText(newKey).then(() => setCopied(true))}
-            className="self-start rounded-[10px] border border-border-strong px-3 py-1.5 text-[12px] font-semibold"
-          >
-            {copied ? "Copiada ✓" : "Copiar"}
-          </button>
+          <code ref={keyRef} className="break-all rounded-[8px] bg-surface-chip px-3 py-2 font-mono text-[11.5px]">
+            {newKey}
+          </code>
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={() => onCopy(newKey)} className="rounded-[10px] border border-border-strong px-3 py-1.5 text-[12px] font-semibold">
+              {copied === "sim" ? "Copiada ✓" : "Copiar"}
+            </button>
+            {copied === "falhou" && <span className="text-[12px] text-live">Não consegui copiar — a chave está selecionada, use Ctrl+C.</span>}
+          </div>
         </div>
       )}
     </div>
@@ -633,7 +697,7 @@ function HistoryCard({ runs, days, setDays }: { runs: AutoBetRunView[] | null; d
                       <span className="font-mono text-[12px]">
                         {odd(r.tipOdd)} → {odd(r.realOdd)}
                       </span>
-                      <span className="font-mono text-[12px]">{r.stakeReais !== null && r.status === "apostou" ? `R$ ${r.stakeReais.toFixed(0)}` : "—"}</span>
+                      <span className="font-mono text-[12px]">{r.stakeReais !== null && r.status === "apostou" ? brl(r.stakeReais) : "—"}</span>
                       <span>
                         <span className={`inline-block max-w-full truncate rounded-[7px] border px-2 py-0.5 text-[11px] font-semibold ${badge.className}`}>{badge.text}</span>
                       </span>
@@ -643,8 +707,8 @@ function HistoryCard({ runs, days, setDays }: { runs: AutoBetRunView[] | null; d
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-semibold">{title}</div>
                         <div className="mt-0.5 font-mono text-[10.5px] text-text-tertiary">
-                          {hourMin(r.createdAt)} · {bookmakerLabel(r.bookmaker)} · {odd(r.tipOdd)} → {odd(r.realOdd)}
-                          {r.stakeReais !== null && r.status === "apostou" ? ` · R$ ${r.stakeReais.toFixed(0)}` : ""}
+                          {days === 1 ? hourMin(r.createdAt) : `${dayMonth(r.createdAt)} ${hourMin(r.createdAt)}`} · {bookmakerLabel(r.bookmaker)} · {odd(r.tipOdd)} → {odd(r.realOdd)}
+                          {r.stakeReais !== null && r.status === "apostou" ? ` · ${brl(r.stakeReais)}` : ""}
                         </div>
                       </div>
                       <span className={`flex-none rounded-[7px] border px-2 py-0.5 text-[10.5px] font-semibold ${badge.className}`}>{badge.text}</span>

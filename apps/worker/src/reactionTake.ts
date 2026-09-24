@@ -1,5 +1,6 @@
 import { Api } from "telegram/tl/index.js";
 import { prisma } from "./db.js";
+import { isOwnReactionEcho } from "./sendReaction.js";
 
 /// bllatz (admin) — a única conta Telegram logada no worker via
 /// TELEGRAM_SESSION, então toda reação capturada é sempre dela. Fixo no
@@ -79,6 +80,9 @@ export async function applyMyReactionTake(
   const emoji = extractMyReactionEmoji(reactions);
   const takenStatus = emoji ? REACTION_TO_TAKEN_STATUS[emoji] : undefined;
   if (!takenStatus) return 0;
+  // Reação que a extensão de apostas colocou pela API: quem grava o
+  // peguei/não peguei de cada perna é a API (betting-queue /result).
+  if (isOwnReactionEcho(groupId, telegramMessageId, emoji!)) return 0;
 
   const [tips, settings] = await Promise.all([
     prisma.telegramTip.findMany({

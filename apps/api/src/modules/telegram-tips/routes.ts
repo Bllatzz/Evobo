@@ -167,19 +167,19 @@ function buildScopeWhere(
     // Betano nela. Usa AND (em vez de espalhar OR direto no objeto) porque
     // `search` abaixo também precisa do seu próprio OR — dois `OR` soltos no
     // mesmo objeto se sobrescreveriam.
-    // A casa onde EU peguei (take.bookmaker) manda sobre a casa oficial: uma
-    // tip que veio na R7 mas foi pega na 7games aparece no filtro "7games"
-    // e some do "R7" — mesma regra do saldo por casa do perfil (GET /banca,
+    // A casa onde EU peguei (take.bookmaker, só com status "peguei") manda
+    // sobre a casa oficial: uma tip que veio na R7 mas foi pega na 7games
+    // aparece no filtro "7games" e some do "R7" — mesma regra do saldo por casa do perfil (GET /banca,
     // `mine.bookmaker ?? r.bookmaker`).
     ...(bookmaker
       ? {
           AND: [
             {
               OR: [
-                { takes: { some: { userId, bookmaker } } },
+                { takes: { some: { userId, takenStatus: "taken", bookmaker } } },
                 {
                   OR: [{ bookmaker }, { bookmakerOptions: { array_contains: [{ bookmaker }] } }],
-                  takes: { none: { userId, bookmaker: { not: null }, NOT: { bookmaker } } },
+                  takes: { none: { userId, takenStatus: "taken", bookmaker: { not: null }, NOT: { bookmaker } } },
                 },
               ],
             },

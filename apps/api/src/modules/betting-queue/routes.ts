@@ -35,9 +35,35 @@ export type BettingTask = {
   receivedAt: string;
   betUrl: string;
   limitReais: number | null;
+  /** The singles (Simples tab). */
   legs: BettingTaskLeg[];
+  /** "N simples + múltipla" messages: the múltipla tip, bet on the Múltiplas
+   * tab only when every single went through. */
+  multiple: BettingTaskLeg | null;
+  /** A "simples + múltipla" message whose múltipla tip couldn't be told
+   * apart from the singles — the extension bets nothing on it. */
+  comboUnclear: boolean;
   rawMessage: string | null;
 };
+
+/** Parser patterns that create N single tips PLUS one múltipla tip for the
+ * same message (apps/worker/src/parseTip.ts). */
+const SINGLES_PLUS_MULTIPLE = new Set(["legs_plus_combo", "unit_lines_plus_combo", "unit_each_plus_combo", "padovan_escada_multipla"]);
+
+/** Splits the múltipla tip out of a "simples + múltipla" message: it's the
+ * one whose selection joins the legs' text with line breaks (parseTip's
+ * legs_plus_combo/padovan_escada_multipla, and the OCR's applyMultiLegResult
+ * for unit_each_plus_combo). Anything else is left unclear, never guessed. */
+function splitMultiple(task: BettingTask, patterns: Set<string | null>, selections: Map<string, string | null>) {
+  if (task.legs.length < 2 || ![...patterns].some((p) => p !== null && SINGLES_PLUS_MULTIPLE.has(p))) return;
+  const joined = task.legs.filter((l) => (selections.get(l.tipId) ?? "").includes("\n"));
+  if (joined.length !== 1) {
+    task.comboUnclear = true;
+    return;
+  }
+  task.multiple = joined[0]!;
+  task.legs = task.legs.filter((l) => l !== task.multiple);
+}
 
 const num = (d: { toNumber(): number } | null) => (d === null ? null : d.toNumber());
 
@@ -87,6 +113,8 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
     });
 
     const byMessage = new Map<string, BettingTask>();
+    const patterns = new Map<string, Set<string | null>>();
+    const selections = new Map<string, string | null>();
     for (const t of tips) {
       const key = `${t.groupId}:${t.telegramMessageId}`;
       let task = byMessage.get(key);
@@ -98,12 +126,19 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
           betUrl: t.betUrl!,
           limitReais: num(t.limit),
           legs: [],
+          multiple: null,
+          comboUnclear: false,
           rawMessage: t.rawMessage,
         };
         byMessage.set(key, task);
+        patterns.set(key, new Set());
       }
+      patterns.get(key)!.add(t.parsePattern);
+      selections.set(t.id, t.selection);
       task.legs.push({ tipId: t.id, match: t.match, selection: t.selection, odd: num(t.odd), unit: num(t.unit) });
     }
+
+    for (const [key, task] of byMessage) splitMultiple(task, patterns.get(key)!, selections);
 
     const keys = [...byMessage.keys()];
     const done = keys.length
@@ -115,10 +150,12 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
     return { settings, unitValueReais: settings.unitValueReais, tasks: [...byMessage.values()].filter((t) => !doneKeys.has(t.key)) };
   });
 
-  // Only called for a REAL run (never dry-run). Placed legs become "taken"
-  // with the real odd (≥ the tip's — a lower odd is never placed, and the
-  // official record keeps the tip's odd) and the unit actually staked;
-  // skipped legs become "skipped" unless the user already decided them.
+  // Only called for a REAL run (never dry-run). Order (pedido do usuário,
+  // 2026-09-24): react on the Telegram message FIRST, then record each leg —
+  // placed legs become "taken" with the real odd (≥ the tip's — a lower odd
+  // is never placed, and the official record keeps the tip's odd) and the
+  // unit actually staked; skipped legs become "skipped" unless the user
+  // already decided them.
   app.post("/result", async (request, reply) => {
     const parsed = ResultInput.safeParse(request.body);
     if (!parsed.success) {
@@ -136,6 +173,27 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
       where: { id: { in: legs.map((l) => l.tipId) }, groupId, telegramMessageId: BigInt(messageId) },
     });
     if (tips.length !== legs.length) return reply.code(400).send({ error: "tips_do_not_match_key" });
+
+    // 👍 when at least one leg went through (e.g. 2 of 3 singles, the third
+    // suspended), 👎 only when nothing did. The reaction listener would mark
+    // EVERY tip of the message from that emoji — sendMyReaction tells it to
+    // ignore this echo, and the per-leg takes below are the real record.
+    const placedCount = legs.filter((l) => l.placed).length;
+    // A reação sai pela conta do Telegram do worker, que é a do dono
+    // (OWNER_USER_ID) — pra outro usuário ela marcaria a tip na conta do
+    // dono. Pros outros fica só o "peguei" abaixo.
+    const isOwner = !!env.OWNER_USER_ID && env.OWNER_USER_ID === userId;
+    const emoji = !isOwner ? null : placedCount > 0 ? "👍" : "👎";
+    let reaction: string | null = null;
+    if (emoji) {
+      try {
+        const { reactToTipMessage } = await import("@evobo/worker");
+        await reactToTipMessage(groupId, BigInt(messageId), emoji);
+        reaction = emoji;
+      } catch (err) {
+        request.log.error({ err, key }, "betting-queue: failed to react on the Telegram message");
+      }
+    }
 
     for (const leg of legs) {
       const tip = tips.find((t) => t.id === leg.tipId)!;
@@ -157,27 +215,6 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
         if (!existing) {
           await prisma.telegramTipTake.create({ data: { tipId: tip.id, userId, takenStatus: "skipped" } });
         }
-      }
-    }
-
-    // The reaction is per message and the reaction listener applies its
-    // status to EVERY tip of that message — so a mixed result (some legs
-    // placed, some skipped) gets no reaction, or it would overwrite the
-    // skipped legs as taken (or vice versa).
-    const placedCount = legs.filter((l) => l.placed).length;
-    // A reação sai pela conta do Telegram do worker, que é a do dono
-    // (OWNER_USER_ID) — pra outro usuário ela marcaria a tip na conta do
-    // dono. Pros outros fica só o "peguei" acima.
-    const isOwner = !!env.OWNER_USER_ID && env.OWNER_USER_ID === userId;
-    const emoji = !isOwner ? null : placedCount === legs.length ? "👍" : placedCount === 0 ? "👎" : null;
-    let reaction: string | null = null;
-    if (emoji) {
-      try {
-        const { reactToTipMessage } = await import("@evobo/worker");
-        await reactToTipMessage(groupId, BigInt(messageId), emoji);
-        reaction = emoji;
-      } catch (err) {
-        request.log.error({ err, key }, "betting-queue: failed to react on the Telegram message");
       }
     }
 

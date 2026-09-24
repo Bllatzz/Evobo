@@ -9,7 +9,7 @@
 //   node scripts/build-extension.mjs              → public/downloads/…
 //   OUT_DIR=/tmp/x node scripts/build-extension.mjs  → também deixa a pasta
 //                                                   descompactada (testes)
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import JavaScriptObfuscator from "javascript-obfuscator";
@@ -20,8 +20,13 @@ const SRC = join(here, "..", "..", "betting-extension");
 const DEST = join(here, "..", "public", "downloads");
 const ZIP_NAME = "evobo-extensao.zip";
 
-// Só o que a extensão usa — nada de test/ nem README.
-const INCLUDE = (rel) => !rel.startsWith("test/") && rel !== "README.md";
+// Só o que a extensão usa — nada de test/, README, dotfiles nem source maps
+// (um .map desfaria a ofuscação), em qualquer nível.
+const INCLUDE = (rel) => {
+  const parts = rel.split("/");
+  const name = parts.at(-1);
+  return !parts.some((p) => p === "test" || p === "node_modules" || p.startsWith(".")) && !/^README/i.test(name) && !name.endsWith(".map");
+};
 
 // Sem renomear globais: os scripts conversam por window.BetanoPlan,
 // window.BetanoSlip, EvoboSummary etc. (content scripts e popup carregam
@@ -40,10 +45,12 @@ const OBFUSCATE = {
   target: "browser",
 };
 
+// lstat: não segue symlinks (um link pra fora da pasta, ou em loop).
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
     const full = join(dir, name);
-    return statSync(full).isDirectory() ? walk(full) : [full];
+    const st = lstatSync(full);
+    return st.isDirectory() ? walk(full) : st.isFile() ? [full] : [];
   });
 }
 
@@ -67,6 +74,8 @@ writeFileSync(
 );
 
 if (process.env.OUT_DIR) {
+  // Limpa antes: arquivo removido da extensão não pode sobrar na pasta de teste.
+  rmSync(process.env.OUT_DIR, { recursive: true, force: true });
   for (const [rel, data] of Object.entries(files)) {
     const out = join(process.env.OUT_DIR, rel);
     mkdirSync(dirname(out), { recursive: true });

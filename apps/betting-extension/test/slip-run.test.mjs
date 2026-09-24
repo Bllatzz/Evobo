@@ -57,8 +57,8 @@ test("lê o snapshot das duas abas", async () => {
 
 test("parseBRL", async () => {
   const page = await setup({ cards: CARDS, accOdd: 1.62 });
-  const out = await page.evaluate(() => ["R$20,00", "R$1.234,50", "R$20", "APOSTE JÁ R$32,51", "sem valor"].map((t) => window.BetanoSlip.parseBRL(t)));
-  assert.deepEqual(out, [20, 1234.5, 20, 32.51, null]);
+  const out = await page.evaluate(() => ["R$20,00", "R$1.234,50", "R$20", "APOSTE JÁ R$32,51", "sem valor", "R$ 1.250", "R$20.50", "R$ 12.345,6"].map((t) => window.BetanoSlip.parseBRL(t)));
+  assert.deepEqual(out, [20, 1234.5, 20, 32.51, null, 1250, 20.5, 12345.6]);
 });
 
 test("dry-run feliz: preenche as duas simples e a múltipla, e nunca clica em apostar", async () => {
@@ -75,15 +75,23 @@ test("dry-run feliz: preenche as duas simples e a múltipla, e nunca clica em ap
   assert.equal(await page.evaluate(() => window.__placeClicks), 0);
 });
 
-test("odd menor numa perna: só a outra é preenchida; múltipla abaixo da tip é pulada", async () => {
+test("odd menor numa perna: só a outra é preenchida; a múltipla cai junto", async () => {
   const cards = [{ ...CARDS[0], odd: 1.25 }, CARDS[1]];
   const page = await setup({ cards, accOdd: 1.59 });
   const r = await run(page, TASK());
   assert.deepEqual(r.singles.legs.map((l) => [l.action, l.reason]), [["skip", "odd_abaixo"], ["stake", null]]);
   assert.equal(r.singles.botao.totalReais, 20);
   assert.equal(r.multiple.action, "skip");
-  assert.equal(r.multiple.reason, "odd_abaixo");
+  assert.equal(r.multiple.reason, "simples_nao_foram_todas");
   assert.equal(await page.evaluate(() => window.__placeClicks), 0);
+});
+
+test("múltipla com odd abaixo da tip é pulada (simples todas ok)", async () => {
+  const page = await setup({ cards: CARDS, accOdd: 1.59 });
+  const r = await run(page, TASK());
+  assert.deepEqual(r.singles.legs.map((l) => l.action), ["stake", "stake"]);
+  assert.deepEqual([r.multiple.action, r.multiple.reason], ["skip", "odd_abaixo"]);
+  await page.close();
 });
 
 test("odd maior: aposta e reporta takeOdd", async () => {
@@ -292,5 +300,78 @@ test("turbinada com o toggle real (label não liga): liga pelo checkbox", async 
   assert.deepEqual([r.turbinada.ligou, r.turbinada.falhou], [1, 0], JSON.stringify(r.turbinada));
   assert.equal(r.turbinada.detalhes[0].ligouCom, "checkbox");
   assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd]), [["stake", 5]]);
+  await page.close();
+});
+
+// Pedido do usuário (2026-09-24): 3 simples + múltipla, uma simples suspensa
+// → aposta as outras duas, cada uma no SEU campo, e esquece a múltipla.
+const COMBO_CARDS = [
+  { selection: "Flamengo", market: "Resultado Final", teams: ["Flamengo", "Vasco"], odd: 1.8 },
+  { selection: "Palmeiras", market: "Resultado Final", teams: ["Palmeiras", "Santos"], odd: 1.8 },
+  { selection: "Real Madrid", market: "Resultado Final", teams: ["Real Madrid", "Getafe"], odd: 1.5 },
+];
+const COMBO_TASK = (extra = {}) => ({
+  tipId: "grp:combo",
+  unitValueReais: 10,
+  maxStakeReais: 50,
+  legs: [
+    { id: "fla", match: "Flamengo x Vasco", selection: "Flamengo", odd: 1.8, unit: 2 },
+    { id: "pal", match: "Palmeiras x Santos", selection: "Palmeiras", odd: 1.8, unit: 3 },
+    { id: "rea", match: "Real Madrid x Getafe", selection: "Real Madrid", odd: 1.5, unit: 1 },
+  ],
+  multiple: { id: "mul", odd: 4.86, unit: 0.5 },
+  ...extra,
+});
+
+test("cartão suspenso no meio: as outras simples vão cada uma no seu campo", async () => {
+  const cards = [COMBO_CARDS[0], { ...COMBO_CARDS[1], suspended: true }, COMBO_CARDS[2]];
+  const page = await setup({ cards, accOdd: 4.86 });
+  const r = await run(page, COMBO_TASK());
+  assert.equal(r.abort, null);
+  assert.deepEqual(r.singles.legs.map((l) => [l.action, l.reason ?? null]), [["stake", null], ["skip", "cartao_sem_campo_de_stake"], ["stake", null]]);
+  assert.equal(r.singles.totalConfere, true);
+  const vals = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll("input[data-qa='stake-area']")].map((i) => [i.id, i.value])));
+  assert.deepEqual(vals, { "stakeInput_1:SGL:0": "20", "stakeInput_1:SGL:2": "10" });
+  assert.deepEqual([r.multiple.action, r.multiple.reason], ["skip", "simples_nao_foram_todas"]);
+  await page.close();
+});
+
+test("placeReal combo com uma simples suspensa: aposta as outras e não a múltipla", async () => {
+  const cards = [COMBO_CARDS[0], COMBO_CARDS[1], { ...COMBO_CARDS[2], suspended: true }];
+  const page = await setup({ cards, accOdd: 4.86, receipt: true });
+  const r = await run(page, COMBO_TASK({ placeReal: true, tipId: "grp:combo-susp" }));
+  assert.equal(r.aposta.confirmed, true);
+  assert.deepEqual(r.singles.legs.map((l) => l.action), ["stake", "stake", "skip"]);
+  assert.ok(!r.multiplaDepois);
+  assert.deepEqual([r.multiple.action, r.multiple.reason], ["skip", "simples_nao_foram_todas"]);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 1);
+  await page.close();
+});
+
+test("placeReal combo com todas as simples: aposta as simples e pede a fase da múltipla", async () => {
+  const page = await setup({ cards: COMBO_CARDS, accOdd: 4.86, receipt: true });
+  const r = await run(page, COMBO_TASK({ placeReal: true, tipId: "grp:combo-ok" }));
+  assert.equal(r.aposta.confirmed, true);
+  assert.equal(r.singles.botao.totalReais, 60);
+  assert.equal(r.multiplaDepois, true);
+  assert.equal(r.multiple.action, "depois");
+  assert.equal(await page.evaluate(() => window.__placeClicks), 1);
+
+  // Background reabriu o link (bilhete novo, mesma aba): só a múltipla.
+  await installFakeBetslip(page, { cards: COMBO_CARDS, accOdd: 4.9, receipt: true });
+  const r2 = await run(page, COMBO_TASK({ placeReal: true, tipId: "grp:combo-ok", phase: "multipla" }));
+  assert.equal(r2.abort, null);
+  assert.deepEqual([r2.multiple.action, r2.multiple.stakeReais, r2.multiple.takeOdd, r2.multiple.totalConfere], ["stake", 5, 4.9, true]);
+  assert.equal(r2.aposta.confirmed, true);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 1);
+  await page.close();
+});
+
+test("fase da múltipla com odd abaixo: não aposta", async () => {
+  const page = await setup({ cards: COMBO_CARDS, accOdd: 4.5, receipt: true });
+  const r = await run(page, COMBO_TASK({ placeReal: true, tipId: "grp:combo-baixa", phase: "multipla" }));
+  assert.deepEqual([r.multiple.action, r.multiple.reason], ["skip", "odd_abaixo"]);
+  assert.equal(r.aposta, undefined);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 0);
   await page.close();
 });

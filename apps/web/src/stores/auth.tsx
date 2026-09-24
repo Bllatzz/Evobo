@@ -91,6 +91,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setLoading(true);
       setConnectionError(false);
+      // `me` of a DIFFERENT user (account switched) never stays around — on a
+      // network error it would keep the previous user's role and screens.
+      const sameUserMe = me !== null && me.id === session.user.id;
+      if (me !== null && !sameUserMe) setMe(null);
       try {
         // A network blip or a 5xx (e.g. opening the site while the API is
         // restarting for a deploy) is retried a couple of times while `loading`
@@ -114,15 +118,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (cancelled) return;
           if (refreshed?.data.session) {
             try {
-              const data = await apiFetch("/auth/me");
+              // Same retry as above: the API can be restarting right now.
+              const data = await retryTransient(
+                () => apiFetch("/auth/me"),
+                (e) => !isAuthFailure(e),
+                ME_RETRY_DELAYS_MS,
+                () => cancelled,
+              );
               if (!cancelled) setMe(data);
               return;
-            } catch {
-              // falls through to "logged out"
+            } catch (retryErr) {
+              if (cancelled) return;
+              // Only a real auth failure falls through to "logged out".
+              if (!isAuthFailure(retryErr)) {
+                if (!sameUserMe) setConnectionError(true);
+                return;
+              }
             }
           }
           if (!cancelled) setMe(null);
-        } else if (!me) {
+        } else if (!sameUserMe) {
           // Only a real auth failure means "logged out". A network error or
           // 5xx that outlasted the retries must not bounce a valid session
           // to /login — show "reconnect" instead (a `me` loaded earlier

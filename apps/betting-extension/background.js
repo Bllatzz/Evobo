@@ -92,6 +92,8 @@ function toRunnerTask(task, settings) {
     // false = não mexer na CA Turbinada (só o teste manual "sem aumento").
     boost: task.boost !== false,
     legs: task.legs.map((l) => ({ id: l.tipId, match: l.match, selection: l.selection, odd: l.odd, unit: l.unit })),
+    // Tip "N simples + múltipla": a múltipla vem separada das simples.
+    multiple: task.multiple ? { id: task.multiple.tipId, odd: task.multiple.odd, unit: task.multiple.unit } : null,
   };
 }
 
@@ -192,6 +194,17 @@ async function runOpenedTab(tab, task, runnerTask, config, abriuEm, tempos, held
   }
 
   const report = await runInTab(tab.id, runnerTask);
+  // Simples apostadas (todas) numa tip "simples + múltipla": reabre o link
+  // pra montar o bilhete de novo e aposta a múltipla na aba Múltiplas.
+  if (report?.multiplaDepois) {
+    await chrome.tabs.update(tab.id, { url: task.betUrl });
+    await sleep(1500);
+    const second = await runInTab(tab.id, { ...runnerTask, phase: "multipla" });
+    report.multiple = second?.multiple ?? { action: "skip", reason: second?.abort ?? "aba_nao_respondeu", legId: runnerTask.multiple.id };
+    report.turbinadaMultipla = second?.turbinadaMultipla;
+    report.apostaMultipla = second?.aposta;
+    if (second?.aposta?.clicked) report.nadaFoiApostado = false;
+  }
   if (report) report.login = login.logou ? { logouAntes: true, passos: login.passos } : { jaEstavaLogado: true, sinal: login.sinal };
   tempos.abaAteFimS = Math.round((Date.now() - abriuEm) / 1000);
   await finish(task, report, tempos, config, dryRun);
@@ -211,6 +224,16 @@ async function reportResult(task, report, config) {
         realOdd: l.action === "stake" ? l.realOdd : null,
         stakeReais: l.action === "stake" ? l.stakeReais : null,
       }));
+  // Múltipla de uma tip "simples + múltipla": peguei só com comprovante.
+  if (!report.multiplaPura && task.multiple) {
+    const placed = report.apostaMultipla?.confirmed === true;
+    legs.push({
+      tipId: task.multiple.tipId,
+      placed,
+      realOdd: placed ? report.multiple.realOdd : null,
+      stakeReais: placed ? report.multiple.stakeReais : null,
+    });
+  }
   try {
     const res = await fetch(`${config.apiUrl}/betting-queue/result`, {
       method: "POST",
@@ -320,7 +343,10 @@ async function ensureLoggedIn(tabId, config, st) {
   const res = await fetch(`${config.apiUrl}/auto-betting/extension/credentials/betano`, {
     headers: { "x-extension-key": config.extensionKey },
   });
-  if (!res.ok) return { ok: false, motivo: res.status === 404 ? "login_da_betano_nao_salvo_no_evobo" : `erro_credencial_${res.status}` };
+  if (!res.ok) {
+    const motivo = res.status === 404 ? "login_da_betano_nao_salvo_no_evobo" : res.status === 409 ? "recadastre_o_login_da_betano_no_evobo" : `erro_credencial_${res.status}`;
+    return { ok: false, motivo };
+  }
   let cred = await res.json();
   // Cada passo vai pro histórico com o elemento em que clicou — se o modal
   // fechar ou o login não passar, dá pra ver onde (login real de 2026-09-23
@@ -407,8 +433,17 @@ async function poll() {
     for (const task of tasks) {
       if (done[task.key]) continue;
 
+      // "Simples + múltipla" em que a API não conseguiu separar a múltipla
+      // das simples: nada é apostado.
+      if (task.comboUnclear) {
+        done[task.key] = true;
+        await set("done", done);
+        await finish(task, { ok: false, abort: "combo_sem_multipla_identificada" }, null, config, !settings.placeReal);
+        continue;
+      }
+
       // A OCR pode ainda não ter preenchido odd/unidade — espera um pouco.
-      if (task.legs.some((l) => l.odd === null || l.unit === null)) {
+      if ([...task.legs, ...(task.multiple ? [task.multiple] : [])].some((l) => l.odd === null || l.unit === null)) {
         waiting[task.key] ??= Date.now();
         if (Date.now() - waiting[task.key] < WAIT_FOR_OCR_MS) continue;
         done[task.key] = true;

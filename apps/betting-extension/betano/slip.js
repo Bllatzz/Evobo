@@ -16,11 +16,12 @@
     return Number.isFinite(n) ? n : null;
   };
 
-  // "R$20,00" → 20 · "R$1.234,50" → 1234.5 · "R$20" → 20
+  // "R$20,00" → 20 · "R$1.234,50" → 1234.5 · "R$20" → 20 · "R$1.250" → 1250
   const parseBRL = (t) => {
-    const m = String(t).match(/R\$\s*([\d.]+,\d{2}|\d+(?:[.,]\d{1,2})?)/);
+    const m = String(t).match(/R\$\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/);
     if (!m) return null;
-    const s = m[1].includes(",") ? m[1].replace(/\./g, "").replace(",", ".") : m[1];
+    const thousands = /^\d{1,3}(?:\.\d{3})+/.test(m[1]);
+    const s = m[1].includes(",") || thousands ? m[1].replace(/\./g, "").replace(",", ".") : m[1];
     const n = parseFloat(s);
     return Number.isFinite(n) ? n : null;
   };
