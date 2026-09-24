@@ -67,6 +67,26 @@ $("toggle").addEventListener("click", async () => {
   }
 });
 
+// Versão nova publicada no Evobo (gerada a cada deploy do site por
+// apps/web/scripts/build-extension.mjs) → aviso pra baixar de novo.
+const newer = (a, b) => {
+  const pa = String(a).split(".").map(Number);
+  const pb = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0);
+  }
+  return false;
+};
+fetch("https://evobo.vercel.app/downloads/evobo-extensao.json", { cache: "no-store" })
+  .then((r) => (r.ok ? r.json() : null))
+  .then((latest) => {
+    const mine = chrome.runtime.getManifest?.().version;
+    if (!latest?.version || !mine || !newer(latest.version, mine)) return;
+    $("atualizacao").textContent = `⬆ Versão ${latest.version} disponível (você tem a ${mine}) — baixar no Evobo`;
+    $("atualizacao").hidden = false;
+  })
+  .catch(() => {});
+
 $("trocarChave").addEventListener("click", () => {
   mostrarConexao = !mostrarConexao;
   renderStatus();

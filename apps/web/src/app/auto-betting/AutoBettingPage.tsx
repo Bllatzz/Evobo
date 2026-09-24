@@ -21,7 +21,7 @@ import {
 /*
  * "Aposta automática" — desenho do Claude Design (BANCA App.dc.html, frames
  * "D27 · Desktop · Aposta automática" e "27 · Aposta automática").
- * Cada usuário com acesso ao VIP Telegram configura a SUA automação aqui:
+ * Cada usuário configura a SUA automação aqui (por enquanto só admin):
  * liga/desliga, modo, teto, logins das casas, chave da extensão, e acompanha
  * o histórico. A extensão do Chrome só segue isso (e tem "Testar um link").
  */
@@ -121,6 +121,7 @@ export function AutoBettingPage() {
   );
   const historico = <HistoryCard runs={runs} days={days} setDays={setDays} />;
   const setup = <SetupCard steps={steps} />;
+  const download = <ExtensionDownloadCard />;
   const pula = <SkipRulesCard />;
   const liga = <OnOffPill on={settings.enabled} disabled={saving} onToggle={() => void save({ enabled: !settings.enabled })} />;
   const status = <ExtensionStatus online={online} extensionKey={extensionKey} />;
@@ -156,6 +157,7 @@ export function AutoBettingPage() {
         </div>
         <div className="flex w-[280px] flex-none flex-col gap-4">
           {setup}
+          {download}
           {pula}
         </div>
       </div>
@@ -183,6 +185,7 @@ export function AutoBettingPage() {
           {tab === "configurar" && (
             <>
               {setup}
+              {download}
               {modo}
               {valores}
               {pula}
@@ -666,7 +669,7 @@ type Step = { title: string; desc: string; done: boolean };
 
 function setupSteps(settings: AutoBetSettingsView, credentials: SavedCredential[], key: ExtensionKeyInfo): Step[] {
   return [
-    { title: "Instalar a extensão", desc: "Adicione a extensão Evobo no Chrome e fixe na barra.", done: !!key },
+    { title: "Instalar a extensão", desc: "Baixe em “Extensão do Chrome” e carregue no Chrome (passo a passo no card).", done: !!key },
     { title: "Colar a chave", desc: "Gere a chave em “Login das casas” e cole no popup da extensão.", done: !!key?.lastUsedAt },
     { title: "Conectar a casa", desc: "Faça login da casa em “Login das casas”. A extensão entra sozinha.", done: credentials.length > 0 },
     { title: "Definir modo e valores", desc: "Comece em “Só conferir” até confiar nas entradas, depois mude.", done: settings.unitValueReais !== null },
@@ -740,6 +743,57 @@ function SetupCard({ steps }: { steps: Step[] }) {
         <button onClick={hide} className="mt-4 rounded-[10px] bg-accent px-3 py-1.5 text-[12px] font-semibold text-[#08090A]">
           Tudo pronto
         </button>
+      )}
+    </div>
+  );
+}
+
+// Gerado a cada deploy por apps/web/scripts/build-extension.mjs (código ofuscado).
+type ExtensionBuild = { version: string; file: string; builtAt: string };
+
+function ExtensionDownloadCard() {
+  const [build, setBuild] = useState<ExtensionBuild | null>(null);
+  const [steps, setSteps] = useState(false);
+  useEffect(() => {
+    fetch("/downloads/evobo-extensao.json", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setBuild)
+      .catch(() => setBuild(null));
+  }, []);
+  return (
+    <div className={card}>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[13.5px] font-bold">Extensão do Chrome</span>
+        {build && <span className="font-mono text-[11px] text-text-tertiary">v{build.version}</span>}
+      </div>
+      <p className="mb-3 text-[11.5px] text-text-tertiary">Instale no Chrome do computador. Quando sair versão nova, o popup avisa — baixe de novo e substitua.</p>
+      {build ? (
+        <a
+          href={build.file}
+          download
+          className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-3 py-1.5 text-[12px] font-semibold text-[#08090A]"
+        >
+          Baixar extensão
+        </a>
+      ) : (
+        <p className="text-[11.5px] text-text-tertiary">Download indisponível no momento.</p>
+      )}
+      <button onClick={() => setSteps((v) => !v)} className="ml-3 text-[11.5px] font-semibold text-text-secondary">
+        {steps ? "esconder passo a passo" : "como instalar"}
+      </button>
+      {steps && (
+        <ol className="mt-3 flex list-decimal flex-col gap-1.5 pl-4 text-[11.5px] leading-snug text-text-secondary">
+          <li>Descompacte o arquivo baixado (fica uma pasta “evobo-extensao”).</li>
+          <li>
+            No Chrome, abra <span className="font-mono">chrome://extensions</span> e ligue o <b>Modo do desenvolvedor</b> (canto de cima, à direita).
+          </li>
+          <li>
+            Clique em <b>Carregar sem compactação</b> e escolha a pasta “evobo-extensao”.
+          </li>
+          <li>Fixe a extensão na barra (ícone de quebra-cabeça → alfinete).</li>
+          <li>Gere a chave em “Login das casas” e cole no popup da extensão.</li>
+          <li>Pra atualizar: baixe de novo, substitua a pasta e clique em ↻ na extensão.</li>
+        </ol>
       )}
     </div>
   );

@@ -373,7 +373,7 @@ function App() {
           <Route
             path="/auto-betting"
             element={
-              <RouteGuard screen="telegram_banca">
+              <RouteGuard screen="admin">
                 <AppShell>
                   <AutoBettingPage />
                 </AppShell>
