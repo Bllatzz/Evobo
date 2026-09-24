@@ -28,4 +28,6 @@ export const fetchAutoBetSettings = (): Promise<AutoBetSettingsView> => apiFetch
 export const updateAutoBetSettings = (input: UpdateAutoBetSettingsInput): Promise<AutoBetSettingsView> =>
   apiFetch("/auto-betting/settings", { method: "PUT", body: JSON.stringify(input) });
 
-export const fetchAutoBetRuns = (limit = 30): Promise<AutoBetRunView[]> => apiFetch(`/auto-betting/runs?limit=${limit}`);
+/** days: 1 = hoje, 7, 30. */
+export const fetchAutoBetRuns = (days: 1 | 7 | 30, limit = 100): Promise<AutoBetRunView[]> =>
+  apiFetch(`/auto-betting/runs?days=${days}&limit=${limit}`);

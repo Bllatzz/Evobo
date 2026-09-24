@@ -1,10 +1,9 @@
-// Popup: só o "Testar um link" e a conexão (chave). Ligar/desligar, modo,
-// teto, valor da unidade e histórico ficam no Evobo (Admin → Aposta
-// automática) — aqui só mostra o estado que o Evobo mandou.
+// Popup: só ligar/desligar e o "Testar um link". Modo, teto, valor da
+// unidade, logins e histórico ficam no Evobo (/auto-betting). A conexão
+// (chave) só aparece quando falta ou é inválida, ou pelo "trocar chave".
 const $ = (id) => document.getElementById(id);
 const DEFAULT_CONFIG = { apiUrl: "https://evobo-api.fly.dev", extensionKey: "" };
 const parseNum = (v) => Number(String(v).trim().replace(",", "."));
-const { brl } = EvoboSummary;
 
 async function loadConfig() {
   const { config } = await chrome.storage.local.get("config");
@@ -17,15 +16,21 @@ function ago(iso) {
 }
 
 const ERROS = {
-  sem_chave: ["Falta a chave da extensão", "Cole a chave em “Conexão com o Evobo” abaixo."],
+  sem_chave: ["Falta a chave da extensão", "Gere no Evobo e cole abaixo."],
   chave_invalida: ["Chave inválida", "Gere uma nova no Evobo e cole abaixo."],
 };
+
+let mostrarConexao = false;
 
 async function renderStatus() {
   const c = await loadConfig();
   const { estado } = await chrome.storage.local.get("estado");
   const dot = $("dot");
   dot.className = "dot";
+  const conectado = !!c.extensionKey && !!estado && !estado.erro;
+  $("toggle").hidden = !conectado;
+  $("toggle").setAttribute("aria-pressed", String(!!estado?.settings?.enabled));
+  $("conexao").hidden = !(mostrarConexao || !c.extensionKey || ["sem_chave", "chave_invalida"].includes(estado?.erro));
   let titulo;
   let sub;
   if (!c.extensionKey) [titulo, sub] = ERROS.sem_chave;
@@ -34,19 +39,38 @@ async function renderStatus() {
     [titulo, sub] = ERROS[estado.erro] ?? ["Sem resposta do Evobo", `${estado.erro} · ${ago(estado.at)}`];
     dot.classList.add("bad");
   } else if (!estado.settings?.enabled) {
-    titulo = "Desligada no Evobo";
-    sub = `Nenhuma tip é aberta · atualizado ${ago(estado.at)}`;
+    titulo = "Desligada";
+    sub = "Nenhuma tip é aberta";
   } else {
     const s = estado.settings;
-    titulo = s.placeReal ? "Ligada · apostando de verdade" : "Ligada · só conferindo";
-    sub = `Teto ${s.maxStakeReais ? `R$ ${brl(s.maxStakeReais)}` : "—"} · unidade ${s.unitValueReais ? `R$ ${brl(s.unitValueReais)}` : "não definida"} · ${ago(estado.at)}`;
+    titulo = "Ligada";
+    sub = s.placeReal ? "Apostando de verdade" : "Só conferindo (não aposta)";
     dot.classList.add(s.placeReal ? "real" : "on");
   }
   $("statusTitulo").textContent = titulo;
   $("statusSub").textContent = sub;
-  // Sem chave: já abre a seção de conexão.
-  if (!c.extensionKey) $("conexao").open = true;
 }
+
+$("toggle").addEventListener("click", async () => {
+  const btn = $("toggle");
+  const ligar = btn.getAttribute("aria-pressed") !== "true";
+  btn.disabled = true;
+  $("statusErro").textContent = "";
+  try {
+    const res = await chrome.runtime.sendMessage({ acao: ligar ? "ligar" : "desligar" });
+    if (res?.erro) $("statusErro").textContent = res.erro;
+  } catch {
+    $("statusErro").textContent = "A extensão não respondeu. Recarregue em chrome://extensions (↻).";
+  } finally {
+    btn.disabled = false;
+    renderStatus();
+  }
+});
+
+$("trocarChave").addEventListener("click", () => {
+  mostrarConexao = !mostrarConexao;
+  renderStatus();
+});
 
 // Último "Testar um link" (as tips da fila aparecem no histórico do Evobo).
 async function renderResult() {
@@ -83,6 +107,7 @@ $("salvar").addEventListener("click", async () => {
   });
   await chrome.storage.local.remove("estado");
   $("statusConexao").textContent = "Salvo. Conectando…";
+  mostrarConexao = false;
   chrome.runtime.sendMessage({ acao: "atualizar" }).catch(() => {});
 });
 

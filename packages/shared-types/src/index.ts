@@ -137,9 +137,23 @@ export const RecordAutoBetRunInput = z.object({
   status: AutoBetRunStatus,
   summary: z.string().min(1).max(2000),
   dryRun: z.boolean(),
+  /** Colunas do histórico: grupo, odd da tip → odd pega, stake e o motivo curto. */
+  meta: z
+    .object({
+      groupName: z.string().max(120).nullable(),
+      tipOdd: z.number().nullable(),
+      realOdd: z.number().nullable(),
+      stakeReais: z.number().nullable(),
+      reason: z.string().max(80).nullable(),
+    })
+    .partial()
+    .optional(),
   report: z.unknown().optional(),
 });
 export type RecordAutoBetRunInput = z.infer<typeof RecordAutoBetRunInput>;
+
+/** Liga/desliga pelo popup da extensão (o resto só no Evobo). */
+export const ExtensionToggleInput = z.object({ enabled: z.boolean() });
 
 export type AutoBetRunView = {
   id: string;
@@ -150,6 +164,12 @@ export type AutoBetRunView = {
   status: AutoBetRunStatus;
   summary: string;
   dryRun: boolean;
+  groupName: string | null;
+  tipOdd: number | null;
+  realOdd: number | null;
+  stakeReais: number | null;
+  /** Motivo curto de pular/abortar (ex.: "odd caiu", "acima do teto"). */
+  reason: string | null;
   report: unknown;
   createdAt: string;
 };

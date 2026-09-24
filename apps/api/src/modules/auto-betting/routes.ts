@@ -5,12 +5,13 @@ import {
   RecordAutoBetRunInput,
   SaveBookmakerCredentialInput,
   UpdateAutoBetSettingsInput,
+  ExtensionToggleInput,
   type AutoBetRunView,
 } from "@evobo/shared-types";
 import { Prisma } from "@prisma/client";
 import { autoBetSettingsView } from "./settings.js";
 import { authGuard } from "../../middleware/authGuard.js";
-import { adminOnly, extensionKeyGuard, hashExtensionKey } from "../../middleware/extensionKeyGuard.js";
+import { autoBettingAccess, extensionKeyGuard, hashExtensionKey } from "../../middleware/extensionKeyGuard.js";
 import { recordAuditLog } from "../../middleware/auditLog.js";
 import { prisma } from "../../db/prisma.js";
 import { open, seal, secretBoxEnabled } from "../../lib/secretBox.js";
@@ -25,7 +26,7 @@ function maskUsername(username: string): string {
 const ctx = (userId: string, bookmaker: string, field: "username" | "password") => `${userId}:${bookmaker}:${field}`;
 
 /**
- * "Aposta automática" — admin-only for now. The profile (Supabase session)
+ * "Aposta automática" — per user (VIP Telegram access). The page (Supabase session)
  * saves/removes bookmaker logins and manages the extension key; the betting
  * extension (extension key) is the only caller that ever gets a login back
  * decrypted, and every such read is audit-logged.
@@ -33,7 +34,7 @@ const ctx = (userId: string, bookmaker: string, field: "username" | "password") 
 export async function autoBettingRoutes(app: FastifyInstance) {
   app.register(async (profile) => {
     profile.addHook("preHandler", authGuard);
-    profile.addHook("preHandler", adminOnly);
+    profile.addHook("preHandler", autoBettingAccess);
 
     profile.get("/credentials", async (request) => {
       const rows = await prisma.bookmakerCredential.findMany({
@@ -120,10 +121,13 @@ export async function autoBettingRoutes(app: FastifyInstance) {
       return autoBetSettingsView(userId);
     });
 
-    profile.get<{ Querystring: { limit?: string } }>("/runs", async (request): Promise<AutoBetRunView[]> => {
-      const limit = Math.min(100, Math.max(1, Number(request.query.limit) || 30));
+    // days: 1 = hoje (desde 00:00 em São Paulo), 7 / 30 = últimos N dias.
+    profile.get<{ Querystring: { limit?: string; days?: string } }>("/runs", async (request): Promise<AutoBetRunView[]> => {
+      const limit = Math.min(200, Math.max(1, Number(request.query.limit) || 50));
+      const days = Number(request.query.days) || null;
+      const since = days === 1 ? startOfTodaySaoPaulo() : days ? new Date(Date.now() - days * 86_400_000) : null;
       const rows = await prisma.autoBetRun.findMany({
-        where: { userId: request.authUser!.id },
+        where: { userId: request.authUser!.id, ...(since ? { createdAt: { gte: since } } : {}) },
         orderBy: { createdAt: "desc" },
         take: limit,
       });
@@ -165,15 +169,29 @@ export async function autoBettingRoutes(app: FastifyInstance) {
     // o mesmo junto das tips.
     extension.get("/extension/settings", async (request) => autoBetSettingsView(request.authUser!.id));
 
+    // O popup só liga/desliga; modo, teto e logins ficam na página do Evobo.
+    extension.put("/extension/settings", async (request, reply) => {
+      const parsed = ExtensionToggleInput.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "invalid_input" });
+      const userId = request.authUser!.id;
+      const current = await prisma.autoBetSettings.findUnique({ where: { userId } });
+      const data = { enabled: parsed.data.enabled, ...(parsed.data.enabled && !current?.enabled ? { enabledSince: new Date() } : {}) };
+      await prisma.autoBetSettings.upsert({ where: { userId }, create: { userId, ...data }, update: data });
+      await recordAuditLog({ actorId: userId, action: "auto_bet_settings.update", targetType: "auto_bet_settings", targetId: userId, metadata: { enabled: parsed.data.enabled, via: "extension" } });
+      return autoBetSettingsView(userId);
+    });
+
     // Histórico: uma linha por tip processada (ou teste manual). Relatório
     // grande demais é descartado, o resumo fica.
     extension.post("/extension/runs", async (request, reply) => {
       const parsed = RecordAutoBetRunInput.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
       const input = parsed.data;
-      const reportJson = input.report === undefined ? undefined : JSON.stringify(input.report);
+      // meta vai dentro do report (sem coluna própria) — runView tira de lá.
+      const withMeta = input.meta ? { ...(typeof input.report === "object" && input.report ? input.report : {}), meta: input.meta } : input.report;
+      const reportJson = withMeta === undefined ? undefined : JSON.stringify(withMeta);
       const report =
-        reportJson === undefined ? Prisma.DbNull : reportJson.length > MAX_REPORT_CHARS ? { descartado: "relatorio_grande_demais", tamanho: reportJson.length } : (input.report as Prisma.InputJsonValue);
+        reportJson === undefined ? Prisma.DbNull : reportJson.length > MAX_REPORT_CHARS ? { descartado: "relatorio_grande_demais", tamanho: reportJson.length, meta: input.meta ?? null } : (withMeta as Prisma.InputJsonValue);
       const row = await prisma.autoBetRun.create({
         data: {
           userId: request.authUser!.id,
@@ -194,6 +212,12 @@ export async function autoBettingRoutes(app: FastifyInstance) {
 
 const MAX_REPORT_CHARS = 100_000;
 
+/** 00:00 de hoje em São Paulo (UTC-3 fixo desde 2019), como instante UTC. */
+function startOfTodaySaoPaulo(): Date {
+  const sp = new Date(Date.now() - 3 * 3_600_000);
+  return new Date(Date.UTC(sp.getUTCFullYear(), sp.getUTCMonth(), sp.getUTCDate(), 3));
+}
+
 function runView(r: {
   id: string;
   bookmaker: string;
@@ -206,6 +230,9 @@ function runView(r: {
   report: Prisma.JsonValue;
   createdAt: Date;
 }): AutoBetRunView {
+  const meta = (r.report && typeof r.report === "object" && !Array.isArray(r.report) ? (r.report as { meta?: Record<string, unknown> }).meta : null) ?? {};
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
   return {
     id: r.id,
     bookmaker: r.bookmaker as AutoBetRunView["bookmaker"],
@@ -215,6 +242,11 @@ function runView(r: {
     status: r.status as AutoBetRunView["status"],
     summary: r.summary,
     dryRun: r.dryRun,
+    groupName: str(meta.groupName),
+    tipOdd: num(meta.tipOdd),
+    realOdd: num(meta.realOdd),
+    stakeReais: num(meta.stakeReais),
+    reason: str(meta.reason),
     report: r.report,
     createdAt: r.createdAt.toISOString(),
   };

@@ -38,3 +38,18 @@ test("título: jogo — seleção, senão o link", () => {
   assert.equal(title({ legs: [{ match: "A x B", selection: "Over 2.5" }] }), "A x B — Over 2.5");
   assert.equal(title({ betUrl: "https://x", legs: [{ match: null }] }), "https://x");
 });
+
+const { meta } = require("../summary.js");
+
+test("meta: colunas do histórico (grupo, odds, stake, motivo curto)", () => {
+  const task = { groupName: "VIP Gols", legs: [{ odd: 2 }] };
+  assert.deepEqual(meta(task, { dryRun: false, singles: { legs: [stakeLeg] }, aposta: { clicked: true, confirmed: true } }), {
+    groupName: "VIP Gols", tipOdd: 2, realOdd: 2, stakeReais: 10, reason: null,
+  });
+  assert.equal(meta(task, { dryRun: true, singles: { legs: [skipLeg] } }).reason, "odd caiu");
+  assert.equal(meta(task, { abort: "login_falhou (aba: aba_do_tipo_de_login_nao_encontrada)" }).reason, "sem login");
+  assert.equal(meta(task, { abort: "contagem_diferente (tip tem 1, bilhete tem 4)" }).reason, "bilhete diferente");
+  assert.equal(meta(task, { singles: { legs: [stakeLeg] }, aposta: { clicked: false, reason: "total_do_botao_diferente" } }).reason, "valor não conferiu");
+  const m = meta(task, { multiplaPura: true, multiple: { action: "stake", tipOdd: 8.61, realOdd: 8.7, stakeReais: 5 } });
+  assert.deepEqual([m.tipOdd, m.realOdd, m.stakeReais], [8.61, 8.7, 5]);
+});

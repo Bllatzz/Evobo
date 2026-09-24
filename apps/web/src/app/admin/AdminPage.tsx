@@ -64,7 +64,7 @@ const navCards = [
     description: "Corrigir unidade/odd/casa e marcar green/red/reembolso",
   },
   {
-    to: "/admin/auto-betting",
+    to: "/auto-betting",
     Icon: IconRobot,
     label: "Aposta automática",
     description: "Ligar a extensão da Betano, modo, teto por aposta e histórico",
