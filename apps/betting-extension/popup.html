@@ -54,6 +54,8 @@
       .result .txt { white-space: pre-wrap; margin-top: 6px; color: var(--text2); font-size: 12px; }
       .result .when { color: var(--text3); font: 10px ui-monospace, monospace; margin-left: 6px; }
       .grow { flex: 1; min-width: 0; }
+      label.check { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--text2); font-size: 12px; cursor: pointer; }
+      label.check input { width: auto; accent-color: var(--accent); }
       .toggle { width: 46px; height: 27px; padding: 3px; border: none; border-radius: 999px; background: var(--chip); display: flex; justify-content: flex-start; flex: none; }
       .toggle span { width: 21px; height: 21px; border-radius: 50%; background: var(--text3); }
       .toggle[aria-pressed="true"] { background: var(--accent); justify-content: flex-end; }
@@ -95,13 +97,10 @@
         <div><div class="label">ODD DA TIP</div><input id="odd" placeholder="2,12" inputmode="decimal" /></div>
         <div><div class="label">UNIDADES</div><input id="unit" placeholder="1,5" inputmode="decimal" /></div>
       </div>
+      <label class="check"><input type="checkbox" id="aumento" checked /> Tip com aumento (liga a CA Turbinada)</label>
       <button class="primary" id="testarLink">Abrir e conferir</button>
       <div class="hint">Loga se precisar, confere a odd e preenche a stake — <b>nunca aposta</b>.</div>
       <div class="msg" id="statusTeste"></div>
-      <div class="result" id="resultado" hidden>
-        <span class="badge" id="resBadge"></span>
-        <div class="txt" id="resTexto"></div>
-      </div>
     </div>
 
     <!-- Só aparece sem chave ou com chave inválida (ou pelo "trocar chave"). -->

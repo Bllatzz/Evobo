@@ -89,6 +89,8 @@ function toRunnerTask(task, settings) {
     // Texto original da mensagem: numa múltipla pura é o único lugar com
     // todos os jogos (a tip gravada só guarda o 1º) — ver planPureMultiple.
     rawMessage: task.rawMessage ?? null,
+    // false = não mexer na CA Turbinada (só o teste manual "sem aumento").
+    boost: task.boost !== false,
     legs: task.legs.map((l) => ({ id: l.tipId, match: l.match, selection: l.selection, odd: l.odd, unit: l.unit })),
   };
 }
@@ -530,6 +532,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
           receivedAt: new Date().toISOString(),
           betUrl: msg.betUrl,
           limitReais: null,
+          boost: msg.boost !== false,
           legs: [{ tipId: "manual", match: null, selection: null, odd: msg.odd, unit: msg.unit }],
         };
         send({ ok: true });
