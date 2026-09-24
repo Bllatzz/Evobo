@@ -1,6 +1,8 @@
+// EXT_DIR: roda contra outra cópia da extensão (ex.: a ofuscada do build).
+const EXT = process.env.EXT_DIR ?? require("node:path").join(__dirname, "..");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { planSingles, planMultiple } = require("../betano/plan.js");
+const { planSingles, planMultiple } = require(`${EXT}/betano/plan.js`);
 
 const card = (selection, teams, odd, id) => ({ selection, market: "", teams, odd, stakeInputId: id });
 const CORINTHIANS = card("Corinthians (F)", ["Corinthians", "Bahia"], 1.28, "s1");
@@ -131,7 +133,7 @@ test("teste manual (sem texto, 1 perna, 1 seleção): usa a seleção do bilhete
 });
 
 // Múltipla pura — mensagem real que abortou em 2026-09-23 (CALL #1171).
-const { planPureMultiple, legsInMessage } = require("../betano/plan.js");
+const { planPureMultiple, legsInMessage } = require(`${EXT}/betano/plan.js`);
 const RAW_1171 = `⚽ MÚLTIPLA de 4 jogos
 
 1️⃣ Oud-Heverlee Leuven x Roma
@@ -196,7 +198,7 @@ test("tip simples (1 perna, 1 seleção, sem 'múltipla' no texto) não entra no
 });
 
 test("tip com +N / -N casa com 'Mais de' / 'Menos de' do bilhete", () => {
-  const { matchLegsToCards } = require("../betano/plan.js");
+  const { matchLegsToCards } = require(`${EXT}/betano/plan.js`);
   const leg = { match: "Holanda x Alemanha", selection: "+0.5 HT +2.5 Gols -4.5 Cards" };
   const over = card("Mais de 0.5", ["Holanda", "Alemanha"], 1.5, "x1");
   assert.equal(matchLegsToCards([leg], [over])[0].cardIndex, 0);

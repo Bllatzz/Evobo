@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..", "betano");
+// EXT_DIR: roda contra outra cópia da extensão (ex.: a ofuscada do build).
+const root = join(process.env.EXT_DIR ?? join(dirname(fileURLToPath(import.meta.url)), ".."), "betano");
 const ORIGIN = "https://fake.betano.test";
 
 const PAGE = `<body style="margin:0">

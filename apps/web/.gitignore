@@ -25,3 +25,6 @@ dist-ssr
 .vercel
 .env*
 supabase/.temp
+
+# Extensão empacotada no build (scripts/build-extension.mjs)
+public/downloads

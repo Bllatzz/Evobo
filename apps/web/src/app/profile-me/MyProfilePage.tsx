@@ -1083,7 +1083,7 @@ export function MyProfilePage() {
         </div>
       )}
 
-      {canAccess("telegram_banca") && (
+      {me.role === "admin" && (
         <div className="mt-6 px-4 lg:px-0">
           <Link
             to="/auto-betting"

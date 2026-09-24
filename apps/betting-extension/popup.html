@@ -54,6 +54,7 @@
       .result .txt { white-space: pre-wrap; margin-top: 6px; color: var(--text2); font-size: 12px; }
       .result .when { color: var(--text3); font: 10px ui-monospace, monospace; margin-left: 6px; }
       .grow { flex: 1; min-width: 0; }
+      a.update { display: block; margin-bottom: 10px; padding: 8px 12px; border-radius: 12px; background: rgba(245, 184, 61, 0.12); border: 1px solid rgba(245, 184, 61, 0.4); color: var(--vip); font-size: 12px; font-weight: 600; text-decoration: none; }
       label.check { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--text2); font-size: 12px; cursor: pointer; }
       label.check input { width: auto; accent-color: var(--accent); }
       .toggle { width: 46px; height: 27px; padding: 3px; border: none; border-radius: 999px; background: var(--chip); display: flex; justify-content: flex-start; flex: none; }
@@ -75,6 +76,8 @@
       <span class="brand">evo<b>bo</b></span>
       <span class="chip">BETANO</span>
     </div>
+
+    <a class="update" id="atualizacao" href="https://evobo.vercel.app/auto-betting" target="_blank" hidden></a>
 
     <!-- Liga/desliga. Modo, teto, logins e histórico ficam no Evobo. -->
     <div class="card">

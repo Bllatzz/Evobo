@@ -1,6 +1,8 @@
+// EXT_DIR: roda contra outra cópia da extensão (ex.: a ofuscada do build).
+const EXT = process.env.EXT_DIR ?? require("node:path").join(__dirname, "..");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { summarize, title } = require("../summary.js");
+const { summarize, title } = require(`${EXT}/summary.js`);
 
 // status tem que ser um dos AUTO_BET_RUN_STATUSES (@evobo/shared-types) — a API recusa outro.
 const STATUSES = ["apostou", "conferiu", "pulou", "abortou", "verificar", "erro"];
@@ -51,7 +53,7 @@ test("título: jogo — seleção, senão o link", () => {
   assert.equal(title({ betUrl: "https://x", legs: [{ match: null }] }), "https://x");
 });
 
-const { meta } = require("../summary.js");
+const { meta } = require(`${EXT}/summary.js`);
 
 test("meta: colunas do histórico (grupo, odds, stake, motivo curto)", () => {
   const task = { groupName: "VIP Gols", legs: [{ odd: 2 }] };

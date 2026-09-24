@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { installFakeBetslip } from "./fake-betslip.mjs";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..", "betano");
+// EXT_DIR: roda contra outra cópia da extensão (ex.: a ofuscada do build).
+const root = join(process.env.EXT_DIR ?? join(dirname(fileURLToPath(import.meta.url)), ".."), "betano");
 const CARDS = [
   { selection: "Corinthians (F)", market: "Resultado Final", teams: ["Corinthians", "Bahia"], odd: 1.28 },
   { selection: "Mais de 0.5", market: "Criciúma - Total de Gols", teams: ["Criciúma", "Operário-PR"], odd: 1.27 },
