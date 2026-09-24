@@ -42,6 +42,10 @@
     clique_falhou: "o clique em apostar falhou",
     ja_clicado_antes: "já tinha sido apostada",
     bilhete_sumiu: "bilhete sumiu",
+    cartao_sem_campo_de_stake: "seleção suspensa/bloqueada na Betano",
+    simples_nao_foram_todas: "nem todas as simples foram apostadas",
+    simples_sem_comprovante: "as simples não foram confirmadas",
+    combo_sem_multipla_identificada: "não deu pra separar a múltipla das simples",
   };
   const codeOf = (m) => String(m ?? "").split(/[ (]/)[0];
   const motivo = (m) => MOTIVOS[codeOf(m)] ?? codeOf(m).replace(/_/g, " ");
@@ -86,13 +90,26 @@
           : `❌ Ignorada: ${motivo(l.reason)}`,
       );
     }
+    // Múltipla de uma tip "simples + múltipla" (a pura já está em `legs`).
+    const combo = !r.multiplaPura && r.multiple ? r.multiple : null;
+    if (combo) {
+      linhas.push(
+        combo.action === "stake"
+          ? `✔ Múltipla R$ ${brl(combo.stakeReais)} @ ${combo.realOdd} (tip ${combo.tipOdd})`
+          : combo.action === "depois"
+            ? ""
+            : `❌ Múltipla ignorada: ${motivo(combo.reason)}`,
+      );
+    }
     const temStake = legs.some((l) => l.action === "stake");
     const naoConfere = (r.multiplaPura ? r.multiple?.totalConfere : r.singles?.totalConfere) === false;
 
     let status;
     if (r.aposta) {
       linhas.push(linhaAposta(r.aposta));
-      status = r.aposta.confirmed ? "apostou" : r.aposta.clicked ? "verificar" : "pulou";
+      if (r.apostaMultipla) linhas.push(linhaAposta(r.apostaMultipla).replace(/^(💰 Apostou|⚠️ Clicou em apostar|❌ Não apostou)/, "$1 a múltipla"));
+      const apostas = [r.aposta, r.apostaMultipla].filter(Boolean);
+      status = apostas.some((a) => a.clicked && !a.confirmed) ? "verificar" : r.aposta.confirmed ? "apostou" : r.aposta.clicked ? "verificar" : "pulou";
     } else if (!temStake) {
       status = "pulou";
     } else if (naoConfere) {
@@ -160,6 +177,7 @@
       realOdd = numOrNull(first.realOdd);
       const staked = legs.filter((l) => l.action === "stake");
       stakeReais = staked.length ? staked.reduce((s, l) => s + (l.stakeReais ?? 0), 0) : null;
+      if (stakeReais !== null && r.multiple?.action === "stake" && numOrNull(r.multiple.stakeReais) !== null) stakeReais += r.multiple.stakeReais;
       if (!staked.length) reason = curto(legs[0].reason);
     } else {
       tipOdd = numOrNull(task?.legs?.[0]?.odd);

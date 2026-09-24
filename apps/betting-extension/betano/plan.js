@@ -112,6 +112,10 @@
     const legs = task.legs.map((leg, k) => {
       const base = { legId: leg.id ?? k, cardIndex: matches[k].cardIndex, tipOdd: leg.odd, realOdd: null };
       if (matches[k].cardIndex === null) return { ...base, action: "skip", reason: matches[k].reason };
+      // Seleção suspensa/bloqueada: o cartão aparece sem o campo de valor.
+      // Só essa perna pula — as outras simples seguem (pedido do usuário,
+      // 2026-09-24).
+      if (snapshot.cards[matches[k].cardIndex].stakeInputId === null) return { ...base, action: "skip", reason: "cartao_sem_campo_de_stake" };
       const realOdd = snapshot.cards[matches[k].cardIndex].odd;
       const odd = decideOdd(leg.odd, realOdd);
       if (!odd.ok) return { ...base, realOdd, action: "skip", reason: odd.reason };

@@ -77,3 +77,41 @@ test("avisa quando não conseguiu ligar a turbinada", () => {
   const t = summarize({ dryRun: true, login: { jaEstavaLogado: true }, turbinada: { vistas: 1, ligou: 0, falhou: 1, detalhes: [{ bloqueado: true }] }, singles: { legs: [stakeLeg] } }).texto;
   assert.match(t, /⚠️ Não conseguiu ligar a CA Turbinada \(bloqueada pela Betano\)/);
 });
+
+test("combo: simples apostadas, uma suspensa, múltipla ignorada", () => {
+  const leg = (odd) => ({ action: "stake", stakeReais: 20, realOdd: odd, tipOdd: odd });
+  const { status, texto } = summarize({
+    dryRun: false,
+    login: { jaEstavaLogado: true },
+    singles: { legs: [leg(1.8), leg(1.8), { action: "skip", reason: "cartao_sem_campo_de_stake" }], totalConfere: true },
+    multiple: { action: "skip", reason: "simples_nao_foram_todas" },
+    aposta: { clicked: true, confirmed: true, betId: "B1" },
+  });
+  assert.equal(status, "apostou");
+  assert.match(texto, /❌ Ignorada: seleção suspensa\/bloqueada na Betano/);
+  assert.match(texto, /❌ Múltipla ignorada: nem todas as simples foram apostadas/);
+});
+
+test("combo: simples e múltipla apostadas", () => {
+  const { status, texto } = summarize({
+    dryRun: false,
+    singles: { legs: [{ action: "stake", stakeReais: 20, realOdd: 1.8, tipOdd: 1.8 }], totalConfere: true },
+    multiple: { action: "stake", stakeReais: 5, realOdd: 4.9, tipOdd: 4.86 },
+    aposta: { clicked: true, confirmed: true, betId: "B1" },
+    apostaMultipla: { clicked: true, confirmed: true, betId: "B2" },
+  });
+  assert.equal(status, "apostou");
+  assert.match(texto, /✔ Múltipla R\$ 5,00 @ 4.9 \(tip 4.86\)/);
+  assert.match(texto, /💰 Apostou a múltipla — comprovante ID: B2/);
+});
+
+test("combo: múltipla clicada sem comprovante vira verificar", () => {
+  const { status } = summarize({
+    dryRun: false,
+    singles: { legs: [{ action: "stake", stakeReais: 20, realOdd: 1.8, tipOdd: 1.8 }], totalConfere: true },
+    multiple: { action: "stake", stakeReais: 5, realOdd: 4.9, tipOdd: 4.86 },
+    aposta: { clicked: true, confirmed: true, betId: "B1" },
+    apostaMultipla: { clicked: true, confirmed: false },
+  });
+  assert.equal(status, "verificar");
+});

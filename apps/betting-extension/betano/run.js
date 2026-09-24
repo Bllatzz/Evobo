@@ -59,8 +59,10 @@
   //     (pega aposta grátis/prêmio selecionado e stake digitada errada);
   //  4. depois do clique espera o comprovante; sem comprovante = "verificar
   //     manualmente", e NUNCA tenta de novo.
-  async function placeBet(task, expectedTotal, replan) {
-    const mark = `evobo-aposta:${task.tipId}`;
+  // `parte` separa as duas apostas de uma tip "simples + múltipla" (a
+  // múltipla é apostada depois, na mesma aba — ver runMultiplePhase).
+  async function placeBet(task, expectedTotal, replan, parte = "") {
+    const mark = `evobo-aposta:${task.tipId}${parte}`;
     try {
       if (sessionStorage.getItem(mark)) return { clicked: false, reason: "ja_clicado_antes" };
     } catch {
@@ -89,6 +91,54 @@
     return { clicked: true, confirmed: true, receipt, betId: receipt.betIds[0] ?? null };
   }
 
+  // Segunda parte de uma tip "simples + múltipla": as simples já foram
+  // apostadas (todas), o background reabriu o link e aqui só vai a múltipla.
+  async function runMultiplePhase(task, report, real) {
+    if (!(await S.ensureSlipOpen())) {
+      return { ...report, abort: "bilhete_nao_encontrado", debug: { ...S.slipOpenDebug, url: location.href } };
+    }
+    const snapS = S.readSnapshot();
+    // Bilhete ainda montando (o background tenta de novo) ou com sobra.
+    if (snapS.cards.length !== task.legs.length) {
+      return { ...report, abort: `contagem_diferente (tip tem ${task.legs.length}, bilhete tem ${snapS.cards.length})` };
+    }
+    for (const c of snapS.cards) if (c.stakeInputId) S.setStake(c.stakeInputId, null);
+    if (!(await S.selectTab(2))) {
+      report.multiple = { action: "skip", reason: "aba_multiplas_indisponivel" };
+      report.ok = true;
+      return report;
+    }
+    report.turbinadaMultipla = task.boost === false ? { pulou: true } : await S.ensureBoostOn();
+    const snapM = S.readSnapshot();
+    const plan = planMultiple(task, snapM);
+    report.multiple = { ...plan, legId: task.multiple.id };
+    if (plan.action === "stake") {
+      const v = await fillAndVerify([{ inputId: snapM.accumulator.stakeInputId, reais: plan.stakeReais }], plan.stakeReais);
+      report.multiple.totalConfere = v.totalConfere;
+      report.multiple.decimalUsado = v.decimal;
+      report.multiple.campos = v.campos;
+      report.multiple.botao = S.readSnapshot()?.placeButton ?? null;
+      if (real && v.totalConfere) {
+        report.aposta = await placeBet(
+          task,
+          plan.stakeReais,
+          (snap) => {
+            const again = planMultiple(task, snap);
+            if (again.action !== "stake") return `mudou_antes_de_apostar (${again.reason})`;
+            if (cents(again.stakeReais) !== cents(plan.stakeReais)) return "stake_mudou";
+            report.multiple.realOdd = again.realOdd;
+            report.multiple.takeOdd = again.takeOdd;
+            return null;
+          },
+          ":multipla",
+        );
+        if (report.aposta.clicked) report.nadaFoiApostado = false;
+      }
+    }
+    report.ok = true;
+    return report;
+  }
+
   async function runTask(task) {
     const real = task?.placeReal === true;
     const report = {
@@ -101,6 +151,8 @@
       singles: null,
       multiple: null,
     };
+
+    if (task?.phase === "multipla") return runMultiplePhase(task, report, real);
 
     if (!(await S.ensureSlipOpen())) {
       return { ...report, abort: "bilhete_nao_encontrado", debug: { ...S.slipOpenDebug, url: location.href } };
@@ -152,13 +204,14 @@
     report.singles = singles;
     if (singles.abort) return { ...report, abort: singles.abort };
 
-    // Zera o que sobrou de antes e preenche só as pernas aprovadas.
-    const fills = snapS.cards
-      .filter((c) => c.stakeInputId)
-      .map((c) => ({ inputId: c.stakeInputId, reais: null }));
+    // Zera o que sobrou de antes e preenche só as pernas aprovadas. Um campo
+    // por cartão, na ordem dos cartões (leg.cardIndex): cartão sem campo
+    // (seleção suspensa) fica de fora aqui, mas não desalinha os outros.
+    const byCard = snapS.cards.map((c) => ({ inputId: c.stakeInputId, reais: null }));
     for (const leg of singles.legs) {
-      if (leg.action === "stake") fills[leg.cardIndex].reais = leg.stakeReais;
+      if (leg.action === "stake") byCard[leg.cardIndex].reais = leg.stakeReais;
     }
+    const fills = byCard.filter((f) => f.inputId);
     // fillAndVerify também zera (um campo por vez) os que ficam com reais null.
     if (singles.expectedTotalReais > 0) {
       const v = await fillAndVerify(fills, singles.expectedTotalReais);
@@ -166,9 +219,9 @@
       singles.decimalUsado = v.decimal;
       singles.campos = v.campos;
       singles.botao = S.readSnapshot()?.placeButton ?? null;
-      // Combo simples + múltipla precisaria apostar as simples, reabrir o
-      // bilhete e ir pra aba Múltiplas — ainda não feito: aí fica em dry-run.
-      if (real && !task.multiple && v.totalConfere) {
+      // Tip "simples + múltipla": as simples saem aqui; a múltipla vai
+      // depois (runMultiplePhase), só se TODAS as simples saíram.
+      if (real && v.totalConfere) {
         report.aposta = await placeBet(task, singles.expectedTotalReais, (snap) => {
           const again = planSingles(task, snap);
           if (again.abort) return `mudou_antes_de_apostar (${again.abort})`;
@@ -184,8 +237,20 @@
       }
     }
 
-    // Múltipla: aba própria, decidida pela odd total dela.
-    if (task.multiple) {
+    // Múltipla: aba própria, decidida pela odd total dela — e só quando
+    // todas as simples entram (pedido do usuário, 2026-09-24: uma simples
+    // suspensa/odd baixa = aposta as outras e esquece a múltipla).
+    const todasSimples = singles.legs.every((l) => l.action === "stake");
+    if (task.multiple && !todasSimples) {
+      report.multiple = { action: "skip", reason: "simples_nao_foram_todas", legId: task.multiple.id };
+    } else if (task.multiple && real) {
+      // Apostar a múltipla na mesma tela das simples não dá: o bilhete vira
+      // comprovante. O background reabre o link e roda a fase "multipla".
+      report.multiple = report.aposta?.confirmed
+        ? { action: "depois", legId: task.multiple.id }
+        : { action: "skip", reason: "simples_sem_comprovante", legId: task.multiple.id };
+      report.multiplaDepois = !!report.aposta?.confirmed;
+    } else if (task.multiple) {
       if (!(await S.selectTab(2))) {
         report.multiple = { action: "skip", reason: "aba_multiplas_indisponivel" };
       } else {
@@ -193,6 +258,7 @@
         const snapM = S.readSnapshot();
         const plan = planMultiple(task, snapM);
         report.multiple = plan;
+        plan.legId = task.multiple.id;
         if (plan.action === "stake") {
           const v = await fillAndVerify([{ inputId: snapM.accumulator.stakeInputId, reais: plan.stakeReais }], plan.stakeReais);
           plan.totalConfere = v.totalConfere;

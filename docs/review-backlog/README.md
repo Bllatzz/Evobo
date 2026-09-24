@@ -139,3 +139,38 @@ unidade?; (3) o limite da casa (`limite ÷ unidade`) deve usar a unidade da data
 - **Build da Vercel e CI do GitHub**: não consegui verificar (`gh` não está instalado). Vale conferir os commits `0432818` e `b972382`.
 - **Tema claro** da tela 404: não foi testado.
 - **`apps/betting-extension/`**: pasta sua, ainda sem commit — não foi tocada pela revisão.
+
+---
+
+## 4. Adiados — revisão de 2026-09-24 (`ace4dac..c033413`: aposta automática, extensão Betano, favoritos)
+
+Revisão com Blind Hunter + Edge Case Hunter em 3 grupos (API, extensão, web). Estes itens ficaram para depois
+(precisam de decisão sua, ou só importam quando houver mais de um usuário/navegador).
+
+1. ✔ **ALTA — tips velhas depois de ficar offline**: a fila devolve toda tip `pending` das últimas 24h (`MAX_LOOKBACK_MS`). Se o navegador ficou fechado horas, ao voltar a extensão abre tips cujo jogo **já começou** — o link pode cair no mercado ao vivo, e como "odd maior nunca barra", aposta. Falta um limite de idade (ex.: minutos desde `receivedAt`) e/ou checar o horário do jogo. `apps/api/src/modules/betting-queue/routes.ts:21,77`.
+2. ~~Trava de combo morta~~ — **resolvido** junto com o combo "simples + múltipla" (extensão 0.9.0): a fila separa a múltipla das simples.
+3. ✔ **Fila sem "reserva" no servidor**: a tip só sai da fila quando `POST /extension/runs` chega. Dois navegadores/perfis com a mesma chave apostam a mesma tip; se o POST falhar e o storage local sumir (reinstalação), apostaria de novo. Índice `(user_id, task_key)` não é único.
+4. ~ **Servidor não impõe teto nem modo**: `/betting-queue/result` aceita qualquer `stakeReais` e não confere `placeReal`/`enabled`. Só a extensão protege.
+5. ~ **Chave da extensão = senha da Betano em texto**: quem tiver a chave (fica sem cifra no `chrome.storage.local`) lê login e senha e liga a aposta. Sem limite de taxa, sem vínculo com o aparelho.
+6. ~ **`betUrl: { contains: "betano.bet.br" }`**: casa `betano.bet.br.evil.com`. Mitigado porque o content script só roda em `*.betano.bet.br` (sem ele não há login nem clique), mas a aba ainda abre a URL do tipster. Checar o hostname na API.
+7. ~ **Fila traz tips de todos os grupos** (sem filtro por grupos do usuário) — só importa com mais de um usuário.
+8. ~ **Service worker pode morrer no meio da aposta** (sem depurador fixo nada o mantém vivo): aposta sai, mas sem histórico nem "peguei"; a tip já está em `done`.
+9. ~ **Senha digitada onde estiver o foco**: `Input.insertText` sem conferir qual campo tem o foco depois do clique.
+10. ~ **Login confirmado por ausência** (`waitLoggedIn`: sem ENTRAR e sem iframe = logado), e sem nova conferência depois do reload. Falha para o lado seguro (sem comprovante → "verificar").
+11. ~ **Comprovante aceito só por existir**: não confere quantas apostas/valores; todas as pernas viram `placed:true`; só `betIds[0]` vai para a API.
+12. ~ **Casamento tip↔cartão**: nomes dos times do `match` contam como acerto na seleção; `includes` casa "inter" em "internacional"; "Over/Under/Acima/Abaixo" nunca casam com "mais/menos"; cartão sem nome de time = score 0.
+13. ~ **`readOdd` sem `-solid` pega a maior odd** do cartão (erra para o lado inseguro); odds fracionárias/americanas virariam números enormes.
+14. ~ **Toggle da CA Turbinada**: 1,5s por tentativa; um clique atrasado pode desligar de novo.
+15. ~ **Uma aba ativa nova por tip, nunca fechada**; `done`/`waiting` nunca são podados.
+16. ~ **Reação 👍/👎**: `sendReaction` com peer cru (`bigInt(chatId)`) falha se o chat não estiver no cache do GramJS; e substitui reação manual.
+17. ~ **robotip-legacy**: `disconnect()` pode não parar o loop de updates (`destroy()` é o teardown completo); `saveAlert` checa duplicata e insere sem trava no banco (corrida push+poll).
+18. ~ **Download público**: `public/downloads/evobo-extensao.zip` é estático — qualquer um baixa, o "admin-only" só esconde o link (não tem segredo dentro). Ofuscação fraca por escolha.
+19. ~ **`prebuild` acopla o deploy do site à extensão**: se o obfuscator ou o manifest falharem, o site não sobe.
+20. ~ **Carregamento de até ~90s** só com o logo pulsando (`ME_RETRY_DELAYS_MS`), sem mensagem.
+21. ~ **`/auto-betting/runs` devolve `report` inteiro** (até 100k caracteres × 200 linhas); e a página faz poll a cada 10–15s mesmo em aba escondida (custo Fly).
+
+**Patches pulados nesta revisão (motivo seu):**
+- **Aposta feita registrada como "pulou"** (`ja_clicado_antes` depois de uma resposta perdida, `background.js` runInTab): a Betano não recarrega a página ao apostar, só atualiza o bilhete — cenário quase impossível.
+- **"Testar um link" × fila ao mesmo tempo** (`running = true` só depois do `await fetchSettings`, `background.js:516-527`): janela de 1-2s, "nunca deve acontecer".
+- **Página montada 2× (desktop + celular)** — a chave nova some ao trocar de aba no celular / redimensionar: extensão só roda no Chrome do computador.
+- **Peguei com odd vazia** se a extensão mandar `realOdd: null` (`betting-queue/routes.ts`): a extensão só aposta se leu a odd.
