@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Evobo Betano",
-  "version": "0.9.1",
-  "description": "Aposta automática do Evobo na Betano: liga/desliga e testa aqui; modo, teto, logins e histórico ficam no Evobo (Aposta automática)",
+  "name": "Evobo — Aposta automática",
+  "version": "0.10.0",
+  "description": "Aposta automática do Evobo na Betano e na Bet365: liga/desliga e testa aqui; modo, teto, logins e histórico ficam no Evobo (Aposta automática)",
   "permissions": [
     "storage",
     "alarms",
@@ -11,6 +11,7 @@
   ],
   "host_permissions": [
     "*://*.betano.bet.br/*",
+    "*://*.bet365.bet.br/*",
     "https://evobo-api.fly.dev/*",
     "https://evobo.vercel.app/*"
   ],
@@ -27,11 +28,24 @@
       ],
       "run_at": "document_idle",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "*://*.bet365.bet.br/*"
+      ],
+      "js": [
+        "betano/plan.js",
+        "bet365/slip.js",
+        "bet365/login.js",
+        "bet365/run.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Evobo Betano"
+    "default_title": "Evobo — Aposta automática"
   },
   "background": {
     "service_worker": "background.js"

@@ -95,7 +95,7 @@ export const AddFavoriteInput = z.object({
 export type AddFavoriteInput = z.infer<typeof AddFavoriteInput>;
 
 /** Casas suportadas pela "Aposta automática" (extensão apps/betting-extension). */
-export const AUTO_BET_BOOKMAKERS = ["betano"] as const;
+export const AUTO_BET_BOOKMAKERS = ["betano", "bet365"] as const;
 export const AutoBetBookmaker = z.enum(AUTO_BET_BOOKMAKERS);
 export type AutoBetBookmaker = z.infer<typeof AutoBetBookmaker>;
 

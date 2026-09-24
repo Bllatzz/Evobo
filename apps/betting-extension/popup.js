@@ -123,7 +123,7 @@ $("testarLink").addEventListener("click", async () => {
     msg.className = "msg err";
     msg.textContent = t;
   };
-  if (!/^https:\/\/([^/]+\.)?betano\.bet\.br\//.test(betUrl)) return erro("Cole um link da betano.bet.br");
+  if (!/^https:\/\/([^/]+\.)?(betano|bet365)\.bet\.br\//.test(betUrl)) return erro("Cole um link da Betano ou da Bet365");
   if (!(odd > 1) || !(unit > 0)) return erro("Preencha a odd e as unidades da tip");
   $("testarLink").disabled = true;
   msg.textContent = "Abrindo o link… o resultado aparece no histórico do Evobo.";
