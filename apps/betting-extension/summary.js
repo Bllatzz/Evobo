@@ -10,9 +10,10 @@
 
   // Texto que aparece no histórico do Evobo e no popup — curto, uma linha
   // por coisa (pedido do usuário, 2026-09-24):
-  //   🔐 Já estava logado
-  //   ❌ Ignorada: odd abaixo do enviado
-  //   ✅ Apostou — comprovante ID: 21163180418
+  //   🔐 Estava deslogado — logou antes
+  //   ✔ R$ 10,00 @ 4.2 (tip 4.14)
+  //   💰 Apostou — comprovante ID: 21163180418
+  // ou "❌ Ignorada: odd abaixo do enviado". Nada de tempos nem relatório.
   // O relatório completo continua indo junto (report), só não é mostrado.
   const MOTIVOS = {
     odd_abaixo: "odd abaixo do enviado",
@@ -47,13 +48,13 @@
 
   function linhaLogin(r) {
     if (codeOf(r.abort) === "login_falhou") return "🔐 Não conseguiu logar";
-    if (r.login?.logouAntes) return "🔐 Estava deslogado — logou";
+    if (r.login?.logouAntes) return "🔐 Estava deslogado — logou antes";
     if (r.login?.jaEstavaLogado) return "🔐 Já estava logado";
     return "";
   }
 
   function linhaAposta(a) {
-    if (a.confirmed) return `✅ Apostou — comprovante ID: ${a.betId ?? "sem ID"}`;
+    if (a.confirmed) return `💰 Apostou — comprovante ID: ${a.betId ?? "sem ID"}`;
     if (a.clicked) return "⚠️ Clicou em apostar mas o comprovante não apareceu — confira na Betano";
     return `❌ Não apostou: ${motivo(a.reason)}`;
   }
@@ -71,7 +72,16 @@
 
     // Pernas ignoradas (odd abaixo, não achada…) — uma linha cada.
     const legs = r.multiplaPura ? [r.multiple].filter(Boolean) : (r.singles?.legs ?? []);
-    for (const l of legs) if (l.action !== "stake") linhas.push(`❌ Ignorada: ${motivo(l.reason)}`);
+    // Turbinada que a extensão teve de ligar (ver ensureBoostOn em slip.js).
+    if ((r.turbinada?.ligou ?? 0) + (r.turbinadaMultipla?.ligou ?? 0) > 0) linhas.push("⚡ Ligou a CA Turbinada");
+    const pernas = r.multiplaPura ? " (múltipla)" : "";
+    for (const l of legs) {
+      linhas.push(
+        l.action === "stake"
+          ? `✔ R$ ${brl(l.stakeReais)} @ ${l.realOdd} (tip ${l.tipOdd})${pernas}`
+          : `❌ Ignorada: ${motivo(l.reason)}`,
+      );
+    }
     const temStake = legs.some((l) => l.action === "stake");
     const naoConfere = (r.multiplaPura ? r.multiple?.totalConfere : r.singles?.totalConfere) === false;
 
@@ -85,7 +95,7 @@
       linhas.push(`❌ Não apostou: ${MOTIVOS.total_do_botao_diferente}`);
       status = "pulou";
     } else if (r.dryRun) {
-      linhas.push("✅ Conferiu — stake preenchida, não apostou (modo só conferir)");
+      linhas.push("👀 Só conferiu — não apostou");
       status = "conferiu";
     } else {
       status = "pulou";

@@ -36,13 +36,14 @@ test("texto curto, no formato do histórico", () => {
   );
   assert.equal(
     summarize({ dryRun: false, login: { logouAntes: true }, singles: { legs: [stakeLeg] }, aposta: { clicked: true, confirmed: true, betId: "21163180418" } }).texto,
-    "🔐 Estava deslogado — logou\n✅ Apostou — comprovante ID: 21163180418",
+    "🔐 Estava deslogado — logou antes\n✔ R$ 10,00 @ 2 (tip 2)\n💰 Apostou — comprovante ID: 21163180418",
   );
   assert.equal(summarize({ abort: "login_falhou (aba: aba_do_tipo_de_login_nao_encontrada)" }).texto, "🔐 Não conseguiu logar");
   assert.equal(summarize({ abort: "contagem_diferente (tip tem 1, bilhete tem 4)" }).texto, "❌ Parou: bilhete diferente da tip");
-  // Nada de tempos, R$ ou odds no texto — isso vai no relatório/colunas.
+  // Nada de tempos no texto.
   const t = summarize({ dryRun: true, login: { jaEstavaLogado: true }, singles: { legs: [stakeLeg] } }).texto;
-  assert.doesNotMatch(t, /⏱|R\$|@/);
+  assert.equal(t, "🔐 Já estava logado\n✔ R$ 10,00 @ 2 (tip 2)\n👀 Só conferiu — não apostou");
+  assert.doesNotMatch(t, /⏱/);
 });
 
 test("título: jogo — seleção, senão o link", () => {
@@ -63,4 +64,9 @@ test("meta: colunas do histórico (grupo, odds, stake, motivo curto)", () => {
   assert.equal(meta(task, { singles: { legs: [stakeLeg] }, aposta: { clicked: false, reason: "total_do_botao_diferente" } }).reason, "valor não conferiu");
   const m = meta(task, { multiplaPura: true, multiple: { action: "stake", tipOdd: 8.61, realOdd: 8.7, stakeReais: 5 } });
   assert.deepEqual([m.tipOdd, m.realOdd, m.stakeReais], [8.61, 8.7, 5]);
+});
+
+test("mostra quando ligou a CA Turbinada", () => {
+  const t = summarize({ dryRun: true, login: { jaEstavaLogado: true }, turbinada: { vistas: 1, ligou: 1 }, singles: { legs: [stakeLeg] } }).texto;
+  assert.equal(t, "🔐 Já estava logado\n⚡ Ligou a CA Turbinada\n✔ R$ 10,00 @ 2 (tip 2)\n👀 Só conferiu — não apostou");
 });
