@@ -190,24 +190,54 @@
   // Devolve o que fez, pro relatório.
   async function ensureBoostOn() {
     const toggles = () => QA('[data-qa^="bet-builder-boost-toggle"]').filter((t) => t.querySelector('input[type="checkbox"]'));
-    const res = { vistas: toggles().length, jaLigadas: 0, ligou: 0, falhou: 0 };
+    const res = { vistas: toggles().length, jaLigadas: 0, ligou: 0, falhou: 0, detalhes: [] };
     for (let i = 0; i < res.vistas; i++) {
-      const box = toggles()[i]?.querySelector('input[type="checkbox"]');
-      if (!box) continue;
-      if (box.checked) {
+      const sw = () => toggles()[i] ?? null;
+      const box = () => sw()?.querySelector('input[type="checkbox"]') ?? null;
+      if (!box()) continue;
+      if (box().checked) {
         res.jaLigadas++;
         continue;
       }
-      if (box.disabled) {
-        res.falhou++;
-        continue;
+      const det = {
+        dataQa: sw().getAttribute("data-qa"),
+        bloqueado: !!box().disabled || box().getAttribute("aria-disabled") === "true" || /disabled/i.test(sw().className ?? ""),
+        tentativas: [],
+        ligouCom: null,
+      };
+      res.detalhes.push(det);
+      // O <label> real não tem `for` nem envolve o checkbox (HTML de
+      // 2026-09-24) — clicar só nele não ligou (vistas 1, falhou 1). Tenta,
+      // em ordem, até o checkbox ficar marcado: rótulo, o próprio checkbox,
+      // o toggle inteiro e, por fim, o click() nativo do checkbox. O Vue
+      // pode redesenhar o toggle a cada clique — sempre busca de novo.
+      const tries = [
+        ["rotulo", () => sw()?.querySelector("label")],
+        ["checkbox", () => box()],
+        ["toggle", () => sw()],
+      ];
+      for (const [name, el] of tries) {
+        const target = el();
+        if (!target) continue;
+        const r = target.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) {
+          det.tentativas.push(`${name}:invisível`);
+          continue;
+        }
+        const click = await trustedClick(target, "turbinada");
+        if (!click?.ok) clickLikeUser(target);
+        det.tentativas.push(name);
+        if (await waitFor(() => box()?.checked, 1500)) {
+          det.ligouCom = name;
+          break;
+        }
       }
-      const target = toggles()[i].querySelector("label") ?? box;
-      const click = await trustedClick(target, "turbinada");
-      if (!click?.ok) clickLikeUser(target);
-      // O Vue pode redesenhar o toggle — sempre busca de novo pelo índice.
-      const on = await waitFor(() => toggles()[i]?.querySelector('input[type="checkbox"]')?.checked, 3000);
-      if (on) res.ligou++;
+      if (!det.ligouCom && box() && !box().checked) {
+        box().click(); // ativa o checkbox e dispara change, como um clique
+        det.tentativas.push("click_nativo");
+        if (await waitFor(() => box()?.checked, 1500)) det.ligouCom = "click_nativo";
+      }
+      if (det.ligouCom) res.ligou++;
       else res.falhou++;
     }
     // A odd turbinada aparece um instante depois do toggle.

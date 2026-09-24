@@ -70,3 +70,8 @@ test("mostra quando ligou a CA Turbinada", () => {
   const t = summarize({ dryRun: true, login: { jaEstavaLogado: true }, turbinada: { vistas: 1, ligou: 1 }, singles: { legs: [stakeLeg] } }).texto;
   assert.equal(t, "🔐 Já estava logado\n⚡ Ligou a CA Turbinada\n✔ R$ 10,00 @ 2 (tip 2)\n👀 Só conferiu — não apostou");
 });
+
+test("avisa quando não conseguiu ligar a turbinada", () => {
+  const t = summarize({ dryRun: true, login: { jaEstavaLogado: true }, turbinada: { vistas: 1, ligou: 0, falhou: 1, detalhes: [{ bloqueado: true }] }, singles: { legs: [stakeLeg] } }).texto;
+  assert.match(t, /⚠️ Não conseguiu ligar a CA Turbinada \(bloqueada pela Betano\)/);
+});

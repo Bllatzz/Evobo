@@ -74,6 +74,10 @@
     const legs = r.multiplaPura ? [r.multiple].filter(Boolean) : (r.singles?.legs ?? []);
     // Turbinada que a extensão teve de ligar (ver ensureBoostOn em slip.js).
     if ((r.turbinada?.ligou ?? 0) + (r.turbinadaMultipla?.ligou ?? 0) > 0) linhas.push("⚡ Ligou a CA Turbinada");
+    if ((r.turbinada?.falhou ?? 0) + (r.turbinadaMultipla?.falhou ?? 0) > 0) {
+      const bloqueada = [...(r.turbinada?.detalhes ?? []), ...(r.turbinadaMultipla?.detalhes ?? [])].some((d) => d.bloqueado);
+      linhas.push(`⚠️ Não conseguiu ligar a CA Turbinada${bloqueada ? " (bloqueada pela Betano)" : ""}`);
+    }
     const pernas = r.multiplaPura ? " (múltipla)" : "";
     for (const l of legs) {
       linhas.push(

@@ -281,3 +281,15 @@ test("teste manual 'sem aumento' (boost: false): não mexe na turbinada", async 
   assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd]), [["stake", 4]]);
   await page.close();
 });
+
+// Real (2026-09-24): o toggle foi visto e clicado no <label>, mas não ligou
+// (vistas 1, falhou 1) — o label não liga o checkbox. Tem que cair pro checkbox.
+test("turbinada com o toggle real (label não liga): liga pelo checkbox", async () => {
+  const cards = [{ selection: "Mais de 0.5", market: "Gols 1º tempo", teams: ["Holanda", "Alemanha"], odd: 4 }];
+  const page = await setup({ cards, accOdd: 5, boost: { on: false, boostedOdd: 5, mode: "input-only" } });
+  const r = await run(page, { tipId: "manual:2", unitValueReais: 10, maxStakeReais: 50, legs: [{ id: "m", match: null, selection: null, odd: 5, unit: 1 }] });
+  assert.deepEqual([r.turbinada.ligou, r.turbinada.falhou], [1, 0], JSON.stringify(r.turbinada));
+  assert.equal(r.turbinada.detalhes[0].ligouCom, "checkbox");
+  assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd]), [["stake", 5]]);
+  await page.close();
+});
