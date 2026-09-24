@@ -72,27 +72,14 @@ $("trocarChave").addEventListener("click", () => {
   renderStatus();
 });
 
-// Último "Testar um link" (as tips da fila aparecem no histórico do Evobo).
-async function renderResult() {
-  const { log = [] } = await chrome.storage.local.get("log");
-  const e = log.find((x) => x.tip?.key?.startsWith("manual:"));
-  $("resultado").hidden = !e;
-  if (!e) return;
-  $("resBadge").className = `badge ${e.status}`;
-  $("resBadge").textContent = String(e.status ?? "").toUpperCase();
-  $("resTexto").textContent = e.texto ?? "";
-}
-
 (async () => {
   const c = await loadConfig();
   $("token").value = c.extensionKey ?? "";
   await renderStatus();
-  await renderResult();
 })();
 
 chrome.storage.onChanged.addListener(() => {
   renderStatus();
-  renderResult();
 });
 // "há Xs" andando com o popup aberto.
 setInterval(renderStatus, 5000);
@@ -119,9 +106,9 @@ $("testarLink").addEventListener("click", async () => {
   if (!/^https:\/\/([^/]+\.)?betano\.bet\.br\//.test(betUrl)) return erro("Cole um link da betano.bet.br");
   if (!(odd > 1) || !(unit > 0)) return erro("Preencha a odd e as unidades da tip");
   $("testarLink").disabled = true;
-  msg.textContent = "Abrindo o link… o resultado aparece aqui.";
+  msg.textContent = "Abrindo o link… o resultado aparece no histórico do Evobo.";
   try {
-    const res = await chrome.runtime.sendMessage({ acao: "testar_link", betUrl, odd, unit });
+    const res = await chrome.runtime.sendMessage({ acao: "testar_link", betUrl, odd, unit, boost: $("aumento").checked });
     if (res?.skipped === "ja_rodando") erro("Já tem uma tip rodando — espera ela terminar.");
     else if (res?.erro) erro(res.erro);
   } catch {

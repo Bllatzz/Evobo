@@ -271,3 +271,13 @@ test("turbinada já ligada: não mexe no toggle", async () => {
   assert.equal(await page.evaluate(() => document.querySelector('.toggle-switch input').checked), true);
   await page.close();
 });
+
+test("teste manual 'sem aumento' (boost: false): não mexe na turbinada", async () => {
+  const cards = [{ selection: "Mais de 0.5", market: "Gols 1º tempo", teams: ["Holanda", "Alemanha"], odd: 4 }];
+  const page = await setup({ cards, accOdd: 5, boost: { on: false, boostedOdd: 5 } });
+  const r = await run(page, { tipId: "manual:1", boost: false, unitValueReais: 10, maxStakeReais: 50, legs: [{ id: "m", match: null, selection: null, odd: 4, unit: 1 }] });
+  assert.deepEqual(r.turbinada, { pulou: true });
+  assert.equal(await page.evaluate(() => document.querySelector(".toggle-switch input").checked), false);
+  assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd]), [["stake", 4]]);
+  await page.close();
+});

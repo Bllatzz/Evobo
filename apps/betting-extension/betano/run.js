@@ -108,7 +108,9 @@
     if (!(await S.selectTab(1))) return { ...report, abort: "aba_simples_indisponivel" };
 
     // Liga a "CA Turbinada" antes de ler qualquer odd (ver ensureBoostOn).
-    report.turbinada = await S.ensureBoostOn();
+    // task.boost === false só vem do "Testar um link" com "sem aumento";
+    // tips da fila sempre ligam (odd maior nunca barra a aposta).
+    report.turbinada = task.boost === false ? { pulou: true } : await S.ensureBoostOn();
 
     const snapS = S.readSnapshot();
 
@@ -120,7 +122,7 @@
       if (pure.abort) return { ...report, abort: pure.abort };
       for (const c of snapS.cards) if (c.stakeInputId) S.setStake(c.stakeInputId, null);
       if (!(await S.selectTab(2))) return { ...report, abort: "aba_multiplas_indisponivel" };
-      report.turbinadaMultipla = await S.ensureBoostOn();
+      report.turbinadaMultipla = task.boost === false ? { pulou: true } : await S.ensureBoostOn();
       const snapM = S.readSnapshot();
       const plan = planMultiple({ ...task, multiple: pure.multiple }, snapM);
       report.multiple = { ...plan, legId: pure.multiple.id, pernas: pure.legs };
@@ -187,7 +189,7 @@
       if (!(await S.selectTab(2))) {
         report.multiple = { action: "skip", reason: "aba_multiplas_indisponivel" };
       } else {
-        report.turbinadaMultipla = await S.ensureBoostOn();
+        report.turbinadaMultipla = task.boost === false ? { pulou: true } : await S.ensureBoostOn();
         const snapM = S.readSnapshot();
         const plan = planMultiple(task, snapM);
         report.multiple = plan;
