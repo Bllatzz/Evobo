@@ -244,3 +244,30 @@ test("super turbinada: lê a odd turbinada, não a original, e aposta", async ()
   assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd, l.reason]), [["stake", 2.42, null]]);
   await page.close();
 });
+
+// Bug real de 2026-09-24: "CA Turbinada" do Criar Aposta veio DESLIGADA —
+// a odd do bilhete era a sem aumento e a tip ("1u com o aumento") passava a
+// odd turbinada, então a extensão pulava por odd menor.
+test("turbinada desligada: liga antes de ler a odd e aposta com a odd turbinada", async () => {
+  const cards = [{ selection: "Mais de 0.5", market: "Gols 1º tempo", teams: ["Holanda", "Alemanha"], odd: 4 }];
+  const page = await setup({ cards, accOdd: 5, boost: { on: false, boostedOdd: 5 } });
+  const r = await run(page, {
+    tipId: "grp:boost",
+    unitValueReais: 10,
+    maxStakeReais: 50,
+    legs: [{ id: "a", match: "Holanda x Alemanha", selection: "+0.5 HT +2.5 Gols -4.5 Cards", odd: 5, unit: 1 }],
+  });
+  assert.deepEqual([r.turbinada.vistas, r.turbinada.ligou, r.turbinada.falhou], [1, 1, 0]);
+  assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd]), [["stake", 5]]);
+  assert.equal(await page.evaluate(() => document.querySelector('.toggle-switch input').checked), true);
+  await page.close();
+});
+
+test("turbinada já ligada: não mexe no toggle", async () => {
+  const cards = [{ selection: "Mais de 0.5", market: "Gols 1º tempo", teams: ["Holanda", "Alemanha"], odd: 4 }];
+  const page = await setup({ cards, accOdd: 5, boost: { on: true, boostedOdd: 5 } });
+  const r = await run(page, { tipId: "grp:boost2", unitValueReais: 10, maxStakeReais: 50, legs: [{ id: "a", match: "Holanda x Alemanha", selection: "+0.5 HT", odd: 5, unit: 1 }] });
+  assert.deepEqual([r.turbinada.jaLigadas, r.turbinada.ligou], [1, 0]);
+  assert.equal(await page.evaluate(() => document.querySelector('.toggle-switch input').checked), true);
+  await page.close();
+});

@@ -27,11 +27,22 @@ test("status de cada desfecho", () => {
   }
 });
 
-test("texto traduz o motivo e mostra login/tempos", () => {
-  const s = summarize({ dryRun: true, login: { logouAntes: true }, singles: { legs: [skipLeg] } }, { mensagemAteAbaS: 3, esperouOcrS: 0, abaAteFimS: 6 });
-  assert.match(s.texto, /logou antes/);
-  assert.match(s.texto, /odd menor que a da tip/);
-  assert.match(s.texto, /aba aberta 3s/);
+test("texto curto, no formato do histórico", () => {
+  // Exemplos do usuário (2026-09-24).
+  assert.equal(summarize({ dryRun: false, login: { jaEstavaLogado: true }, singles: { legs: [skipLeg] } }).texto, "🔐 Já estava logado\n❌ Ignorada: odd abaixo do enviado");
+  assert.equal(
+    summarize({ dryRun: false, login: { jaEstavaLogado: true }, singles: { legs: [{ action: "skip", reason: "sem_cartao_correspondente" }] } }).texto,
+    "🔐 Já estava logado\n❌ Ignorada: odd não encontrada no bilhete",
+  );
+  assert.equal(
+    summarize({ dryRun: false, login: { logouAntes: true }, singles: { legs: [stakeLeg] }, aposta: { clicked: true, confirmed: true, betId: "21163180418" } }).texto,
+    "🔐 Estava deslogado — logou\n✅ Apostou — comprovante ID: 21163180418",
+  );
+  assert.equal(summarize({ abort: "login_falhou (aba: aba_do_tipo_de_login_nao_encontrada)" }).texto, "🔐 Não conseguiu logar");
+  assert.equal(summarize({ abort: "contagem_diferente (tip tem 1, bilhete tem 4)" }).texto, "❌ Parou: bilhete diferente da tip");
+  // Nada de tempos, R$ ou odds no texto — isso vai no relatório/colunas.
+  const t = summarize({ dryRun: true, login: { jaEstavaLogado: true }, singles: { legs: [stakeLeg] } }).texto;
+  assert.doesNotMatch(t, /⏱|R\$|@/);
 });
 
 test("título: jogo — seleção, senão o link", () => {

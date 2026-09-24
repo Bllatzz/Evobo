@@ -107,6 +107,9 @@
     }
     if (!(await S.selectTab(1))) return { ...report, abort: "aba_simples_indisponivel" };
 
+    // Liga a "CA Turbinada" antes de ler qualquer odd (ver ensureBoostOn).
+    report.turbinada = await S.ensureBoostOn();
+
     const snapS = S.readSnapshot();
 
     // Tip que é uma múltipla só (1 tip, N seleções no bilhete): nada na aba
@@ -117,6 +120,7 @@
       if (pure.abort) return { ...report, abort: pure.abort };
       for (const c of snapS.cards) if (c.stakeInputId) S.setStake(c.stakeInputId, null);
       if (!(await S.selectTab(2))) return { ...report, abort: "aba_multiplas_indisponivel" };
+      report.turbinadaMultipla = await S.ensureBoostOn();
       const snapM = S.readSnapshot();
       const plan = planMultiple({ ...task, multiple: pure.multiple }, snapM);
       report.multiple = { ...plan, legId: pure.multiple.id, pernas: pure.legs };
@@ -183,6 +187,7 @@
       if (!(await S.selectTab(2))) {
         report.multiple = { action: "skip", reason: "aba_multiplas_indisponivel" };
       } else {
+        report.turbinadaMultipla = await S.ensureBoostOn();
         const snapM = S.readSnapshot();
         const plan = planMultiple(task, snapM);
         report.multiple = plan;

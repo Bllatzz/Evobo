@@ -180,6 +180,41 @@
     return !!(await waitFor(() => radio()?.checked, 3000));
   }
 
+  // "CA Turbinada" do Criar Aposta (bet builder): um toggle no bilhete
+  // (HTML real, 2026-09-24): section.bet-builder-booster-toggle-wrapper >
+  // div.toggle-switch[data-qa^="bet-builder-boost-toggle"] > input[checkbox]
+  // + label. Às vezes vem DESLIGADO — aí a odd do bilhete é a sem aumento e
+  // a tip ("1u com o aumento") é passada com a turbinada, então a extensão
+  // pulava por "odd caiu". Ligar não custa nada (a Betano só paga o aumento
+  // se a aposta cumprir as regras), então liga sempre, ANTES de ler as odds.
+  // Devolve o que fez, pro relatório.
+  async function ensureBoostOn() {
+    const toggles = () => QA('[data-qa^="bet-builder-boost-toggle"]').filter((t) => t.querySelector('input[type="checkbox"]'));
+    const res = { vistas: toggles().length, jaLigadas: 0, ligou: 0, falhou: 0 };
+    for (let i = 0; i < res.vistas; i++) {
+      const box = toggles()[i]?.querySelector('input[type="checkbox"]');
+      if (!box) continue;
+      if (box.checked) {
+        res.jaLigadas++;
+        continue;
+      }
+      if (box.disabled) {
+        res.falhou++;
+        continue;
+      }
+      const target = toggles()[i].querySelector("label") ?? box;
+      const click = await trustedClick(target, "turbinada");
+      if (!click?.ok) clickLikeUser(target);
+      // O Vue pode redesenhar o toggle — sempre busca de novo pelo índice.
+      const on = await waitFor(() => toggles()[i]?.querySelector('input[type="checkbox"]')?.checked, 3000);
+      if (on) res.ligou++;
+      else res.falhou++;
+    }
+    // A odd turbinada aparece um instante depois do toggle.
+    if (res.ligou) await sleep(800);
+    return res;
+  }
+
   // Vue escuta `input`; setar .value direto não avisa o framework, então usa o
   // setter nativo e dispara os eventos (mesmo truque da extensão do robotip).
   function setInputValue(input, value) {
@@ -209,6 +244,7 @@
     readSnapshot,
     ensureSlipOpen,
     selectTab,
+    ensureBoostOn,
     setStake,
     waitFor,
     slipOpenDebug,

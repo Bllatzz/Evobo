@@ -194,3 +194,16 @@ test("tip simples (1 perna, 1 seleção, sem 'múltipla' no texto) não entra no
   const t = { unitValueReais: 10, maxStakeReais: 50, rawMessage: "Corinthians (F) @1.28 1u", legs: [baseTask().legs[0]] };
   assert.equal(planPureMultiple(t, { cards: [CORINTHIANS] }), null);
 });
+
+test("tip com +N / -N casa com 'Mais de' / 'Menos de' do bilhete", () => {
+  const { matchLegsToCards } = require("../betano/plan.js");
+  const leg = { match: "Holanda x Alemanha", selection: "+0.5 HT +2.5 Gols -4.5 Cards" };
+  const over = card("Mais de 0.5", ["Holanda", "Alemanha"], 1.5, "x1");
+  assert.equal(matchLegsToCards([leg], [over])[0].cardIndex, 0);
+  const under = card("Menos de 4.5", ["Holanda", "Alemanha"], 1.5, "x2");
+  assert.equal(matchLegsToCards([leg], [under])[0].cardIndex, 0);
+  // Direção trocada continua não batendo.
+  const wrong = card("Menos de 0.5", ["Holanda", "Alemanha"], 1.5, "x3");
+  const legOnlyOver = { match: "Holanda x Alemanha", selection: "+0.5 HT" };
+  assert.equal(matchLegsToCards([legOnlyOver], [wrong])[0].cardIndex, null);
+});
