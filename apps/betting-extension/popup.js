@@ -2,7 +2,7 @@
 // unidade, logins e histórico ficam no Evobo (/auto-betting). A conexão
 // (chave) só aparece quando falta ou é inválida, ou pelo "trocar chave".
 const $ = (id) => document.getElementById(id);
-const DEFAULT_CONFIG = { apiUrl: "https://evobo-api.fly.dev", extensionKey: "" };
+const DEFAULT_CONFIG = { extensionKey: "" };
 const parseNum = (v) => Number(String(v).trim().replace(",", "."));
 
 async function loadConfig() {
@@ -87,7 +87,6 @@ async function renderResult() {
 
 (async () => {
   const c = await loadConfig();
-  $("apiUrl").value = c.apiUrl;
   $("token").value = c.extensionKey ?? "";
   await renderStatus();
   await renderResult();
@@ -101,10 +100,8 @@ chrome.storage.onChanged.addListener(() => {
 setInterval(renderStatus, 5000);
 
 $("salvar").addEventListener("click", async () => {
-  const c = await loadConfig();
-  await chrome.storage.local.set({
-    config: { ...c, apiUrl: $("apiUrl").value.trim().replace(/\/+$/, "") || DEFAULT_CONFIG.apiUrl, extensionKey: $("token").value.trim() },
-  });
+  // Só a chave — o endereço do Evobo é fixo no background.
+  await chrome.storage.local.set({ config: { extensionKey: $("token").value.trim() } });
   await chrome.storage.local.remove("estado");
   $("statusConexao").textContent = "Salvo. Conectando…";
   mostrarConexao = false;

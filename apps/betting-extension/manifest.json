@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Evobo Betano",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Aposta automática do Evobo na Betano: liga/desliga e testa aqui; modo, teto, logins e histórico ficam no Evobo (Aposta automática)",
   "permissions": [
     "storage",
@@ -11,8 +11,7 @@
   ],
   "host_permissions": [
     "*://*.betano.bet.br/*",
-    "https://evobo-api.fly.dev/*",
-    "http://localhost/*"
+    "https://evobo-api.fly.dev/*"
   ],
   "content_scripts": [
     {
