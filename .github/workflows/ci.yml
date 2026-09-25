@@ -5,14 +5,21 @@ on:
   push:
     branches: [main]
 
+# Só leitura: o CI não precisa escrever no repo, e um token com escopo de
+# escrita num repo público é o que um PR malicioso tentaria aproveitar.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run lint

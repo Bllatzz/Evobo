@@ -371,9 +371,12 @@ const DATE_RANGES: { label: string; days: number | undefined }[] = [
 ];
 
 /** Wraps a CSV field in quotes (doubling any internal quotes) whenever it contains a
- * character that would otherwise break column boundaries or line breaks. */
+ * character that would otherwise break column boundaries or line breaks. Text
+ * starting with = + - @ (e.g. a group name) gets a leading ' so Excel shows it
+ * instead of running it as a formula; numbers are left alone. */
 function csvField(value: string | number): string {
-  const s = String(value);
+  const raw = String(value);
+  const s = typeof value === "string" && /^[=+\-@\t\r]/.test(raw) && !/^-?\d+(\.\d+)?$/.test(raw) ? `'${raw}` : raw;
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

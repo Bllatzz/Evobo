@@ -38,6 +38,9 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`[bet-analytix-fetcher] rodando em http://localhost:${PORT}`);
+// Só loopback: quem chama é o tunnel-proxy (que repassa pra 127.0.0.1 e
+// exige a senha do túnel) — escutar em todas as interfaces deixaria qualquer
+// um na mesma rede puxar a banca sem senha nenhuma.
+server.listen(PORT, "127.0.0.1", () => {
+  console.log(`[bet-analytix-fetcher] rodando em http://127.0.0.1:${PORT}`);
 });

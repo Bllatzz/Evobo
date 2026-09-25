@@ -7,7 +7,8 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      # Só localhost: Redis sem senha na rede local/wifi é acesso livre à fila.
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
 

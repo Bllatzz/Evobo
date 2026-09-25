@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { UpdateOwnProfileInput } from "@evobo/shared-types";
 import { authGuard, optionalAuthGuard } from "../../middleware/authGuard.js";
 import { prisma } from "../../db/prisma.js";
+import { env } from "../../config/env.js";
 import { getTipsterPerformanceFor } from "../ranking/performance.js";
 
 /** Same visibility rule as tips/routes.ts — duplicated (a few lines) to keep modules decoupled. */
@@ -37,6 +38,12 @@ export async function usersRoutes(app: FastifyInstance) {
     }
 
     const { displayName, username, avatarUrl, bio, favoriteSports } = parsed.data;
+    // Só aceita foto enviada pro bucket "avatars" do nosso Supabase (é o que
+    // uploadAvatar devolve) — URL arbitrária viraria pixel de rastreamento
+    // carregado no navegador de todo mundo que vê o perfil.
+    if (avatarUrl && !avatarUrl.startsWith(`${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/public/avatars/`)) {
+      return reply.code(400).send({ error: "invalid_avatar_url" });
+    }
     // Unique constraint violations (username taken) fall through to the
     // global error handler in server.ts, which maps P2002 to 409 "conflict".
     return prisma.user.update({

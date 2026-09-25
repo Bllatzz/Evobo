@@ -38,7 +38,14 @@ const app = Fastify({
   logger: {
     level: env.NODE_ENV === "production" ? "info" : "debug",
     // Never log Authorization headers, tokens, or payment/proof payloads.
-    redact: ["req.headers.authorization", "req.headers.cookie"],
+    redact: ["req.headers.authorization", "req.headers.cookie", "req.headers[\"x-api-key\"]", "req.headers[\"x-extension-key\"]"],
+    serializers: {
+      // O EventSource do robotip (/robotip/api/alerts/events) só consegue mandar
+      // a chave por querystring (?api_key=) — tira ela da URL antes de logar.
+      req(req) {
+        return { method: req.method, url: req.url.replace(/([?&]api_key=)[^&]*/gi, "$1[REDACTED]"), hostname: req.hostname, remoteAddress: req.ip };
+      },
+    },
   },
 });
 

@@ -16,3 +16,6 @@ apps/api/prisma/local-only/
 .env*
 !.env.example
 !.env.*.example
+
+# Backlog interno da revisão (lista pontos fracos conhecidos — não publicar)
+docs/review-backlog/
