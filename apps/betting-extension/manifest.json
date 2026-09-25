@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Evobo — Aposta automática",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Aposta automática do Evobo na Betano e na Bet365: liga/desliga e testa aqui; modo, teto, logins e histórico ficam no Evobo (Aposta automática)",
   "permissions": [
     "storage",

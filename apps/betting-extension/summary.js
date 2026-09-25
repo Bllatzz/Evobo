@@ -47,6 +47,7 @@
     simples_nao_foram_todas: "nem todas as simples foram apostadas",
     simples_sem_comprovante: "as simples não foram confirmadas",
     combo_sem_multipla_identificada: "não deu pra separar a múltipla das simples",
+    chegou_com_extensao_offline: "chegou com o PC/navegador desligado — não abriu",
   };
   const codeOf = (m) => String(m ?? "").split(/[ (]/)[0];
   const motivo = (m) => MOTIVOS[codeOf(m)] ?? codeOf(m).replace(/_/g, " ");
@@ -156,6 +157,7 @@
     ja_clicado_antes: "já apostada",
     odd_ilegivel: "odd ilegível",
     tip_sem_odd: "tip sem odd",
+    chegou_com_extensao_offline: "extensão offline",
   };
   const curto = (code) => (code ? (CURTO[String(code).split(/[ (]/)[0]] ?? String(code).split(/[ (]/)[0].replace(/_/g, " ")) : null);
   const numOrNull = (n) => (typeof n === "number" && Number.isFinite(n) ? n : null);
