@@ -15,7 +15,11 @@ import {
   fetchBookmakerNames,
   fetchTelegramBanca,
   fetchTelegramTips,
+  fetchWithdrawals,
+  createWithdrawal,
+  deleteWithdrawal,
   type TelegramBookmakerBalance,
+  type TelegramBookmakerWithdrawal,
   type TelegramBancaSummary,
 } from "../../lib/telegramTips";
 import type { TelegramBancaRow } from "@evobo/shared-types";
@@ -53,6 +57,12 @@ function bookmakerColor(name: string): string {
 }
 
 type TimelineEvent = { date: number; profit: number };
+
+/** "YYYY-MM-DD" de hoje em São Paulo (UTC-3 fixo). */
+const todaySaoPaulo = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
+/** Meio-dia em São Paulo do dia do saque — o gráfico só precisa do dia. */
+const withdrawalTime = (w: TelegramBookmakerWithdrawal) => new Date(`${w.withdrawnAt}T12:00:00-03:00`).getTime();
+const formatDay = (ymd: string) => `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}/${ymd.slice(2, 4)}`;
 type SeriesPoint = TelegramBancaSummary["series"]["peguei"][number];
 
 const RANGE_OPTIONS = [
@@ -430,6 +440,14 @@ export function MyProfilePage() {
   const [profitByBookmaker, setProfitByBookmaker] = useState<Record<string, number | null> | null>(null);
   const [editingBookmaker, setEditingBookmaker] = useState<string | null>(null);
 
+  // Saques: tiram do saldo da casa e da banca atual, nunca do lucro.
+  const [withdrawals, setWithdrawals] = useState<TelegramBookmakerWithdrawal[]>([]);
+  const [addingWithdrawal, setAddingWithdrawal] = useState(false);
+  const [withdrawalBookmaker, setWithdrawalBookmaker] = useState("");
+  const [withdrawalAmount, setWithdrawalAmount] = useState("");
+  const [withdrawalDate, setWithdrawalDate] = useState(todaySaoPaulo);
+  const [withdrawalError, setWithdrawalError] = useState<string | null>(null);
+
   // Ranked lists below the chart — bookmakers and groups sorted by profit.
   const [bookmakerRows, setBookmakerRows] = useState<TelegramBancaRow[]>([]);
   const [groupRows, setGroupRows] = useState<TelegramBancaRow[]>([]);
@@ -452,6 +470,7 @@ export function MyProfilePage() {
       setTg(NO_TELEGRAM_FOLD);
       setTgTipsCount(0);
       setBalances([]);
+      setWithdrawals([]);
       setBookmakerNames([]);
       setProfitByBookmaker({});
       setBookmakerRows([]);
@@ -483,6 +502,9 @@ export function MyProfilePage() {
         setBalances([]);
         setProfitByBookmaker({});
       });
+    fetchWithdrawals()
+      .then(setWithdrawals)
+      .catch(() => setWithdrawals([]));
     fetchTelegramTips({ takenStatus: "taken", limit: 1 })
       .then((res) => setTgTipsCount(res.total))
       .catch(() => setTgTipsCount(0));
@@ -531,6 +553,9 @@ export function MyProfilePage() {
     const bancaInicial = tg.unitValue && tg.unitValue > 0 ? depositedTotal / tg.unitValue : STARTING_BANKROLL_UNITS;
     const combinedPnl = pnl + tg.profitUnits;
     const combinedStaked = staked + tg.staked;
+    // Sem valor da unidade não dá pra converter R$ em u — o saque só aparece nas casas.
+    const withdrawnTotal = withdrawals.reduce((sum, w) => sum + w.amount, 0);
+    const withdrawnUnits = tg.unitValue && tg.unitValue > 0 ? withdrawnTotal / tg.unitValue : 0;
 
     return {
       pnl,
@@ -541,12 +566,13 @@ export function MyProfilePage() {
       staked,
       tipsCount: (bets?.length ?? 0) + tgTipsCount,
       bancaInicial,
-      bankroll: bancaInicial + combinedPnl,
+      bankroll: bancaInicial + combinedPnl - withdrawnUnits,
+      withdrawnTotal,
       unitValue: tg.unitValue,
       abertoUnits: tg.abertoUnits,
       abertoCount: tg.abertoCount,
     };
-  }, [settled, tg, bets, tgTipsCount, balances]);
+  }, [settled, tg, bets, tgTipsCount, balances, withdrawals]);
 
   // Windowed chart data: native bets are filtered client-side (no server date
   // filter for fetchMyBets), the Telegram half comes straight from
@@ -577,9 +603,18 @@ export function MyProfilePage() {
     }));
   }, [telegramSeries]);
 
+  // Saque = degrau pra baixo no gráfico, no dia em que foi feito.
+  const withdrawalWindowEvents = useMemo<TimelineEvent[]>(() => {
+    const unitValue = tg?.unitValue;
+    if (!unitValue || unitValue <= 0) return [];
+    return withdrawals
+      .map((w) => ({ date: withdrawalTime(w), profit: -w.amount / unitValue }))
+      .filter((e) => rangeCutoffMs === null || e.date >= rangeCutoffMs);
+  }, [withdrawals, tg, rangeCutoffMs]);
+
   const windowTimeline = useMemo<TimelineEvent[]>(
-    () => [...nativeWindowEvents, ...telegramWindowEvents],
-    [nativeWindowEvents, telegramWindowEvents],
+    () => [...nativeWindowEvents, ...telegramWindowEvents, ...withdrawalWindowEvents],
+    [nativeWindowEvents, telegramWindowEvents, withdrawalWindowEvents],
   );
 
   const chartStartValue = useMemo(() => {
@@ -588,6 +623,12 @@ export function MyProfilePage() {
     const windowProfit = windowTimeline.reduce((sum, e) => sum + e.profit, 0);
     return stats.bankroll - windowProfit;
   }, [stats, chartRange, windowTimeline]);
+
+  const withdrawnByBookmaker = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const w of withdrawals) map[w.bookmaker] = (map[w.bookmaker] ?? 0) + w.amount;
+    return map;
+  }, [withdrawals]);
 
   const availableBookmakers = useMemo(
     () => bookmakerNames.filter((name) => !balances.some((b) => b.bookmaker === name)),
@@ -658,6 +699,37 @@ export function MyProfilePage() {
     if (current && current.balance === value) return;
     const next = balances.map((b) => (b.bookmaker === bookmaker ? { ...b, balance: value } : b));
     void persistBalances(next);
+  }
+
+  async function addWithdrawal() {
+    const amount = Number(withdrawalAmount.trim().replace(",", "."));
+    if (!withdrawalBookmaker || !Number.isFinite(amount) || amount <= 0 || !withdrawalDate) {
+      setWithdrawalError("Escolha a casa, o valor e a data.");
+      return;
+    }
+    setWithdrawalError(null);
+    setSavingBalances(true);
+    try {
+      const saved = await createWithdrawal({ bookmaker: withdrawalBookmaker, amount, withdrawnAt: withdrawalDate });
+      setWithdrawals((prev) => [saved, ...prev].sort((a, b) => b.withdrawnAt.localeCompare(a.withdrawnAt)));
+      setWithdrawalAmount("");
+      setWithdrawalDate(todaySaoPaulo());
+      setAddingWithdrawal(false);
+    } catch {
+      setWithdrawalError("Não consegui salvar o saque.");
+    } finally {
+      setSavingBalances(false);
+    }
+  }
+
+  async function removeWithdrawal(id: string) {
+    const previous = withdrawals;
+    setWithdrawals(previous.filter((w) => w.id !== id));
+    try {
+      await deleteWithdrawal(id);
+    } catch {
+      setWithdrawals(previous);
+    }
   }
 
   if (!me) return null;
@@ -736,12 +808,14 @@ export function MyProfilePage() {
             </div>
             <div className="order-first col-span-2 rounded-2xl border border-border bg-surface p-3.5 lg:order-none lg:col-span-1 lg:p-4.5">
               <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:mb-2.5">BANCA ATUAL</div>
-              <div className={`font-mono text-[30px] font-bold lg:text-[26px] ${stats.bankroll >= stats.bancaInicial ? "text-accent" : "text-live"}`}>
+              {/* Saque não é prejuízo: a cor segue o lucro, não a banca inicial. */}
+              <div className={`font-mono text-[30px] font-bold lg:text-[26px] ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
                 {stats.bankroll.toFixed(1)}u
               </div>
               {stats.unitValue != null && (
                 <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
                   {brl(stats.bankroll * stats.unitValue)}
+                  {stats.withdrawnTotal > 0 && <span> · {brl(stats.withdrawnTotal)} sacado</span>}
                 </div>
               )}
             </div>
@@ -864,6 +938,19 @@ export function MyProfilePage() {
                   <span className="text-[14px] font-bold">Unidade & saldos</span>
                   <div className="flex items-center gap-2">
                     {savingBalances && <span className="text-[11px] text-text-tertiary">salvando…</span>}
+                    {balances.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setAddingWithdrawal((v) => !v);
+                          setWithdrawalError(null);
+                          if (!withdrawalBookmaker) setWithdrawalBookmaker(balances[0]!.bookmaker);
+                        }}
+                        className="flex items-center gap-1 rounded-[10px] border border-border-strong px-2.5 py-1.5 text-[11px] font-semibold text-text-secondary"
+                      >
+                        <span className="text-[13px] leading-none">−</span>
+                        saque
+                      </button>
+                    )}
                     <button
                       onClick={() => setAddingBookmaker((v) => !v)}
                       className="flex items-center gap-1 rounded-[10px] border border-border-strong px-2.5 py-1.5 text-[11px] font-semibold text-text-secondary"
@@ -900,6 +987,51 @@ export function MyProfilePage() {
                     </div>
                   )}
                 </div>
+
+                {addingWithdrawal && (
+                  <div className="mb-4 rounded-[10px] border border-border-subtle bg-surface-chip p-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <select
+                        value={withdrawalBookmaker}
+                        onChange={(e) => setWithdrawalBookmaker(e.target.value)}
+                        aria-label="Casa do saque"
+                        className="min-w-0 flex-1 rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
+                      >
+                        {balances.map((b) => (
+                          <option key={b.bookmaker} value={b.bookmaker}>
+                            {bookmakerLabel(b.bookmaker)}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={withdrawalAmount}
+                        onChange={(e) => setWithdrawalAmount(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && void addWithdrawal()}
+                        inputMode="decimal"
+                        placeholder="Valor"
+                        aria-label="Valor sacado"
+                        className="w-20 flex-none rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
+                      />
+                      <input
+                        type="date"
+                        value={withdrawalDate}
+                        max={todaySaoPaulo()}
+                        onChange={(e) => setWithdrawalDate(e.target.value)}
+                        aria-label="Data do saque"
+                        className="flex-none rounded-[8px] border border-border-strong bg-surface px-2 py-1 text-[12px]"
+                      />
+                      <button
+                        onClick={() => void addWithdrawal()}
+                        className="flex h-7 flex-none items-center justify-center rounded-[8px] bg-accent px-2.5 text-[11px] font-semibold text-[#08090A]"
+                      >
+                        Lançar
+                      </button>
+                    </div>
+                    <p className={`mt-1.5 text-[11px] ${withdrawalError ? "text-live" : "text-text-tertiary"}`}>
+                      {withdrawalError ?? "Sai do saldo da casa e da banca atual — não conta como prejuízo."}
+                    </p>
+                  </div>
+                )}
 
                 {addingBookmaker && (
                   <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2">
@@ -952,7 +1084,8 @@ export function MyProfilePage() {
                 <div className="flex flex-col">
                   {balances.map((b) => {
                     const profit = profitByBookmaker?.[b.bookmaker] ?? null;
-                    const current = b.balance + (profit ?? 0);
+                    const withdrawn = withdrawnByBookmaker[b.bookmaker] ?? 0;
+                    const current = b.balance + (profit ?? 0) - withdrawn;
                     const isEditing = editingBookmaker === b.bookmaker;
                     return (
                       <div
@@ -1004,6 +1137,7 @@ export function MyProfilePage() {
                                 </span>
                               )}
                               <span className="text-text-tertiary">{brl(b.balance)}</span>
+                              {withdrawn > 0 && <span className="text-text-tertiary">· −{brl(withdrawn)} sacado</span>}
                               <IconPencil size={10} className="text-text-quaternary" />
                             </button>
                           )}
@@ -1023,7 +1157,12 @@ export function MyProfilePage() {
                     </span>
                     <div className="text-right">
                       <div className="font-mono text-[14px] font-bold">
-                        {brl(balances.reduce((sum, b) => sum + b.balance + (profitByBookmaker?.[b.bookmaker] ?? 0), 0))}
+                        {brl(
+                          balances.reduce(
+                            (sum, b) => sum + b.balance + (profitByBookmaker?.[b.bookmaker] ?? 0) - (withdrawnByBookmaker[b.bookmaker] ?? 0),
+                            0,
+                          ),
+                        )}
                       </div>
                       {(() => {
                         const totalProfit = balances.reduce((sum, b) => sum + (profitByBookmaker?.[b.bookmaker] ?? 0), 0);
@@ -1035,6 +1174,32 @@ export function MyProfilePage() {
                         );
                       })()}
                     </div>
+                  </div>
+                )}
+
+                {withdrawals.length > 0 && (
+                  <div className="mt-4 border-t border-border pt-3">
+                    <div className="mb-1.5 flex items-center justify-between font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
+                      <span>SAQUES</span>
+                      <span>{brl(withdrawals.reduce((sum, w) => sum + w.amount, 0))}</span>
+                    </div>
+                    {withdrawals.map((w) => (
+                      <div key={w.id} className="group flex items-center gap-2 px-1 py-1.5 text-[12px]">
+                        <span className="w-[58px] flex-none font-mono text-[11px] text-text-tertiary">{formatDay(w.withdrawnAt)}</span>
+                        <span className={`h-2 w-2 flex-none rounded-full ${bookmakerColor(w.bookmaker)}`} />
+                        <span className="min-w-0 flex-1 truncate">{bookmakerLabel(w.bookmaker)}</span>
+                        <span className="font-mono font-semibold">−{brl(w.amount)}</span>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Apagar o saque de ${brl(w.amount)} (${formatDay(w.withdrawnAt)})?`)) void removeWithdrawal(w.id);
+                          }}
+                          aria-label="Apagar saque"
+                          className="flex-none p-0.5 text-text-tertiary lg:opacity-0 lg:group-hover:opacity-100"
+                        >
+                          <IconX size={11} />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

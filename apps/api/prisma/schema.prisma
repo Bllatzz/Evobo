@@ -83,6 +83,7 @@ model User {
   tipTakes         TipTake[]
   telegramBancaSettings    TelegramBancaSettings?
   telegramBookmakerBalances TelegramBookmakerBalance[]
+  telegramBookmakerWithdrawals TelegramBookmakerWithdrawal[]
   telegramTipTakes         TelegramTipTake[]
   favorites                UserFavorite[]
   bookmakerCredentials     BookmakerCredential[]
@@ -556,6 +557,21 @@ model TelegramBookmakerBalance {
 
   @@unique([userId, bookmaker])
   @@map("telegram_bookmaker_balances")
+}
+
+/// Money the user took out of a bookmaker (profile → "Unidade & saldos").
+/// Lowers that casa's current balance and the banca atual, never the profit.
+model TelegramBookmakerWithdrawal {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  bookmaker   String
+  amount      Decimal  @db.Decimal(10, 2)
+  withdrawnAt DateTime @map("withdrawn_at") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, withdrawnAt])
+  @@map("telegram_bookmaker_withdrawals")
 }
 
 enum FavoriteKind {

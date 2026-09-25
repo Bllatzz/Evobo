@@ -6,6 +6,8 @@ import type {
   TelegramBancaSummary,
   TelegramBancaSettings,
   TelegramBookmakerBalance,
+  TelegramBookmakerWithdrawal,
+  CreateTelegramBookmakerWithdrawalInput,
   UpdateTelegramTipInput,
   UpdateTelegramTipTakeInput,
   UpdateTelegramBancaSettingsInput,
@@ -15,7 +17,7 @@ import type {
 
 export type { ImportedBookmakerBet, ImportBookmakerBetsResult };
 
-export type { TelegramTip, TelegramGroup, TelegramBancaSummary, TelegramBancaSettings, TelegramBookmakerBalance };
+export type { TelegramTip, TelegramGroup, TelegramBancaSummary, TelegramBancaSettings, TelegramBookmakerBalance, TelegramBookmakerWithdrawal };
 export { TELEGRAM_TIP_MARKET_TYPES };
 
 export type TelegramTipsFilter = {
@@ -143,6 +145,14 @@ export const rebuildTelegramTips = (
     method: "POST",
     body: JSON.stringify(untilUnix !== undefined ? { sinceUnix, untilUnix } : { sinceUnix }),
   });
+
+export const fetchWithdrawals = (): Promise<TelegramBookmakerWithdrawal[]> => apiFetch("/telegram-tips/withdrawals");
+
+export const createWithdrawal = (input: CreateTelegramBookmakerWithdrawalInput): Promise<TelegramBookmakerWithdrawal> =>
+  apiFetch("/telegram-tips/withdrawals", { method: "POST", body: JSON.stringify(input) });
+
+export const deleteWithdrawal = (id: string): Promise<void> =>
+  apiFetch(`/telegram-tips/withdrawals/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 export const saveBookmakerBalances = (rows: TelegramBookmakerBalance[]): Promise<TelegramBookmakerBalance[]> =>
   apiFetch("/telegram-tips/bookmaker-balances", { method: "PUT", body: JSON.stringify(rows) });

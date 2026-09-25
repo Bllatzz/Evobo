@@ -671,3 +671,20 @@ export type TelegramBookmakerBalance = z.infer<typeof TelegramBookmakerBalanceSc
 
 export const UpdateTelegramBookmakerBalancesInput = z.array(TelegramBookmakerBalanceSchema).max(50);
 export type UpdateTelegramBookmakerBalancesInput = z.infer<typeof UpdateTelegramBookmakerBalancesInput>;
+
+/// Saque lançado no perfil: tira do saldo da casa e da banca atual, não do lucro.
+export const TelegramBookmakerWithdrawalSchema = z.object({
+  id: z.string(),
+  bookmaker: z.string(),
+  amount: z.number(),
+  /** "YYYY-MM-DD" */
+  withdrawnAt: z.string(),
+});
+export type TelegramBookmakerWithdrawal = z.infer<typeof TelegramBookmakerWithdrawalSchema>;
+
+export const CreateTelegramBookmakerWithdrawalInput = z.object({
+  bookmaker: z.string().trim().min(1).max(80),
+  amount: z.number().positive().max(10_000_000),
+  withdrawnAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+export type CreateTelegramBookmakerWithdrawalInput = z.infer<typeof CreateTelegramBookmakerWithdrawalInput>;
