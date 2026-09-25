@@ -243,6 +243,38 @@
     return true;
   }
 
+  // "Ganhos Aumentados de 25%" — bloco da Bet365 em cada seleção
+  // (classes bol-*, HTML de 2026-09-24) com o botão "Aumentar Agora". O
+  // usuário pediu pra aplicar a aumentada (2026-09-25), como a CA
+  // Turbinada da Betano: clica em todo "Aumentar Agora" visível ANTES de
+  // ler as odds. Enquanto a oferta pede mais seleções ("Adicione mais 2
+  // seleções") o botão não vale — conta como indisponível.
+  async function ensureBoostOn() {
+    const buttons = () => QA("button").filter((b) => visible(b) && /^aumentar agora$/.test(norm(text(b))));
+    const res = { vistas: buttons().length, ligou: 0, falhou: 0, detalhes: [] };
+    for (let i = 0; i < res.vistas; i++) {
+      const btn = buttons()[0]; // o clicado some da lista
+      if (!btn) break;
+      const bloco = btn.closest("[class*='bol-']")?.parentElement?.closest("[class*='bol-']") ?? btn.parentElement;
+      const oferta = text(bloco).slice(0, 80);
+      const bloqueado = btn.disabled || /adicione mais/i.test(oferta);
+      if (bloqueado) {
+        res.falhou++;
+        res.detalhes.push({ oferta, bloqueado: true });
+        continue;
+      }
+      const antes = buttons().length;
+      const click = await trustedClick(btn, "aumentar_agora");
+      if (!click?.ok) clickLikeUser(btn);
+      const foi = await waitFor(() => buttons().length < antes, 3000, 200);
+      if (foi) res.ligou++;
+      else res.falhou++;
+      res.detalhes.push({ oferta, bloqueado: false, ligou: !!foi });
+    }
+    if (res.ligou) await sleep(800); // a odd aumentada aparece logo depois
+    return res;
+  }
+
   function readReceipt() {
     const r = QA('[class*="bss-ReceiptContent"], [class*="ReceiptContent"], [class*="BetReceipt"]').find(visible);
     if (!r) return null;
@@ -265,6 +297,7 @@
     ensureSlipOpen,
     ensureSinglesMode,
     expandOtherMultiples,
+    ensureBoostOn,
     setStake,
     stakeValue,
     waitFor,

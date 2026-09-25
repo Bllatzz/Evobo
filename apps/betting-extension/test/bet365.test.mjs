@@ -150,3 +150,37 @@ test("bet365 login: saldo no bilhete = logado", async () => {
   assert.match(st.sinal, /saldo R\$202,67/);
   await page.close();
 });
+
+// Real (2026-09-25): logado, bilhete aberto, e mesmo assim "não deu pra saber
+// se a casa está logada" — o saldo existe mas estava escondido.
+test("bet365 login: saldo escondido ainda conta como logado", async () => {
+  const page = await setup({ cards: CARDS, loggedIn: true, balanceHidden: true });
+  const st = await page.evaluate(() => window.Bet365Login.status());
+  assert.deepEqual([st.pronto, st.logado], [true, true], JSON.stringify(st));
+  await page.close();
+});
+
+test("bet365: 'Aumentar Agora' é aplicado antes de ler a odd", async () => {
+  const cards = [{ ...CARDS[0], boost: { eligible: true, boostedOdd: 20 } }, CARDS[1]];
+  const page = await setup({ cards });
+  const r = await run(page, {
+    tipId: "g:5",
+    unitValueReais: 20,
+    maxStakeReais: 50,
+    legs: [
+      { id: "a", match: "ATL Falcons x GB Packers", selection: "Mark Redman", odd: 20, unit: 0.5 },
+      { id: "b", match: "ATL Falcons x GB Packers", selection: "Jahan Dotson", odd: 8, unit: 1 },
+    ],
+  });
+  assert.deepEqual([r.turbinada.vistas, r.turbinada.ligou], [1, 1], JSON.stringify(r.turbinada));
+  assert.deepEqual(r.singles.legs.map((l) => [l.action, l.realOdd]), [["stake", 20], ["stake", 8]]);
+  await page.close();
+});
+
+test("bet365: oferta que ainda pede mais seleções não é clicada", async () => {
+  const cards = [{ ...CARDS[0], boost: { eligible: false, boostedOdd: 20 } }, CARDS[1]];
+  const page = await setup({ cards });
+  const r = await page.evaluate(() => window.Bet365Slip.ensureBoostOn());
+  assert.deepEqual([r.vistas, r.ligou, r.falhou, r.detalhes[0].bloqueado], [1, 0, 1, true]);
+  await page.close();
+});

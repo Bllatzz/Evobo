@@ -51,7 +51,21 @@
     if (passwordInput()) return null;
     return QA("button, div, span, a").filter((el) => visible(el) && el.children.length <= 1).find((el) => norm(text(el)) === "login") ?? null;
   }
-  const balance = () => QA(".bs-Balance_Value, [class*='Balance_Value'], [class*='hm-Balance']").find((el) => visible(el) && /\d/.test(text(el))) ?? null;
+  // Logado: o saldo ("R$202,67") — no bilhete (.bs-Balance_Value) ou no
+  // cabeçalho. NÃO exige visível: em 2026-09-25, logado, com o bilhete
+  // recolhido, a extensão parou em "não sei se está logada" — o saldo
+  // existe na página mas fica escondido. Deslogado não tem saldo nenhum.
+  const BALANCE_SEL = ".bs-Balance_Value, [class*='Balance_Value'], [class*='hm-Balance'], [class*='MembersInfoButton_Balance'], [class*='Balance_Amount']";
+  const balance = () => QA(BALANCE_SEL).find((el) => /R\$\s*[\d.,]+/.test(text(el))) ?? null;
+  // Menu da conta no cabeçalho (só existe logado).
+  const memberMenu = () => QA("[class*='hm-MainHeaderMembers'], [class*='MembersInfoButton'], [class*='hm-MembersInfo']")[0] ?? null;
+
+  // Diagnóstico quando não dá pra decidir: o que parece saldo/conta/login.
+  function loginDebug() {
+    const classes = [...new Set(QA("[class]").flatMap((el) => String(el.className).split(/\s+/)).filter((c) => /balance|member|login|account|conta/i.test(c)))].slice(0, 30);
+    const reais = QA("div, span").filter((el) => el.children.length === 0 && /^R\$\s*[\d.,]+$/.test(text(el))).slice(0, 5).map((el) => `${String(el.className).slice(0, 60)}: ${text(el)}`);
+    return { url: location.href, classes, reais, senhaNaTela: !!passwordInput() };
+  }
 
   // Pronto quando aparece o bilhete, o modal de login ou o botão Login.
   async function status() {
@@ -59,9 +73,10 @@
     if (!ready) return { pronto: false, url: location.href, titulo: document.title, textoVisivel: (document.body?.innerText ?? "").replace(/\s+/g, " ").slice(0, 300) };
     // Sinal POSITIVO dos dois lados (mesma regra da Betano): modal/botão
     // Login = deslogado; saldo = logado. Nenhum dos dois = não sei.
-    const estado = await S.waitFor(() => (passwordInput() || headerLogin() ? "deslogado" : balance() ? "logado" : null), 20000, 250);
-    if (!estado) return { pronto: true, logado: null };
-    return { pronto: true, logado: estado === "logado", sinal: estado === "logado" ? `saldo ${text(balance())}` : passwordInput() ? "modal de login" : "botão Login" };
+    const estado = await S.waitFor(() => (passwordInput() || headerLogin() ? "deslogado" : balance() || memberMenu() ? "logado" : null), 20000, 250);
+    if (!estado) return { pronto: true, logado: null, diagnostico: loginDebug() };
+    const sinal = estado === "deslogado" ? (passwordInput() ? "modal de login" : "botão Login") : balance() ? `saldo ${text(balance())}` : "menu da conta";
+    return { pronto: true, logado: estado === "logado", sinal };
   }
 
   // Modal já aberto = nada a clicar (o background pula esse passo).
@@ -87,7 +102,7 @@
   }
 
   async function waitLoggedIn() {
-    const ok = await S.waitFor(() => !passwordInput() && !headerLogin(), 25000, 250);
+    const ok = await S.waitFor(() => !passwordInput() && !headerLogin() && (balance() || memberMenu()), 25000, 250);
     const erro = QA("[class*='rror'], [role='alert']").filter(visible).map(text).filter(Boolean).slice(0, 3);
     return ok ? { ok: true } : { ok: false, motivo: "login_nao_confirmado", textos: erro };
   }
