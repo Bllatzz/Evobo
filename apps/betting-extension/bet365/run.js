@@ -75,6 +75,9 @@
     report.modo = await S.ensureSinglesMode();
     if (report.modo.erro) return { ...report, abort: `modo_do_bilhete (${report.modo.erro})` };
     if (S.readSnapshot()?.cards.length >= 2) report.expandiuMultiplas = await S.expandOtherMultiples();
+    // "Aumentar Agora" antes de ler odds (task.boost === false só no teste
+    // manual "sem aumento"). Mesmo campo do relatório da Betano.
+    report.turbinada = task.boost === false ? { pulou: true } : await S.ensureBoostOn();
 
     const snap = S.readSnapshot();
     const fills = [];

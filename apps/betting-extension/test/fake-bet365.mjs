@@ -7,11 +7,12 @@
 // Digitação: nos testes não há CDP; bet365/slip.js dispara um evento
 // "fake-type" no campo e este bilhete aplica o valor (a Bet365 real só
 // aceita teclado de verdade).
-export async function installFakeBet365(page, { cards, mode = "Simples e Múltiplas", loggedIn = true, loginModal = false, receipt = false }) {
+export async function installFakeBet365(page, { cards, mode = "Simples e Múltiplas", loggedIn = true, loginModal = false, receipt = false, balanceHidden = false }) {
   await page.setContent('<body style="margin:0"><div id="root"></div></body>');
   await page.evaluate(
-    ({ cards, mode, loggedIn, loginModal, receipt }) => {
-      const st = { mode, options: false, stakes: {}, multi: "", modal: loginModal, loggedIn };
+    ({ cards, mode, loggedIn, loginModal, receipt, balanceHidden }) => {
+      // c.boost: { eligible, boostedOdd } — bloco "Ganhos Aumentados de 25%" / "Aumentar Agora".
+      const st = { mode, options: false, stakes: {}, multi: "", modal: loginModal, loggedIn, boosted: {} };
       const num = (v) => (v ? Number(String(v).replace(",", ".")) || 0 : 0);
       const brl = (n) => "R$" + n.toFixed(2).replace(".", ",");
       const total = () => Object.values(st.stakes).reduce((s, v) => s + num(v), 0) + num(st.multi);
@@ -28,7 +29,7 @@ export async function installFakeBet365(page, { cards, mode = "Simples e Múltip
           <div class="bss-StandardBetslip">
             <div class="bss-StandardHeader"><div class="bss-DefaultContent"><div class="bss-DefaultContent_TitleWrapper">
               <div class="bs-EditButton bss-DefaultContent_TitleEdit" id="edit" ${st.options ? 'style="display:none"' : ""}>Mostrar Opções</div></div>
-              ${st.loggedIn ? `<div class="bs-Balance"><div class="bs-Balance_Label">Saldo</div><div class="bs-Balance_Value">R$202,67</div></div>` : ""}
+              ${st.loggedIn ? `<div class="bs-Balance" ${balanceHidden ? 'style="display:none"' : ""}><div class="bs-Balance_Label">Saldo</div><div class="bs-Balance_Value">R$202,67</div></div>` : ""}
             </div></div>
             ${st.options ? `<div class="bss-ControlBar"><div class="bss-ControlBar_TypesWrapper"><div class="bss-ControlBar_BetslipTypesButton" id="types">${st.mode}</div></div>
               ${st.dropdown ? `<div class="dropdown"><div class="opt">Criar Aposta</div><div class="opt" id="opt-sm">Simples e Múltiplas</div></div>` : ""}</div>` : ""}
@@ -36,11 +37,14 @@ export async function installFakeBet365(page, { cards, mode = "Simples e Múltip
               .map(
                 (c, i) => `<div class="bs-BetComponent bss-NormalBetItem"><div class="bss-NormalBetItem_Details">
                   <h5 class="bss-NormalBetItem_Title">${c.selection}</h5>
-                  <div class="bss-NormalBetItem_OddsContainer"><span class="bsc-OddsDropdownLabel"><span>${c.odd.toFixed(2)}</span></span></div>
+                  <div class="bss-NormalBetItem_OddsContainer"><span class="bsc-OddsDropdownLabel"><span>${(st.boosted[i] ? c.boost.boostedOdd : c.odd).toFixed(2)}</span></span></div>
                   <div class="bss-NormalBetItem_Market">${c.market}</div>
                   <div class="bss-NormalBetItem_FixtureDescription">${c.fixture}</div></div>
                   ${st.mode === "Simples e Múltiplas" ? `<div class="bss-StakeBox"><div class="bss-StakeBox_StakeInputContainer" data-i="${i}" style="height:20px">
                     <div class="bss-StakeBox_StakeValue ${st.stakes[i] ? "" : "bss-StakeBox_StakeValue-empty"}">${st.stakes[i] || "Aposta"}</div></div></div>` : ""}
+                  ${c.boost && !st.boosted[i] ? `<div class="bss-NormalBetItem_ReactContainer"><div class="bol-6c8150"><div class="bol-2c9682"><div class="bol-496957"><div class="bol-663185">Ganhos Aumentados de 25%</div>
+                    <div class="bol-c33e07">${c.boost.eligible ? "Aumente seus ganhos" : "Adicione mais 2 seleções"}</div></div>
+                    <button class="bol-491eed" data-boost="${i}">Aumentar Agora</button></div></div></div>` : ""}
                 </div>`,
               )
               .join("")}
@@ -54,7 +58,10 @@ export async function installFakeBet365(page, { cards, mode = "Simples e Múltip
       window.__placeClicks = 0;
       document.addEventListener("click", (e) => {
         const el = e.target;
-        if (el.closest("#edit")) { st.options = true; render(); }
+        if (el.closest("[data-boost]")) {
+          const i = Number(el.closest("[data-boost]").dataset.boost);
+          if (cards[i].boost.eligible) { st.boosted[i] = true; render(); }
+        } else if (el.closest("#edit")) { st.options = true; render(); }
         else if (el.closest("#types")) { st.dropdown = true; render(); }
         else if (el.closest("#opt-sm")) { st.mode = "Simples e Múltiplas"; st.dropdown = false; render(); }
         else if (el.closest("#login-btn")) { st.modal = false; st.loggedIn = true; render(); }
@@ -71,6 +78,6 @@ export async function installFakeBet365(page, { cards, mode = "Simples e Múltip
       });
       render();
     },
-    { cards, mode, loggedIn, loginModal, receipt },
+    { cards, mode, loggedIn, loginModal, receipt, balanceHidden },
   );
 }

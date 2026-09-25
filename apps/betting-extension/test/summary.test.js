@@ -115,3 +115,9 @@ test("combo: múltipla clicada sem comprovante vira verificar", () => {
   });
   assert.equal(status, "verificar");
 });
+
+test("bet365: fala em 'aumentada', não em CA Turbinada", () => {
+  const t = summarize({ casa: "bet365", dryRun: true, login: { jaEstavaLogado: true }, turbinada: { vistas: 1, ligou: 1 }, singles: { legs: [stakeLeg] } }).texto;
+  assert.match(t, /⚡ Aplicou a aumentada/);
+  assert.doesNotMatch(t, /Turbinada|Betano/);
+});

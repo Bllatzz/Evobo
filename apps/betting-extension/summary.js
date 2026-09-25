@@ -79,10 +79,13 @@
     // Pernas ignoradas (odd abaixo, não achada…) — uma linha cada.
     const legs = r.multiplaPura ? [r.multiple].filter(Boolean) : (r.singles?.legs ?? []);
     // Turbinada que a extensão teve de ligar (ver ensureBoostOn em slip.js).
-    if ((r.turbinada?.ligou ?? 0) + (r.turbinadaMultipla?.ligou ?? 0) > 0) linhas.push("⚡ Ligou a CA Turbinada");
+    // Bet365 chama de "aumentada" ("Aumentar Agora"); Betano, CA Turbinada.
+    const boostName = r.casa === "bet365" ? "a aumentada" : "a CA Turbinada";
+    const boostBy = r.casa === "bet365" ? "oferta indisponível" : "bloqueada pela Betano";
+    if ((r.turbinada?.ligou ?? 0) + (r.turbinadaMultipla?.ligou ?? 0) > 0) linhas.push(`⚡ ${r.casa === "bet365" ? "Aplicou" : "Ligou"} ${boostName}`);
     if ((r.turbinada?.falhou ?? 0) + (r.turbinadaMultipla?.falhou ?? 0) > 0) {
       const bloqueada = [...(r.turbinada?.detalhes ?? []), ...(r.turbinadaMultipla?.detalhes ?? [])].some((d) => d.bloqueado);
-      linhas.push(`⚠️ Não conseguiu ligar a CA Turbinada${bloqueada ? " (bloqueada pela Betano)" : ""}`);
+      linhas.push(`⚠️ Não conseguiu ${r.casa === "bet365" ? "aplicar" : "ligar"} ${boostName}${bloqueada ? ` (${boostBy})` : ""}`);
     }
     if (r.releituras) linhas.push(`🔄 Releu o bilhete ${r.releituras}x esperando carregar`);
     const pernas = r.multiplaPura ? " (múltipla)" : "";
