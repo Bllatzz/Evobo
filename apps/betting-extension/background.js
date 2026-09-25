@@ -12,6 +12,7 @@
 //   done    { [taskKey]: true } — tips já processadas (reforço local; o
 //           Evobo também não devolve tip que já tem linha no histórico)
 //   waiting { [taskKey]: firstSeenMs } — tips esperando a OCR preencher odd/unidade
+//   vivoEm / onlineDesde — batimento da extensão (ver heartbeat)
 //   log     últimos resultados, mais novo primeiro (o popup mostra o último teste)
 
 importScripts("summary.js");
@@ -27,6 +28,9 @@ const MAX_LOG = 10;
 const WAIT_FOR_OCR_MS = 10 * 60 * 1000;
 const SLIP_DEADLINE_MS = 45000; // tempo máximo pra página da Betano montar o bilhete
 const SLIP_RETRY_MS = 1000;
+// Sem batimento por mais que isso = a extensão ficou fora do ar (PC
+// desligado/dormindo, Chrome fechado). Folga sobre o alarme de 30s.
+const OFFLINE_GAP_MS = 2 * 60 * 1000;
 
 // Endereço do Evobo fixo: o usuário só cola a chave. Um apiUrl que tenha
 // ficado salvo de versões antigas (ex.: localhost em teste) é ignorado.
@@ -431,6 +435,23 @@ async function ensureLoggedIn(tabId, config, st, bookmaker = "betano") {
 
 let running = false;
 
+// Desde quando a extensão está no ar sem interrupção. Tip que chegou antes
+// disso chegou com o PC desligado / Chrome fechado e nunca é aberta — ao
+// ligar o PC a fila do Evobo (até 24h pra trás) abria uma aba por tip
+// antiga (2026-09-25). Chamado no alarme de 30s e em cada consulta, então
+// uma tip demorada não conta como "fora do ar".
+async function heartbeat() {
+  const now = Date.now();
+  const vivoEm = await get("vivoEm", 0);
+  let desde = await get("onlineDesde", 0);
+  if (!desde || now - vivoEm > OFFLINE_GAP_MS) {
+    desde = now;
+    await set("onlineDesde", desde);
+  }
+  await set("vivoEm", now);
+  return desde;
+}
+
 // Configuração vinda do Evobo pro teste manual (a fila já traz a dela).
 async function fetchSettings(config) {
   const res = await fetch(`${config.apiUrl}/auto-betting/extension/settings`, { headers: apiHeaders(config) });
@@ -442,6 +463,7 @@ async function poll() {
   if (running) return { skipped: "ja_rodando" };
   running = true;
   try {
+    const onlineDesde = await heartbeat();
     const config = await getConfig();
     if (!config.extensionKey) {
       await set("estado", { at: new Date().toISOString(), erro: "sem_chave" });
@@ -472,6 +494,15 @@ async function poll() {
 
     for (const task of tasks) {
       if (done[task.key]) continue;
+
+      // Chegou enquanto a extensão estava fora do ar: só registra.
+      if (new Date(task.receivedAt).getTime() < onlineDesde) {
+        done[task.key] = true;
+        delete waiting[task.key];
+        await set("done", done);
+        await finish(task, { ok: false, abort: "chegou_com_extensao_offline" }, null, config, !settings.placeReal);
+        continue;
+      }
 
       // "Simples + múltipla" em que a API não conseguiu separar a múltipla
       // das simples: nada é apostado.
@@ -544,7 +575,11 @@ chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create(POLL_ALARM, { periodInMinutes: POLL_MINUTES });
   fastLoop();
 });
-chrome.alarms.onAlarm.addListener((a) => a.name === POLL_ALARM && fastLoop());
+chrome.alarms.onAlarm.addListener(async (a) => {
+  if (a.name !== POLL_ALARM) return;
+  await heartbeat();
+  fastLoop();
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
   // Pedido do content script (cabeçalho do bilhete / APOSTE JÁ — ver slip.js).
