@@ -39,6 +39,19 @@ const app = Fastify({
     level: env.NODE_ENV === "production" ? "info" : "debug",
     // Never log Authorization headers, tokens, or payment/proof payloads.
     redact: ["req.headers.authorization", "req.headers.cookie"],
+    // /robotip/api/alerts/events recebe a chave por querystring (EventSource
+    // não manda header) — nunca deixar ?api_key= chegar ao log.
+    serializers: {
+      req(req) {
+        return {
+          method: req.method,
+          url: req.url.replace(/([?&]api_key=)[^&]*/, "$1[REDACTED]"),
+          host: req.host,
+          remoteAddress: req.ip,
+          remotePort: req.socket?.remotePort,
+        };
+      },
+    },
   },
 });
 
