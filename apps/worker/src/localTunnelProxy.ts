@@ -10,13 +10,18 @@ import { TUNNEL_SECRET_HEADER } from "./tunnelAuth.js";
  * /bankroll/*). Só o ngrok tunnela esta porta (ver ngrok.yml).
  *
  * Como o túnel é público, só passa o que o worker realmente usa (allowlist de
- * método + path) — nada de /api/pull, /api/delete etc. do Ollama. Se
- * TUNNEL_SECRET estiver definido, também exige o header x-tunnel-secret.
+ * método + path) — nada de /api/pull, /api/delete etc. do Ollama — e exige o
+ * header x-tunnel-secret = TUNNEL_SECRET (o mesmo valor configurado na Fly).
+ * Sem TUNNEL_SECRET o proxy nem sobe: túnel público sem senha, nunca.
  */
 const PORT = Number(process.env.TUNNEL_PROXY_PORT ?? 8080);
 const OLLAMA_PORT = Number(process.env.OLLAMA_PORT ?? 11434);
 const FETCHER_PORT = Number(process.env.BET_ANALYTIX_FETCHER_PORT ?? 3939);
 const TUNNEL_SECRET = process.env.TUNNEL_SECRET;
+if (!TUNNEL_SECRET) {
+  console.error("[tunnel-proxy] TUNNEL_SECRET não definido — recusando subir o túnel público sem senha.");
+  process.exit(1);
+}
 
 const OLLAMA_PATHS = new Set(["/api/generate", "/api/chat"]);
 const BANKROLL_PATH = /^\/bankroll\/[0-9]+\/?$/;
@@ -29,10 +34,9 @@ function routeFor(method: string | undefined, url: string | undefined): number |
 }
 
 function hasValidSecret(provided: string | string[] | undefined): boolean {
-  if (!TUNNEL_SECRET) return true; // opt-in: sem segredo configurado, só a allowlist vale
   if (typeof provided !== "string") return false;
   const a = Buffer.from(provided);
-  const b = Buffer.from(TUNNEL_SECRET);
+  const b = Buffer.from(TUNNEL_SECRET!);
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
@@ -64,7 +68,4 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[tunnel-proxy] rodando em http://localhost:${PORT} — /bankroll/* -> :${FETCHER_PORT}, /api/generate|chat -> :${OLLAMA_PORT}`);
-  if (!TUNNEL_SECRET) {
-    console.warn("[tunnel-proxy] TUNNEL_SECRET não definido — o túnel só está protegido pela allowlist de paths, sem senha.");
-  }
 });

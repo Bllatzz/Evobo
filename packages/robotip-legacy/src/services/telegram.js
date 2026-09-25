@@ -515,8 +515,10 @@ async function startTelegramListener() {
       const message = event.message;
       if (!message || !message.message) return;
 
-      // Filtrar pelo remetente se ROBOTIP_TELEGRAM_BOT_SOURCE estiver configurado
-      if (botSource) {
+      // Só aceita mensagens do ROBOTIP_TELEGRAM_BOT_SOURCE — sem ele, qualquer
+      // chat conseguiria forjar um alerta (e disparar aposta automática).
+      if (!botSource) return;
+      {
         const sender = await message.getSender();
         const senderUsername = sender && (sender.username || sender.phone || String(sender.id));
         if (senderUsername !== botSource && String(sender && sender.id) !== botSource) {
