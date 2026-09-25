@@ -7,11 +7,13 @@ import {
   UpdateTelegramTipTakeInput,
   UpdateTelegramBancaSettingsInput,
   UpdateTelegramBookmakerBalancesInput,
+  CreateTelegramBookmakerWithdrawalInput,
   ImportBookmakerBetsInput,
   type TelegramTip,
   type TelegramBancaRow,
   type TelegramBancaSettings,
   type TelegramBookmakerBalance,
+  type TelegramBookmakerWithdrawal,
   type ImportBookmakerBetsResult,
 } from "@evobo/shared-types";
 import { matchBookmakerBet, type CandidateTip, ODD_TOLERANCE, textSimilarity, GAME_SIMILARITY_THRESHOLD } from "@evobo/worker";
@@ -379,6 +381,8 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       .update({ where: { userId_bookmaker: { userId: request.authUser!.id, bookmaker: oldName } }, data: { bookmaker: newName } })
       // No-op se este admin não tiver saldo pra essa casa, ou já tiver um pra newName (conflito de unique) — renomear a tip não deve falhar por isso.
       .catch(() => {});
+    // Saques seguem o nome da casa, como os "peguei" acima (de todo usuário).
+    await prisma.telegramBookmakerWithdrawal.updateMany({ where: { bookmaker: oldName }, data: { bookmaker: newName } });
 
     return { renamed: count };
   });
@@ -1215,4 +1219,33 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     ]);
     return parsed.data;
   });
+
+  app.get("/withdrawals", async (request): Promise<TelegramBookmakerWithdrawal[]> => {
+    const rows = await prisma.telegramBookmakerWithdrawal.findMany({
+      where: { userId: request.authUser!.id },
+      orderBy: [{ withdrawnAt: "desc" }, { createdAt: "desc" }],
+    });
+    return rows.map(withdrawalView);
+  });
+
+  app.post("/withdrawals", async (request, reply) => {
+    const parsed = CreateTelegramBookmakerWithdrawalInput.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    const withdrawnAt = new Date(`${parsed.data.withdrawnAt}T00:00:00Z`);
+    if (Number.isNaN(withdrawnAt.getTime())) return reply.code(400).send({ error: "invalid_date" });
+    const row = await prisma.telegramBookmakerWithdrawal.create({
+      data: { userId: request.authUser!.id, bookmaker: parsed.data.bookmaker, amount: parsed.data.amount, withdrawnAt },
+    });
+    return reply.code(201).send(withdrawalView(row));
+  });
+
+  app.delete<{ Params: { id: string } }>("/withdrawals/:id", async (request, reply) => {
+    const { count } = await prisma.telegramBookmakerWithdrawal.deleteMany({ where: { id: request.params.id, userId: request.authUser!.id } });
+    if (count === 0) return reply.code(404).send({ error: "not_found" });
+    return reply.code(204).send();
+  });
+}
+
+function withdrawalView(r: { id: string; bookmaker: string; amount: Prisma.Decimal; withdrawnAt: Date }): TelegramBookmakerWithdrawal {
+  return { id: r.id, bookmaker: r.bookmaker, amount: Number(r.amount), withdrawnAt: r.withdrawnAt.toISOString().slice(0, 10) };
 }
