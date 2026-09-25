@@ -22,7 +22,7 @@ export async function installFakeBet365(page, { cards, mode = "Simples e Múltip
         const t = total();
         document.getElementById("root").innerHTML = `
           ${st.modal ? `<div class="slm2-11"><div class="slm2-a"><div class=""><div class="slm2-64 slm2-b">
-            <input type="text" placeholder="Usuário ou endereço de e-mail" class="slm2-8" value="bllatz@Hotmail.com"><button class="slm2-56"></button></div>
+            <input type="text" placeholder="Usuário ou endereço de e-mail" class="slm2-8" value="usuario@exemplo.com"><button class="slm2-56"></button></div>
             <div class="slm2-1b"><input type="password" placeholder="Senha" class="slm2-c2" value=""></div></div>
             <button class="slm2-f9" id="login-btn"><span class="slm2-de">Login</span></button>
             <div class="slm2-04"><button class="slm2-50">Registre-se</button></div></div></div>` : ""}
