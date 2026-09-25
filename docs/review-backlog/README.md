@@ -29,7 +29,7 @@ O que **já foi corrigido** está nos commits `6dcbbef` (RLS, túnel, dono/admin
 
 ## 3. Adiados — bloco 1 (`worker` + `api`)
 
-1. ✔ **ALTA — `/robotip` legado sem autenticação**: `DELETE /gestao/reset`, `POST/PATCH/DELETE` de alertas, bot-configs, `apply-odds`, com `cors()` aberto, montado na API pública. **Precisa da sua decisão** de como autenticar sem quebrar o frontend antigo (`robotip-analyzer.vercel.app`). `packages/robotip-legacy/index.js:29-36`, `apps/api/src/server.ts`.
+1. ✔ **ALTA — `/robotip` legado sem autenticação** — **corrigido em 2026-09-25**: `packages/robotip-legacy/index.js` voltou a exigir `X-API-Key` (= `ROBOTIP_API_KEY`) em `/api/*`, igual ao robotip-analyzer original; o frontend antigo já mandava a chave.
 2. **Rebuild/backfill destrutivo** síncrono no request (`backfillSince` apaga tips e faz cascade nos takes; `sinceUnix=0` varre tudo; sem lock/dry-run). Deliberado e só admin.
 3. ✔ **bet-analytix lê só a 1ª página** (`waitForResponse` na 1ª resposta): bankroll grande perde bets antigas e as tips ficam pendentes. `playwrightFetch.ts:50`.
 4. **Matching/LLM**: Jaccard 0,3; a mesma entrada pode explicar várias tips no caminho não-LLM; LLM com ~1,6% de erro medido (2/125). Ruído já conhecido (~0,6%).
