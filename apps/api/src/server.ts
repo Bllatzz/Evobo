@@ -62,7 +62,16 @@ await app.register(cors, {
   credentials: true,
   methods: ["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE"],
 });
-await app.register(rateLimit, { global: true, max: 100, timeWindow: "1 minute" });
+// Logged-in pages fire ~11 requests per load (Meu perfil), so 100/min tripped
+// 429s after a handful of reloads. Still keyed by IP, not by user: this hook
+// runs before authGuard, so the token isn't verified yet — keying on its
+// unverified `sub` would let forged tokens mint fresh buckets. A bearer header
+// only raises the per-IP ceiling.
+await app.register(rateLimit, {
+  global: true,
+  max: (request) => (request.headers.authorization?.startsWith("Bearer ") ? 300 : 100),
+  timeWindow: "1 minute",
+});
 
 // Prisma errors carry internal details (column/table/query names) in
 // `.message` — never forward those to the client, only to the server log.
