@@ -226,7 +226,7 @@ function BankrollChart({
 
         <div className="pointer-events-none absolute inset-0">
           <span
-            className="absolute left-1 -translate-y-full rounded bg-surface/80 px-1 font-mono text-[10px] text-vip"
+            className="absolute left-1 -translate-y-full rounded bg-surface/80 px-1 font-mono text-[11px] text-vip"
             style={{ top: `${((refY / height) * 100).toFixed(2)}%` }}
           >
             banca inicial {formatValue(referenceValue)}
@@ -269,7 +269,7 @@ function BankrollChart({
           {dayLabels.map(({ index, date }, k) => (
             <span
               key={index}
-              className="absolute font-mono text-[10px] text-text-tertiary"
+              className="absolute font-mono text-[11px] text-text-secondary"
               style={{
                 left: `${(index / (values.length - 1)) * 100}%`,
                 transform: k === 0 ? "translateX(0)" : k === dayLabels.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
@@ -805,9 +805,9 @@ export function MyProfilePage() {
     </Link>
   );
 
-  const eqLabel = "mb-2 font-mono text-[10px] tracking-[0.05em] text-text-tertiary";
-  const eqSub = "mt-[3px] font-mono text-[11px] text-text-tertiary";
-  const eqOp = "hidden flex-none px-[18px] font-mono text-[20px] text-text-quaternary/50 lg:block";
+  const eqLabel = "mb-2 font-mono text-[11px] font-semibold tracking-[0.05em] text-text-secondary";
+  const eqSub = "mt-1 font-mono text-[12.5px] text-text-muted";
+  const eqOp = "hidden flex-none px-[18px] font-mono text-[22px] text-text-tertiary lg:block";
   const tabClass = (key: ProfileTab) =>
     `-mb-px border-b-2 py-4 text-[13px] ${key === tab ? "border-accent font-bold" : "border-transparent text-text-secondary"}`;
 
@@ -818,7 +818,7 @@ export function MyProfilePage() {
         <Avatar name={me.displayName} seed={me.id} src={me.avatarUrl} size={56} />
         <div className="min-w-0 flex-1 lg:flex-none">
           <div className="truncate text-[18px] font-bold tracking-[-0.02em] lg:text-[22px]">{me.displayName}</div>
-          <div className="mt-[3px] truncate font-mono text-[11px] text-text-tertiary lg:text-[12px]">
+          <div className="mt-[3px] truncate font-mono text-[12px] text-text-secondary lg:text-[13px]">
             @{me.username}
             {memberSince && ` · desde ${memberSince}`}
           </div>
@@ -870,13 +870,13 @@ export function MyProfilePage() {
             <div className="grid grid-cols-2 gap-3 p-4 lg:flex lg:items-center lg:gap-0 lg:px-6 lg:py-5">
               <div className="min-w-0 lg:flex-1">
                 <div className={eqLabel}>BANCA INICIAL</div>
-                <div className="font-mono text-[17px] font-bold text-text-muted lg:text-[22px]">{stats.bancaInicial.toFixed(1)}u</div>
+                <div className="font-mono text-[18px] font-bold lg:text-[24px]">{stats.bancaInicial.toFixed(1)}u</div>
                 {stats.unitValue != null && <div className={eqSub}>{brl(stats.bancaInicial * stats.unitValue)}</div>}
               </div>
               <span className={eqOp}>+</span>
               <div className="min-w-0 lg:flex-1">
                 <div className={eqLabel}>LUCRO</div>
-                <div className={`font-mono text-[17px] font-bold lg:text-[22px] ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
+                <div className={`font-mono text-[18px] font-bold lg:text-[24px] ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
                   {stats.combinedPnl < 0 && "−"}
                   {Math.abs(stats.combinedPnl).toFixed(1)}u
                 </div>
@@ -886,7 +886,7 @@ export function MyProfilePage() {
               {/* Tudo que a banca já chegou a ter: o que entrou + o que ganhou, antes dos saques. */}
               <div className="min-w-0 lg:flex-1" title="Banca inicial + lucro (antes dos saques)">
                 <div className={eqLabel}>LUCRO TOTAL</div>
-                <div className="font-mono text-[17px] font-bold lg:text-[22px]">
+                <div className="font-mono text-[18px] font-bold text-text lg:text-[24px]">
                   {(stats.bancaInicial + stats.combinedPnl).toFixed(1)}u
                 </div>
                 {stats.unitValue != null && (
@@ -896,18 +896,18 @@ export function MyProfilePage() {
               <span className={eqOp}>−</span>
               <div className="min-w-0 lg:flex-1">
                 <div className={eqLabel}>SACADO</div>
-                <div className="font-mono text-[17px] font-bold text-verified lg:text-[22px]">{stats.withdrawnUnits.toFixed(1)}u</div>
+                <div className="font-mono text-[18px] font-bold text-verified lg:text-[24px]">{stats.withdrawnUnits.toFixed(1)}u</div>
                 <div className={eqSub}>{brl(stats.withdrawnTotal)}</div>
               </div>
               <span className={eqOp}>=</span>
               <div className="order-first col-span-2 min-w-0 rounded-[14px] border border-accent-border bg-accent-soft px-[18px] py-3.5 lg:order-none lg:flex-[1.3]">
-                <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-accent">BANCA ATUAL</div>
-                <div className="font-mono text-[28px] font-bold tracking-[-0.02em]">
+                <div className="mb-1.5 font-mono text-[11px] font-semibold tracking-[0.05em] text-accent">BANCA ATUAL</div>
+                <div className="font-mono text-[30px] font-bold tracking-[-0.02em]">
                   {stats.bankroll.toFixed(1)}
                   <span className="text-[17px] text-text-secondary">u</span>
                 </div>
                 {stats.unitValue != null && (
-                  <div className="mt-0.5 font-mono text-[11px] text-text-secondary">{brl(stats.bankroll * stats.unitValue)}</div>
+                  <div className="mt-0.5 font-mono text-[12.5px] text-text-muted">{brl(stats.bankroll * stats.unitValue)}</div>
                 )}
               </div>
             </div>
@@ -938,9 +938,9 @@ export function MyProfilePage() {
                     i === cells.length - 1 && cells.length % 2 === 1 ? "col-span-2 lg:col-span-1" : ""
                   }`}
                 >
-                  <span className="font-mono text-[10px] tracking-[0.05em] text-text-tertiary">{cell.label}</span>
-                  <span className={`font-mono text-[15px] font-bold ${cell.className ?? ""}`}>{cell.value}</span>
-                  {cell.sub && <span className="font-mono text-[11px] text-text-tertiary">{cell.sub}</span>}
+                  <span className="font-mono text-[11px] font-semibold tracking-[0.05em] text-text-secondary">{cell.label}</span>
+                  <span className={`font-mono text-[16px] font-bold ${cell.className ?? ""}`}>{cell.value}</span>
+                  {cell.sub && <span className="font-mono text-[12px] text-text-muted">{cell.sub}</span>}
                 </div>
               ))}
             </div>
@@ -992,13 +992,13 @@ export function MyProfilePage() {
             <section className="overflow-hidden rounded-[18px] border border-border bg-surface">
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-border-subtle px-4 lg:px-[22px]">
                 <button onClick={() => setTab("casas")} className={tabClass("casas")}>
-                  Casas <span className="font-mono font-medium text-text-tertiary">{casaRows.length}</span>
+                  Casas <span className="font-mono font-medium text-text-secondary">{casaRows.length}</span>
                 </button>
                 <button onClick={() => setTab("grupos")} className={tabClass("grupos")}>
-                  Grupos <span className="font-mono font-medium text-text-tertiary">{groupRows.length}</span>
+                  Grupos <span className="font-mono font-medium text-text-secondary">{groupRows.length}</span>
                 </button>
                 <button onClick={() => openSaques()} className={tabClass("saques")}>
-                  Saques <span className="font-mono font-medium text-text-tertiary">{withdrawals.length}</span>
+                  Saques <span className="font-mono font-medium text-text-secondary">{withdrawals.length}</span>
                 </button>
                 {tab === "casas" && (
                   <div className="ml-auto flex items-center">
@@ -1064,7 +1064,7 @@ export function MyProfilePage() {
                     <div className="overflow-x-auto">
                       <div className="min-w-[860px]">
                         <div
-                          className={`${casaGrid} border-b border-border-subtle py-[11px] font-mono text-[12px] font-semibold tracking-[0.05em] text-text-tertiary`}
+                          className={`${casaGrid} border-b border-border-subtle py-[11px] font-mono text-[12px] font-semibold tracking-[0.05em] text-text-secondary`}
                         >
                           {CASA_COLUMNS.map((col) => {
                             const active = casaSort.key === col.key;
@@ -1116,12 +1116,12 @@ export function MyProfilePage() {
                                   </button>
                                 )}
                               </div>
-                              <span className="text-right font-mono text-[12px] text-text-secondary">{c.total}</span>
+                              <span className="text-right font-mono text-[13px] text-text-muted">{c.total}</span>
                               <span className={`text-right font-mono text-[13px] font-bold ${c.profit >= 0 ? "text-accent" : "text-live"}`}>
                                 {signedUnits(c.profit)}
                               </span>
                               <span
-                                className={`text-right font-mono text-[12px] ${
+                                className={`text-right font-mono text-[13px] ${
                                   c.roiPct == null ? "text-text-tertiary" : c.roiPct >= 0 ? "text-accent" : "text-live"
                                 }`}
                               >
@@ -1146,13 +1146,13 @@ export function MyProfilePage() {
                                   <button
                                     onClick={() => setEditingBookmaker(c.key)}
                                     title="Editar valor depositado"
-                                    className="font-mono text-[12px] text-text-secondary hover:text-text"
+                                    className="font-mono text-[13px] text-text-muted hover:text-text"
                                   >
                                     {c.deposited !== null ? plainBrl(c.deposited) : "—"}
                                   </button>
                                 )}
                               </div>
-                              <span className={`text-right font-mono text-[12px] ${c.withdrawn > 0 ? "text-verified" : "text-text-quaternary/50"}`}>
+                              <span className={`text-right font-mono text-[13px] ${c.withdrawn > 0 ? "text-verified" : "text-text-quaternary/50"}`}>
                                 {c.withdrawn > 0 ? plainBrl(c.withdrawn) : "—"}
                               </span>
                               <span
@@ -1174,22 +1174,22 @@ export function MyProfilePage() {
                           );
                         })}
                         <div className={`${casaGrid} border-t border-border bg-surface-chip py-[13px]`}>
-                          <span className="font-mono text-[11px] text-text-tertiary">
+                          <span className="font-mono text-[12px] text-text-secondary">
                             TOTAL · {casaRows.length} casa{casaRows.length !== 1 ? "s" : ""}
                           </span>
-                          <span className="text-right font-mono text-[12px] text-text-secondary">{casaTotals.total}</span>
+                          <span className="text-right font-mono text-[13px] text-text-muted">{casaTotals.total}</span>
                           <span className={`text-right font-mono text-[13px] font-bold ${casaTotals.profit >= 0 ? "text-accent" : "text-live"}`}>
                             {signedUnits(casaTotals.profit)}
                           </span>
                           <span
-                            className={`text-right font-mono text-[12px] font-bold ${
+                            className={`text-right font-mono text-[13px] font-bold ${
                               casaTotals.roiPct == null ? "text-text-tertiary" : casaTotals.roiPct >= 0 ? "text-accent" : "text-live"
                             }`}
                           >
                             {casaTotals.roiPct == null ? "—" : signedPct(casaTotals.roiPct)}
                           </span>
-                          <span className="text-right font-mono text-[12px] text-text-secondary">{plainBrl(casaTotals.deposited)}</span>
-                          <span className="text-right font-mono text-[12px] text-verified">{plainBrl(casaTotals.withdrawn)}</span>
+                          <span className="text-right font-mono text-[13px] text-text-muted">{plainBrl(casaTotals.deposited)}</span>
+                          <span className="text-right font-mono text-[13px] text-verified">{plainBrl(casaTotals.withdrawn)}</span>
                           <span className="text-right font-mono text-[14px] font-bold">{plainBrl(casaTotals.saldo)}</span>
                           <span />
                         </div>
@@ -1205,7 +1205,7 @@ export function MyProfilePage() {
                 ) : (
                   <div className="overflow-x-auto">
                     <div className="min-w-[480px]">
-                      <div className="grid grid-cols-[minmax(0,1fr)_90px_100px_90px] gap-3.5 border-b border-border-subtle px-4 py-[11px] font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:px-[22px]">
+                      <div className="grid grid-cols-[minmax(0,1fr)_90px_100px_90px] gap-3.5 border-b border-border-subtle px-4 py-[11px] font-mono text-[12px] font-semibold tracking-[0.05em] text-text-secondary lg:px-[22px]">
                         <span>GRUPO</span>
                         <span className="text-right">APOSTAS</span>
                         <span className="text-right">LUCRO</span>
@@ -1217,12 +1217,12 @@ export function MyProfilePage() {
                           className="grid grid-cols-[minmax(0,1fr)_90px_100px_90px] items-center gap-3.5 border-b border-border-subtle px-4 py-[13px] last:border-0 lg:px-[22px]"
                         >
                           <span className="truncate text-[13px] font-semibold">{g.key}</span>
-                          <span className="text-right font-mono text-[12px] text-text-secondary">{g.total}</span>
+                          <span className="text-right font-mono text-[13px] text-text-muted">{g.total}</span>
                           <span className={`text-right font-mono text-[13px] font-bold ${g.profit >= 0 ? "text-accent" : "text-live"}`}>
                             {signedUnits(g.profit)}
                           </span>
                           <span
-                            className={`text-right font-mono text-[12px] ${
+                            className={`text-right font-mono text-[13px] ${
                               g.roiPct == null ? "text-text-tertiary" : g.roiPct >= 0 ? "text-accent" : "text-live"
                             }`}
                           >
