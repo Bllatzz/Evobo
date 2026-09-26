@@ -502,6 +502,15 @@ export const UpdateTelegramTipInput = z.object({
    * de quem pegar essa tip é automaticamente limitada a isso (ver PATCH
    * /:id/take e TelegramTip.mine.limitApplied). */
   limit: z.number().positive().nullable().optional(),
+  /** Texto original da mensagem. */
+  rawMessage: z.string().max(4000).nullable().optional(),
+  /** Nova foto do bilhete em base64 (sem o prefixo data:), jpeg/png/webp —
+   * vale pra todas as tips da mesma mensagem. `null` remove a foto. */
+  photoBase64: z.string().max(8_000_000).nullable().optional(),
+  /** Só pra tip adicionada à mão (parsePattern "manual") — numa tip do
+   * Telegram, grupo e hora identificam a mensagem de origem. */
+  groupId: z.string().uuid().optional(),
+  receivedAt: z.string().datetime().optional(),
 });
 export type UpdateTelegramTipInput = z.infer<typeof UpdateTelegramTipInput>;
 

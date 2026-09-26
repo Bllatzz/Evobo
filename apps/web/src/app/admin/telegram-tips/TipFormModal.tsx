@@ -2,6 +2,7 @@ import { useEffect, useState, type ClipboardEvent } from "react";
 import {
   createManualTelegramTip,
   createTelegramGroup,
+  patchTelegramTip,
   patchTelegramTipTake,
   TELEGRAM_TIP_MARKET_TYPES,
   type TelegramGroup,
@@ -15,6 +16,7 @@ import { IconX } from "../../../components/Icon";
  * "Adicionar tip" — uma tip que chegou fora dos grupos monitorados (DM, outro
  * chat, print de alguém). Vira uma tip oficial comum, marcada como "manual";
  * a aposta automática nunca pega ela (ver betting-queue).
+ * Com `editing`, o mesmo formulário edita uma tip existente (foto incluída).
  */
 
 const PHOTO_MAX_SIDE = 1600;
@@ -41,35 +43,52 @@ function parseOptionalNumber(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : NaN;
 }
 
-/** Agora, no formato do <input type="datetime-local"> (hora local). */
-function nowLocalInput(): string {
-  const d = new Date();
+/** Data no formato do <input type="datetime-local"> (hora local). */
+function toLocalInput(date: Date): string {
+  const d = new Date(date);
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 16);
 }
+const nowLocalInput = () => toLocalInput(new Date());
+const numText = (v: number | null) => (v === null ? "" : String(v));
 
 const NEW_GROUP = "__novo__";
+
+function saveErrorMessage(err: unknown): string {
+  const code = err instanceof Error ? err.message : "";
+  if (code === "photo_too_large") return "Foto grande demais.";
+  if (code === "invalid_photo") return "Formato de foto não suportado (use JPG, PNG ou WebP).";
+  if (code === "only_manual_tips") return "Grupo e data só mudam em tip adicionada à mão.";
+  return "Não consegui salvar a tip.";
+}
 
 const labelClass = "mb-1.5 block font-mono text-[11px] font-semibold tracking-[0.05em] text-text-secondary";
 const inputClass =
   "h-10 w-full rounded-[10px] border border-border-strong bg-surface px-3 text-[13px] text-text outline-none focus:border-accent";
 
-export function AddManualTipModal({
+export function TipFormModal({
   open,
+  editing = null,
   onClose,
-  onCreated,
+  onSaved,
   onGroupCreated,
   groups,
   bookmakers,
 }: {
   open: boolean;
+  /** Tip sendo editada — null = adicionar uma nova. */
+  editing?: TelegramTip | null;
   onClose: () => void;
-  onCreated: (tip: TelegramTip) => void;
+  onSaved: (tip: TelegramTip) => void;
   onGroupCreated: (group: TelegramGroup) => void;
   groups: TelegramGroup[];
   bookmakers: string[];
 }) {
+  // Grupo e hora identificam a mensagem de origem de uma tip do Telegram — só
+  // a manual deixa mudar (a API recusa o resto).
+  const canMoveTip = !editing || editing.parsePattern === "manual";
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoRemoved, setPhotoRemoved] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [groupId, setGroupId] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
@@ -89,26 +108,31 @@ export function AddManualTipModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reabrir o modal começa do zero (e com a hora de agora).
+  // Abrir começa do zero (ou dos valores da tip editada).
   useEffect(() => {
     if (!open) return;
     setPhoto(null);
+    setPhotoRemoved(false);
     setPhotoError(null);
     setNewGroupName("");
     setGroupError(null);
-    setMatch("");
-    setSelection("");
-    setMarketType("");
-    setOdd("");
-    setUnit("1");
-    setLimit("");
-    setBookmaker("");
-    setBetUrl("");
-    setReceivedAt(nowLocalInput());
-    setRawMessage("");
+    setGroupId(editing?.groupId ?? "");
+    setMatch(editing?.match ?? "");
+    setSelection(editing?.selection ?? "");
+    setMarketType(editing?.marketType ?? "");
+    setOdd(editing ? numText(editing.odd) : "");
+    setUnit(editing ? numText(editing.unit) : "1");
+    setLimit(editing ? numText(editing.limit) : "");
+    setBookmaker(editing?.bookmaker ?? "");
+    setBetUrl(editing?.betUrl ?? "");
+    setReceivedAt(editing ? toLocalInput(new Date(editing.receivedAt)) : nowLocalInput());
+    setRawMessage(editing?.rawMessage ?? "");
     setTaken(true);
     setError(null);
-  }, [open]);
+  }, [open, editing]);
+
+  const existingPhotoUrl = editing?.photoUrl && !photoRemoved ? editing.photoUrl : null;
+  const shownPhoto = photo ?? existingPhotoUrl;
 
   async function pickPhoto(file: Blob | null | undefined) {
     if (!file) return;
@@ -155,6 +179,7 @@ export function AddManualTipModal({
     const oddValue = parseOptionalNumber(odd);
     const limitValue = parseOptionalNumber(limit);
     if (!groupId || groupId === NEW_GROUP) return setError("Escolha o grupo.");
+    if (editing) return submitEdit(editing, unitValue, oddValue, limitValue);
     if (unitValue === null || Number.isNaN(unitValue)) return setError("Unidade inválida.");
     if (Number.isNaN(oddValue)) return setError("Odd inválida.");
     if (Number.isNaN(limitValue)) return setError("Limite inválido.");
@@ -189,17 +214,51 @@ export function AddManualTipModal({
           ...(tip.bookmaker ? { bookmaker: tip.bookmaker } : {}),
         });
       }
-      onCreated(tip);
+      onSaved(tip);
       onClose();
     } catch (err) {
-      const code = err instanceof Error ? err.message : "";
-      setError(
-        code === "photo_too_large"
-          ? "Foto grande demais."
-          : code === "invalid_photo"
-            ? "Formato de foto não suportado (use JPG, PNG ou WebP)."
-            : "Não consegui salvar a tip.",
-      );
+      setError(saveErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Manda só o que mudou — a tip oficial é a mesma pra todo mundo. */
+  async function submitEdit(tip: TelegramTip, unitValue: number | null, oddValue: number | null, limitValue: number | null) {
+    if (Number.isNaN(unitValue)) return setError("Unidade inválida.");
+    if (Number.isNaN(oddValue)) return setError("Odd inválida.");
+    if (Number.isNaN(limitValue)) return setError("Limite inválido.");
+    const url = betUrl.trim();
+    if (url && !/^https?:\/\//i.test(url)) return setError("O link precisa começar com http(s)://");
+    const when = new Date(receivedAt);
+    if (Number.isNaN(when.getTime())) return setError("Data inválida.");
+
+    const patch: Parameters<typeof patchTelegramTip>[1] = {};
+    if (match.trim() !== (tip.match ?? "")) patch.match = match.trim() || null;
+    // Mercado não pode ficar vazio pela API — apagar o texto só não muda nada.
+    if (selection.trim() && selection.trim() !== (tip.selection ?? "")) patch.selection = selection.trim();
+    if ((marketType || null) !== tip.marketType) patch.marketType = (marketType || null) as TelegramTip["marketType"];
+    if (oddValue !== tip.odd) patch.odd = oddValue;
+    if (unitValue !== tip.unit) patch.unit = unitValue;
+    if (limitValue !== tip.limit) patch.limit = limitValue;
+    if ((bookmaker.trim() || null) !== tip.bookmaker) patch.bookmaker = bookmaker.trim() || null;
+    if ((url || null) !== tip.betUrl) patch.betUrl = url || null;
+    if ((rawMessage.trim() || null) !== (tip.rawMessage?.trim() || null)) patch.rawMessage = rawMessage.trim() || null;
+    if (photo) patch.photoBase64 = photo.slice(photo.indexOf(",") + 1);
+    else if (photoRemoved && tip.photoUrl) patch.photoBase64 = null;
+    if (canMoveTip) {
+      if (groupId !== tip.groupId) patch.groupId = groupId;
+      if (toLocalInput(when) !== toLocalInput(new Date(tip.receivedAt))) patch.receivedAt = when.toISOString();
+    }
+
+    if (Object.keys(patch).length === 0) return onClose();
+    setSaving(true);
+    setError(null);
+    try {
+      onSaved(await patchTelegramTip(tip.id, patch));
+      onClose();
+    } catch (err) {
+      setError(saveErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -210,8 +269,12 @@ export function AddManualTipModal({
       <div onPaste={onPaste} className="flex flex-col gap-4 p-5">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-[16px] font-bold">Adicionar tip</div>
-            <div className="text-[12px] text-text-secondary">Tip que chegou fora dos grupos (DM, outro chat, print).</div>
+            <div className="text-[16px] font-bold">{editing ? "Editar tip" : "Adicionar tip"}</div>
+            <div className="text-[12px] text-text-secondary">
+              {editing
+                ? "Muda a tip oficial — vale pra todo mundo que acompanha ela."
+                : "Tip que chegou fora dos grupos (DM, outro chat, print)."}
+            </div>
           </div>
           <button onClick={onClose} aria-label="Fechar" className="text-text-tertiary hover:text-text">
             <IconX size={16} />
@@ -220,11 +283,14 @@ export function AddManualTipModal({
 
         <div>
           <span className={labelClass}>FOTO DO BILHETE</span>
-          {photo ? (
+          {shownPhoto ? (
             <div className="relative w-fit">
-              <img src={photo} alt="Bilhete" className="max-h-[260px] rounded-[10px] border border-border" />
+              <img src={shownPhoto} alt="Bilhete" className="max-h-[260px] rounded-[10px] border border-border" />
               <button
-                onClick={() => setPhoto(null)}
+                onClick={() => {
+                  if (photo) setPhoto(null);
+                  else setPhotoRemoved(true);
+                }}
                 aria-label="Remover foto"
                 className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-white"
               >
@@ -248,14 +314,22 @@ export function AddManualTipModal({
           )}
           {photoError && <p className="mt-1.5 text-[12px] text-live">{photoError}</p>}
           <p className="mt-1.5 text-[12px] text-text-tertiary">
-            Com foto, odd/jogo/mercado podem ficar em branco — a OCR preenche em alguns minutos.
+            {editing
+              ? "Trocar ou remover a foto vale pra todas as tips da mesma mensagem. Com foto nova, o que estiver em branco a OCR preenche."
+              : "Com foto, odd/jogo/mercado podem ficar em branco — a OCR preenche em alguns minutos."}
           </p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <span className={labelClass}>GRUPO *</span>
-            <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={inputClass}>
+            <select
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              disabled={!canMoveTip}
+              title={canMoveTip ? undefined : "Tip do Telegram: o grupo é o da mensagem de origem"}
+              className={`${inputClass} disabled:opacity-60`}
+            >
               <option value="" disabled>
                 Escolha o grupo
               </option>
@@ -298,7 +372,14 @@ export function AddManualTipModal({
           </div>
           <div>
             <span className={labelClass}>DATA E HORA</span>
-            <input type="datetime-local" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} className={inputClass} />
+            <input
+              type="datetime-local"
+              value={receivedAt}
+              onChange={(e) => setReceivedAt(e.target.value)}
+              disabled={!canMoveTip}
+              title={canMoveTip ? undefined : "Tip do Telegram: a hora é a da mensagem de origem"}
+              className={`${inputClass} disabled:opacity-60`}
+            />
           </div>
           <div>
             <span className={labelClass}>JOGO</span>
@@ -340,7 +421,7 @@ export function AddManualTipModal({
 
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <span className={labelClass}>UNIDADE *</span>
+            <span className={labelClass}>UNIDADE{editing ? "" : " *"}</span>
             <input value={unit} onChange={(e) => setUnit(e.target.value)} inputMode="decimal" placeholder="1" className={`${inputClass} font-mono`} />
           </div>
           <div>
@@ -369,10 +450,12 @@ export function AddManualTipModal({
           />
         </div>
 
-        <label className="flex cursor-pointer items-center gap-2.5 text-[13px]">
-          <input type="checkbox" checked={taken} onChange={(e) => setTaken(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
-          Marcar como <b>peguei</b> (entra na minha banca com essa unidade e odd)
-        </label>
+        {!editing && (
+          <label className="flex cursor-pointer items-center gap-2.5 text-[13px]">
+            <input type="checkbox" checked={taken} onChange={(e) => setTaken(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" />
+            Marcar como <b>peguei</b> (entra na minha banca com essa unidade e odd)
+          </label>
+        )}
 
         {error && <p className="text-[12px] text-live">{error}</p>}
 
@@ -385,7 +468,7 @@ export function AddManualTipModal({
             disabled={saving}
             className="h-10 rounded-[10px] bg-accent px-5 text-[13px] font-bold text-[#08090A] disabled:opacity-60"
           >
-            {saving ? "Salvando…" : "Adicionar tip"}
+            {saving ? "Salvando…" : editing ? "Salvar" : "Adicionar tip"}
           </button>
         </div>
       </div>
