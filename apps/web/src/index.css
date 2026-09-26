@@ -76,6 +76,15 @@
   color-scheme: dark;
 }
 
+/* A lista aberta de um <select> nativo usa o fundo do próprio select — num
+   select com bg-transparent o Chrome/Windows caía no branco, com o texto
+   claro do tema por cima (ilegível). Cor explícita nas opções, nos dois temas. */
+select option,
+select optgroup {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
 /* Light mode overrides — same custom properties as the @theme block above,
    re-pointed to a light-on-white palette. Brand hues (green/red/gold/blue/
    orange) are darkened from their dark-mode values where they're used as
