@@ -314,15 +314,19 @@ const NO_TELEGRAM_FOLD: TelegramFold = {
 // Casas (D29 · "Meu perfil v3 · unificado"): o que era "Unidade & saldos" e
 // a tabela de lucro por casa viraram uma linha só por casa — apostas, lucro,
 // ROI, depositado, sacado e saldo lado a lado.
-const CASA_SORTS = [
-  { key: "profit", label: "Lucro" },
-  { key: "total", label: "Apostas" },
-  { key: "roi", label: "ROI" },
-  { key: "saldo", label: "Saldo" },
+// Cabeçalho clicável: clicar ordena pela coluna, clicar de novo inverte.
+const CASA_COLUMNS = [
+  { key: "name", label: "CASA" },
+  { key: "total", label: "APOSTAS" },
+  { key: "profit", label: "LUCRO" },
+  { key: "roiPct", label: "ROI" },
+  { key: "deposited", label: "DEPOSITADO" },
+  { key: "withdrawn", label: "SACADO" },
+  { key: "saldo", label: "SALDO" },
 ] as const;
-type CasaSortKey = (typeof CASA_SORTS)[number]["key"];
+type CasaSortKey = (typeof CASA_COLUMNS)[number]["key"];
+type SortDir = "asc" | "desc";
 type ProfileTab = "casas" | "grupos" | "saques";
-const CASAS_PREVIEW = 14;
 
 type CasaRow = {
   key: string;
@@ -399,8 +403,7 @@ export function MyProfilePage() {
   // Saques: tiram do saldo da casa e da banca atual, nunca do lucro.
   const [withdrawals, setWithdrawals] = useState<TelegramBookmakerWithdrawal[]>([]);
   const [tab, setTab] = useState<ProfileTab>("casas");
-  const [casaSort, setCasaSort] = useState<CasaSortKey>("profit");
-  const [showAllCasas, setShowAllCasas] = useState(false);
+  const [casaSort, setCasaSort] = useState<{ key: CasaSortKey; dir: SortDir }>({ key: "profit", dir: "desc" });
   const [autoBetEnabled, setAutoBetEnabled] = useState<boolean | null>(null);
   const [withdrawalBookmaker, setWithdrawalBookmaker] = useState("");
   const [withdrawalAmount, setWithdrawalAmount] = useState("");
@@ -609,10 +612,16 @@ export function MyProfilePage() {
         saldo: deposited === null ? null : deposited + (profitByBookmaker?.[key] ?? 0) - withdrawn,
       };
     });
-    if (casaSort === "total") rows.sort((a, b) => b.total - a.total);
-    else if (casaSort === "roi") rows.sort((a, b) => (b.roiPct ?? -Infinity) - (a.roiPct ?? -Infinity));
-    else if (casaSort === "saldo") rows.sort((a, b) => (b.saldo ?? -Infinity) - (a.saldo ?? -Infinity));
-    else rows.sort((a, b) => b.profit - a.profit);
+    const { key, dir } = casaSort;
+    const sign = dir === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      if (key === "name") return sign * bookmakerLabel(a.key).localeCompare(bookmakerLabel(b.key), "pt-BR");
+      const va = a[key];
+      const vb = b[key];
+      // Sem valor ("—") fica sempre no fim, nos dois sentidos.
+      if (va === null || vb === null) return va === vb ? 0 : va === null ? 1 : -1;
+      return sign * (va - vb);
+    });
     return rows;
   }, [bookmakerRows, balances, withdrawnByBookmaker, profitByBookmaker, casaSort]);
 
@@ -747,7 +756,6 @@ export function MyProfilePage() {
 
   const hasTelegram = canAccess("telegram_banca");
   const memberSince = session?.user.created_at ? monthYear(session.user.created_at) : null;
-  const visibleCasas = showAllCasas ? casaRows : casaRows.slice(0, CASAS_PREVIEW);
   const casaGrid =
     "grid grid-cols-[minmax(0,1fr)_70px_86px_86px_100px_90px_110px_64px] items-center gap-3.5 px-4 lg:px-[22px]";
 
@@ -804,7 +812,7 @@ export function MyProfilePage() {
     `-mb-px border-b-2 py-4 text-[13px] ${key === tab ? "border-accent font-bold" : "border-transparent text-text-secondary"}`;
 
   return (
-    <div className="pb-24 lg:max-w-[1600px] lg:px-[30px] lg:pb-[30px] lg:pt-[26px]">
+    <div className="w-full pb-24 lg:px-[30px] lg:pb-[30px] lg:pt-[26px]">
       {/* ---------- Cabeçalho: avatar, chips de unidade/aposta automática e ações ---------- */}
       <div className="flex flex-wrap items-center gap-3 px-5 pb-4 pt-3 lg:mb-[18px] lg:flex-nowrap lg:gap-4 lg:p-0">
         <Avatar name={me.displayName} seed={me.id} src={me.avatarUrl} size={56} />
@@ -980,12 +988,10 @@ export function MyProfilePage() {
                   Saques <span className="font-mono font-medium text-text-tertiary">{withdrawals.length}</span>
                 </button>
                 {tab === "casas" && (
-                  <div className="flex w-full items-center gap-2 pb-3 lg:ml-auto lg:w-auto lg:pb-0">
-                    <span className="hidden font-mono text-[10px] tracking-[0.05em] text-text-tertiary sm:inline">ORDENAR</span>
-                    <SegmentedButtons options={CASA_SORTS} value={casaSort} onChange={setCasaSort} />
+                  <div className="ml-auto flex items-center">
                     <button
                       onClick={() => setAddingBookmaker((v) => !v)}
-                      className="ml-auto flex h-8 items-center gap-1.5 rounded-[9px] border border-border-strong px-3 text-[12px] font-semibold lg:ml-0"
+                      className="flex h-8 items-center gap-1.5 rounded-[9px] border border-border-strong px-3 text-[12px] font-semibold"
                     >
                       <IconPlus size={12} />
                       casa
@@ -1045,18 +1051,35 @@ export function MyProfilePage() {
                     <div className="overflow-x-auto">
                       <div className="min-w-[860px]">
                         <div
-                          className={`${casaGrid} border-b border-border-subtle py-[11px] font-mono text-[10px] tracking-[0.05em] text-text-tertiary`}
+                          className={`${casaGrid} border-b border-border-subtle py-[11px] font-mono text-[12px] font-semibold tracking-[0.05em] text-text-tertiary`}
                         >
-                          <span>CASA</span>
-                          <span className="text-right">APOSTAS</span>
-                          <span className="text-right">LUCRO</span>
-                          <span className="text-right">ROI</span>
-                          <span className="text-right">DEPOSITADO</span>
-                          <span className="text-right">SACADO</span>
-                          <span className="text-right">SALDO</span>
+                          {CASA_COLUMNS.map((col) => {
+                            const active = casaSort.key === col.key;
+                            return (
+                              <button
+                                key={col.key}
+                                onClick={() =>
+                                  setCasaSort((prev) =>
+                                    prev.key === col.key
+                                      ? { key: col.key, dir: prev.dir === "asc" ? "desc" : "asc" }
+                                      : { key: col.key, dir: col.key === "name" ? "asc" : "desc" },
+                                  )
+                                }
+                                aria-sort={active ? (casaSort.dir === "asc" ? "ascending" : "descending") : undefined}
+                                className={`flex items-center gap-1 tracking-[0.05em] hover:text-text ${
+                                  col.key === "name" ? "justify-start" : "justify-end"
+                                } ${active ? "text-text" : ""}`}
+                              >
+                                {col.label}
+                                <span className={`text-[10px] ${active ? "text-accent" : "invisible"}`}>
+                                  {active && casaSort.dir === "asc" ? "▲" : "▼"}
+                                </span>
+                              </button>
+                            );
+                          })}
                           <span />
                         </div>
-                        {visibleCasas.map((c) => {
+                        {casaRows.map((c) => {
                           const zerada = c.withdrawn > 0 && c.saldo !== null && Math.abs(c.saldo) < 0.005;
                           return (
                             <div key={c.key} className={`${casaGrid} group border-b border-border-subtle py-2.5`}>
@@ -1140,14 +1163,6 @@ export function MyProfilePage() {
                         <div className={`${casaGrid} border-t border-border bg-surface-chip py-[13px]`}>
                           <span className="font-mono text-[11px] text-text-tertiary">
                             TOTAL · {casaRows.length} casa{casaRows.length !== 1 ? "s" : ""}
-                            {casaRows.length > CASAS_PREVIEW && (
-                              <>
-                                {" · "}
-                                <button onClick={() => setShowAllCasas((v) => !v)} className="text-accent">
-                                  {showAllCasas ? "ver menos" : "ver todas"}
-                                </button>
-                              </>
-                            )}
                           </span>
                           <span className="text-right font-mono text-[12px] text-text-secondary">{casaTotals.total}</span>
                           <span className={`text-right font-mono text-[13px] font-bold ${casaTotals.profit >= 0 ? "text-accent" : "text-live"}`}>
