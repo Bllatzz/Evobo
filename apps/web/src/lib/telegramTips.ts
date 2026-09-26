@@ -77,7 +77,7 @@ export const deleteTelegramTip = (id: string): Promise<{ deleted: boolean }> =>
 
 export const fetchTelegramGroups = (): Promise<TelegramGroup[]> => apiFetch("/telegram-tips/groups");
 
-export const createTelegramGroup = (input: { name: string; telegramChatId: string }): Promise<TelegramGroup> =>
+export const createTelegramGroup = (input: { name: string; telegramChatId?: string }): Promise<TelegramGroup> =>
   apiFetch("/telegram-tips/groups", { method: "POST", body: JSON.stringify(input) });
 
 /** `days`: 7 | 30 | 90 | undefined (all-time) — scopes the chart/totals/breakdowns to that window. */

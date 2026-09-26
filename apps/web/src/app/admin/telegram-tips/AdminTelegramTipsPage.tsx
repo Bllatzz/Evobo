@@ -846,6 +846,9 @@ export function AdminTelegramTipsPage() {
           if (page === 1) load();
           else setPage(1);
         }}
+        onGroupCreated={(group) =>
+          setGroups((prev) => [...prev, group].sort((a, b) => a.name.localeCompare(b.name, "pt-BR")))
+        }
         groups={groups}
         bookmakers={bookmakers}
       />

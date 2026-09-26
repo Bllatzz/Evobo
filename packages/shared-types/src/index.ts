@@ -388,8 +388,10 @@ export const TelegramGroupSchema = z.object({
 export type TelegramGroup = z.infer<typeof TelegramGroupSchema>;
 
 export const CreateTelegramGroupInput = z.object({
-  name: z.string().min(1).max(120),
-  telegramChatId: z.string().min(1),
+  name: z.string().trim().min(1).max(120),
+  /** Omitido = grupo "manual" (só pra tips adicionadas à mão no Admin): sem
+   * chat do Telegram, criado inativo pra o worker nunca tentar escutá-lo. */
+  telegramChatId: z.string().min(1).optional(),
 });
 export type CreateTelegramGroupInput = z.infer<typeof CreateTelegramGroupInput>;
 
