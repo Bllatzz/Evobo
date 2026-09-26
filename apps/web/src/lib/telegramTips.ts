@@ -10,6 +10,7 @@ import type {
   CreateTelegramBookmakerWithdrawalInput,
   UpdateTelegramTipInput,
   UpdateTelegramTipTakeInput,
+  CreateManualTelegramTipInput,
   UpdateTelegramBancaSettingsInput,
   ImportedBookmakerBet,
   ImportBookmakerBetsResult,
@@ -61,6 +62,10 @@ export function fetchTelegramTips(filter: TelegramTipsFilter = {}): Promise<Tele
 /** Admin only — corrige o registro oficial (odd/unidade/casa/link/mercado/jogo/resultado). */
 export const patchTelegramTip = (id: string, input: UpdateTelegramTipInput): Promise<TelegramTip> =>
   apiFetch(`/telegram-tips/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+
+/** Admin only — tip que chegou fora dos grupos monitorados, cadastrada à mão (foto em base64). */
+export const createManualTelegramTip = (input: CreateManualTelegramTipInput): Promise<TelegramTip> =>
+  apiFetch("/telegram-tips/manual", { method: "POST", body: JSON.stringify(input) });
 
 /** Acompanhamento pessoal — se EU peguei, com qual unidade/odd/casa. Sempre no próprio usuário. */
 export const patchTelegramTipTake = (id: string, input: UpdateTelegramTipTakeInput): Promise<TelegramTip> =>

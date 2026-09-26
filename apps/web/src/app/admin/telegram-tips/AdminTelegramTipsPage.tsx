@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   fetchTelegramTips,
   fetchTelegramGroups,
@@ -21,6 +21,7 @@ import { groupTipsByMessage, groupColor, relativeTime, type MessageGroup } from 
 import { Dropdown } from "../../../components/Dropdown";
 import { BookmakerCombobox } from "../../../components/BookmakerCombobox";
 import { Modal } from "../../../components/Modal";
+import { AddManualTipModal } from "./AddManualTipModal";
 import { bookmakerLabel } from "../../../lib/bookmakers";
 import { safeHttpUrl } from "../../../lib/safeUrl";
 import {
@@ -525,6 +526,17 @@ export function AdminTelegramTipsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [photoOverrides, setPhotoOverrides] = useState<Record<string, boolean>>({});
   const [photoModal, setPhotoModal] = useState<string | null>(null);
+  // /admin/telegram-tips?nova=1 (card do painel Admin) já abre o formulário.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [addingTip, setAddingTip] = useState(() => searchParams.get("nova") === "1");
+
+  function closeAddTip() {
+    setAddingTip(false);
+    if (searchParams.has("nova")) {
+      searchParams.delete("nova");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }
 
   useEffect(() => {
     fetchTelegramGroups().then(setGroups).catch(() => {});
@@ -800,6 +812,12 @@ export function AdminTelegramTipsPage() {
         </Link>
         <span className="text-text-tertiary">/</span>
         <span className="text-[20px] font-bold tracking-[-0.02em]">VIP Telegram · Tips oficiais</span>
+        <button
+          onClick={() => setAddingTip(true)}
+          className="ml-auto flex h-[38px] items-center gap-1.5 rounded-[11px] bg-accent px-4 text-[13px] font-bold text-[#08090A]"
+        >
+          + Adicionar tip
+        </button>
       </div>
 
       <div className="hidden lg:block lg:flex-1 lg:overflow-y-auto lg:px-8 lg:py-6">{body}</div>
@@ -811,9 +829,26 @@ export function AdminTelegramTipsPage() {
             <IconChevronLeft size={22} />
           </button>
           <span className="text-[16px] font-semibold">VIP Telegram · Tips oficiais</span>
+          <button
+            onClick={() => setAddingTip(true)}
+            className="ml-auto flex-none rounded-[10px] bg-accent px-3 py-1.5 text-[12px] font-bold text-[#08090A]"
+          >
+            + Tip
+          </button>
         </div>
         <div className="p-4">{body}</div>
       </div>
+
+      <AddManualTipModal
+        open={addingTip}
+        onClose={closeAddTip}
+        onCreated={() => {
+          if (page === 1) load();
+          else setPage(1);
+        }}
+        groups={groups}
+        bookmakers={bookmakers}
+      />
 
       <Modal open={photoModal !== null} onClose={() => setPhotoModal(null)} widthClassName="max-w-2xl">
         {photoModal && <img src={photoModal} alt="Bilhete" className="w-full rounded-2xl" />}
