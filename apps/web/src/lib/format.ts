@@ -15,9 +15,11 @@ export function timeAgo(iso: string): string {
 // strings over JSON, not numbers — both accept either and coerce with
 // Number() before formatting. Malformed/missing values fall back to "—"
 // instead of rendering a literal "NaN" to the user.
+// Odd "quebrada" (ex.: 2.4375, a Superbet paga assim) aparece inteira — até 4
+// casas, nunca menos de 2: 2.4 → "2.40", 2.4375 → "2.4375", 2.438 → "2.438".
 export function formatOdds(odds: number | string): string {
   const n = Number(odds);
-  return Number.isFinite(n) ? n.toFixed(2) : "—";
+  return Number.isFinite(n) ? n.toFixed(4).replace(/(\.\d\d\d*?)0+$/, "$1") : "—";
 }
 
 export function formatUnits(units: number | string): string {
