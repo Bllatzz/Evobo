@@ -719,17 +719,39 @@ export function MyProfilePage() {
       return;
     }
     setWithdrawalError(null);
+    // Sacar mais do que o saldo calculado = a casa tinha dinheiro que o Evobo
+    // não conhecia (saldo de antes, odd paga um pouco diferente). O excedente
+    // entra como depositado — nunca como lucro — e o saldo fica em zero, não
+    // negativo.
+    const excess = withdrawalExcess(withdrawalBookmaker, amount);
     setSavingBalances(true);
     try {
       const saved = await createWithdrawal({ bookmaker: withdrawalBookmaker, amount, withdrawnAt: withdrawalDate });
       setWithdrawals((prev) => [saved, ...prev].sort((a, b) => b.withdrawnAt.localeCompare(a.withdrawnAt)));
       setWithdrawalAmount("");
       setWithdrawalDate(todaySaoPaulo());
+      if (excess > 0) {
+        await persistBalances(
+          balances.map((b) =>
+            b.bookmaker === withdrawalBookmaker ? { ...b, balance: Math.round((b.balance + excess) * 100) / 100 } : b,
+          ),
+        );
+      }
     } catch {
       setWithdrawalError("Não consegui salvar o saque.");
     } finally {
       setSavingBalances(false);
     }
+  }
+
+  /** Quanto o saque passa do saldo calculado da casa (0 se não passa, ou se o
+   * lucro da casa ainda não carregou e não dá pra saber). */
+  function withdrawalExcess(bookmaker: string, amount: number): number {
+    const deposited = balances.find((b) => b.bookmaker === bookmaker)?.balance;
+    if (deposited === undefined || profitByBookmaker === null) return 0;
+    const saldo = deposited + (profitByBookmaker[bookmaker] ?? 0) - (withdrawnByBookmaker[bookmaker] ?? 0);
+    const excess = Math.round((amount - Math.max(0, saldo)) * 100) / 100;
+    return excess > 0 ? excess : 0;
   }
 
   async function removeWithdrawal(id: string) {
@@ -762,6 +784,7 @@ export function MyProfilePage() {
   const selectedCasa = casaRows.find((r) => r.key === withdrawalBookmaker) ?? null;
   const withdrawalValue = Number(withdrawalAmount.trim().replace(",", "."));
   const withdrawalPreview = Number.isFinite(withdrawalValue) && withdrawalValue > 0 ? withdrawalValue : 0;
+  const previewExcess = withdrawalBookmaker ? withdrawalExcess(withdrawalBookmaker, withdrawalPreview) : 0;
 
   const unitChip = hasTelegram && (
     <span className="flex h-[34px] flex-none items-center gap-2 rounded-[10px] border border-border bg-surface-alt px-3 text-[12px]">
@@ -1158,14 +1181,26 @@ export function MyProfilePage() {
                               >
                                 {c.saldo === null ? "—" : `${c.saldo < 0 ? "−" : ""}${plainBrl(Math.abs(c.saldo))}`}
                               </span>
-                              <button
-                                onClick={() => openSaques(c.key)}
-                                className={`flex h-7 items-center justify-self-end rounded-[8px] border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted ${
-                                  c.saldo !== null && c.saldo > 0 ? "" : "invisible"
-                                }`}
-                              >
-                                sacar
-                              </button>
+                              {c.saldo !== null && c.saldo < -0.005 && c.withdrawn > 0 && c.deposited !== null ? (
+                                // Negativo por saque = a casa tinha mais do que o Evobo sabia
+                                // (mesma regra do addWithdrawal): o que falta vira depositado.
+                                <button
+                                  onClick={() => saveEditedBalance(c.key, String(Math.round((c.deposited! - c.saldo!) * 100) / 100))}
+                                  title={`Você sacou ${brl(-c.saldo)} a mais do que o saldo calculado — lançar como depositado`}
+                                  className="flex h-7 items-center justify-self-end rounded-[8px] border border-verified/40 px-2.5 text-[11px] font-semibold text-verified"
+                                >
+                                  ajustar
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => openSaques(c.key)}
+                                  className={`flex h-7 items-center justify-self-end rounded-[8px] border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted ${
+                                    c.saldo !== null && c.saldo > 0 ? "" : "invisible"
+                                  }`}
+                                >
+                                  sacar
+                                </button>
+                              )}
                             </div>
                           );
                         })}
@@ -1303,15 +1338,22 @@ export function MyProfilePage() {
                             <div className="flex justify-between gap-2">
                               <span className="text-text-secondary">Saldo {bookmakerLabel(selectedCasa.key)}</span>
                               <span className="font-mono">
-                                {brl(selectedCasa.saldo)} → <b>{brl(selectedCasa.saldo - withdrawalPreview)}</b>
+                                {brl(selectedCasa.saldo)} → <b>{brl(Math.max(0, selectedCasa.saldo - withdrawalPreview))}</b>
                               </span>
+                            </div>
+                          )}
+                          {previewExcess > 0 && (
+                            <div className="flex justify-between gap-2">
+                              <span className="text-text-secondary">Tinha a mais na casa</span>
+                              <span className="font-mono text-verified">+{brl(previewExcess)} no depositado</span>
                             </div>
                           )}
                           {stats.unitValue != null && stats.unitValue > 0 && (
                             <div className="flex justify-between gap-2">
                               <span className="text-text-secondary">Banca atual</span>
                               <span className="font-mono">
-                                {stats.bankroll.toFixed(1)}u → <b>{(stats.bankroll - withdrawalPreview / stats.unitValue).toFixed(1)}u</b>
+                                {stats.bankroll.toFixed(1)}u →{" "}
+                                <b>{(stats.bankroll - (withdrawalPreview - previewExcess) / stats.unitValue).toFixed(1)}u</b>
                               </span>
                             </div>
                           )}
