@@ -867,7 +867,7 @@ export function MyProfilePage() {
         <div className="mx-4 flex flex-col gap-4 lg:mx-0 lg:gap-[18px]">
           {/* ---------- Banca inicial + lucro − sacado = banca atual ---------- */}
           <section className="overflow-hidden rounded-[18px] border border-border bg-surface">
-            <div className="grid grid-cols-3 gap-3 p-4 lg:flex lg:items-center lg:gap-0 lg:px-6 lg:py-5">
+            <div className="grid grid-cols-2 gap-3 p-4 lg:flex lg:items-center lg:gap-0 lg:px-6 lg:py-5">
               <div className="min-w-0 lg:flex-1">
                 <div className={eqLabel}>BANCA INICIAL</div>
                 <div className="font-mono text-[17px] font-bold text-text-muted lg:text-[22px]">{stats.bancaInicial.toFixed(1)}u</div>
@@ -882,6 +882,17 @@ export function MyProfilePage() {
                 </div>
                 {stats.unitValue != null && <div className={eqSub}>{brl(stats.combinedPnl * stats.unitValue)}</div>}
               </div>
+              <span className={eqOp}>=</span>
+              {/* Tudo que a banca já chegou a ter: o que entrou + o que ganhou, antes dos saques. */}
+              <div className="min-w-0 lg:flex-1" title="Banca inicial + lucro (antes dos saques)">
+                <div className={eqLabel}>LUCRO TOTAL</div>
+                <div className="font-mono text-[17px] font-bold lg:text-[22px]">
+                  {(stats.bancaInicial + stats.combinedPnl).toFixed(1)}u
+                </div>
+                {stats.unitValue != null && (
+                  <div className={eqSub}>{brl((stats.bancaInicial + stats.combinedPnl) * stats.unitValue)}</div>
+                )}
+              </div>
               <span className={eqOp}>−</span>
               <div className="min-w-0 lg:flex-1">
                 <div className={eqLabel}>SACADO</div>
@@ -889,7 +900,7 @@ export function MyProfilePage() {
                 <div className={eqSub}>{brl(stats.withdrawnTotal)}</div>
               </div>
               <span className={eqOp}>=</span>
-              <div className="order-first col-span-3 min-w-0 rounded-[14px] border border-accent-border bg-accent-soft px-[18px] py-3.5 lg:order-none lg:flex-[1.3]">
+              <div className="order-first col-span-2 min-w-0 rounded-[14px] border border-accent-border bg-accent-soft px-[18px] py-3.5 lg:order-none lg:flex-[1.3]">
                 <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-accent">BANCA ATUAL</div>
                 <div className="font-mono text-[28px] font-bold tracking-[-0.02em]">
                   {stats.bankroll.toFixed(1)}
@@ -900,7 +911,7 @@ export function MyProfilePage() {
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-2 border-t border-border-subtle lg:grid-cols-5">
+            <div className="grid grid-cols-2 border-t border-border-subtle lg:grid-cols-4">
               {[
                 {
                   label: "ROI",
@@ -909,18 +920,6 @@ export function MyProfilePage() {
                 },
                 { label: "WINRATE", value: `${stats.hitRate.toFixed(0)}%` },
                 { label: "TIPS PEGAS", value: String(stats.tipsCount) },
-                {
-                  // Tudo que a banca já chegou a ter: o que entrou + o que ganhou,
-                  // antes de tirar os saques.
-                  label: "LUCRO TOTAL",
-                  value: `${(stats.bancaInicial + stats.combinedPnl).toFixed(1)}u`,
-                  className: "text-accent",
-                  sub:
-                    stats.unitValue != null
-                      ? brl((stats.bancaInicial + stats.combinedPnl) * stats.unitValue)
-                      : undefined,
-                  title: "Banca inicial + lucro (antes dos saques)",
-                },
                 {
                   label: "EM ABERTO",
                   value: `${stats.abertoUnits.toFixed(1)}u`,
@@ -933,7 +932,6 @@ export function MyProfilePage() {
               ].map((cell, i, cells) => (
                 <div
                   key={cell.label}
-                  title={"title" in cell ? cell.title : undefined}
                   className={`flex flex-wrap items-baseline gap-x-2.5 border-border-subtle px-4 py-[13px] lg:px-6 ${
                     i % 2 === 1 ? "border-l" : ""
                   } ${i >= 2 ? "border-t lg:border-t-0" : ""} ${i > 0 ? "lg:border-l" : ""} ${
