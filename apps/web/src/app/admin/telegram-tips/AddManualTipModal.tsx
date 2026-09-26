@@ -1,6 +1,7 @@
 import { useEffect, useState, type ClipboardEvent } from "react";
 import {
   createManualTelegramTip,
+  createTelegramGroup,
   patchTelegramTipTake,
   TELEGRAM_TIP_MARKET_TYPES,
   type TelegramGroup,
@@ -47,6 +48,8 @@ function nowLocalInput(): string {
   return d.toISOString().slice(0, 16);
 }
 
+const NEW_GROUP = "__novo__";
+
 const labelClass = "mb-1.5 block font-mono text-[11px] font-semibold tracking-[0.05em] text-text-secondary";
 const inputClass =
   "h-10 w-full rounded-[10px] border border-border-strong bg-surface px-3 text-[13px] text-text outline-none focus:border-accent";
@@ -55,18 +58,23 @@ export function AddManualTipModal({
   open,
   onClose,
   onCreated,
+  onGroupCreated,
   groups,
   bookmakers,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (tip: TelegramTip) => void;
+  onGroupCreated: (group: TelegramGroup) => void;
   groups: TelegramGroup[];
   bookmakers: string[];
 }) {
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [groupId, setGroupId] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groupError, setGroupError] = useState<string | null>(null);
   const [match, setMatch] = useState("");
   const [selection, setSelection] = useState("");
   const [marketType, setMarketType] = useState("");
@@ -86,6 +94,8 @@ export function AddManualTipModal({
     if (!open) return;
     setPhoto(null);
     setPhotoError(null);
+    setNewGroupName("");
+    setGroupError(null);
     setMatch("");
     setSelection("");
     setMarketType("");
@@ -122,11 +132,29 @@ export function AddManualTipModal({
     void pickPhoto(item.getAsFile());
   }
 
+  async function addGroup() {
+    const name = newGroupName.trim();
+    if (!name) return setGroupError("Dê um nome pro grupo.");
+    if (groups.some((g) => g.name.toLowerCase() === name.toLowerCase())) return setGroupError("Já existe um grupo com esse nome.");
+    setCreatingGroup(true);
+    setGroupError(null);
+    try {
+      const group = await createTelegramGroup({ name });
+      onGroupCreated(group);
+      setGroupId(group.id);
+      setNewGroupName("");
+    } catch {
+      setGroupError("Não consegui criar o grupo.");
+    } finally {
+      setCreatingGroup(false);
+    }
+  }
+
   async function submit() {
     const unitValue = parseOptionalNumber(unit);
     const oddValue = parseOptionalNumber(odd);
     const limitValue = parseOptionalNumber(limit);
-    if (!groupId) return setError("Escolha o grupo.");
+    if (!groupId || groupId === NEW_GROUP) return setError("Escolha o grupo.");
     if (unitValue === null || Number.isNaN(unitValue)) return setError("Unidade inválida.");
     if (Number.isNaN(oddValue)) return setError("Odd inválida.");
     if (Number.isNaN(limitValue)) return setError("Limite inválido.");
@@ -236,7 +264,37 @@ export function AddManualTipModal({
                   {g.name}
                 </option>
               ))}
+              <option value={NEW_GROUP}>+ Novo grupo…</option>
             </select>
+            {groupId === NEW_GROUP && (
+              <div className="mt-2">
+                <div className="flex gap-2">
+                  <input
+                    autoFocus
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void addGroup();
+                      }
+                    }}
+                    placeholder="Nome do grupo"
+                    className={inputClass}
+                  />
+                  <button
+                    onClick={() => void addGroup()}
+                    disabled={creatingGroup}
+                    className="h-10 flex-none rounded-[10px] bg-accent px-3.5 text-[12px] font-bold text-[#08090A] disabled:opacity-60"
+                  >
+                    {creatingGroup ? "Criando…" : "Criar"}
+                  </button>
+                </div>
+                <p className={`mt-1.5 text-[11px] ${groupError ? "text-live" : "text-text-tertiary"}`}>
+                  {groupError ?? "Grupo só pra tips adicionadas à mão — o Evobo não escuta nenhum chat do Telegram por ele."}
+                </p>
+              </div>
+            )}
           </div>
           <div>
             <span className={labelClass}>DATA E HORA</span>

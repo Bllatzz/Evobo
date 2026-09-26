@@ -63,6 +63,7 @@ function detectImageType(buffer: Buffer): { contentType: string; ext: string } |
 }
 
 const MANUAL_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+const MANUAL_GROUP_CHAT_PREFIX = "manual:";
 
 /** Batch-resolves storage paths to signed URLs, preserving null slots for tips without a photo. */
 async function resolvePhotoUrls(paths: (string | null)[]): Promise<Map<string, string>> {
@@ -430,7 +431,15 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
-    const group = await prisma.telegramGroup.create({ data: parsed.data });
+    const { name, telegramChatId } = parsed.data;
+    // Sem chat: grupo só de tips manuais. Id sintético (nunca um número de
+    // chat válido) e inativo — todo caminho do worker que fala com o
+    // Telegram só lê grupos ativos, então ele nunca é escutado/consultado.
+    const group = await prisma.telegramGroup.create({
+      data: telegramChatId
+        ? { name, telegramChatId }
+        : { name, telegramChatId: `${MANUAL_GROUP_CHAT_PREFIX}${randomUUID()}`, active: false },
+    });
     return reply.code(201).send(group);
   });
 
@@ -439,6 +448,13 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const parsed = UpdateTelegramGroupInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    if (parsed.data.active) {
+      const current = await prisma.telegramGroup.findUnique({ where: { id: request.params.id }, select: { telegramChatId: true } });
+      // Ativar um grupo manual faria o worker chamar o Telegram com um chat id inválido.
+      if (current?.telegramChatId.startsWith(MANUAL_GROUP_CHAT_PREFIX)) {
+        return reply.code(400).send({ error: "manual_group_cannot_be_active" });
+      }
     }
     const group = await prisma.telegramGroup.update({ where: { id: request.params.id }, data: parsed.data });
     return group;
