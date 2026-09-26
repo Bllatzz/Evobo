@@ -6,7 +6,8 @@ import { Avatar } from "../../components/Avatar";
 import { AccountMenu } from "../../components/AccountMenu";
 import { useAuth } from "../../stores/auth";
 import { bookmakerLabel } from "../../lib/bookmakers";
-import { IconCheck, IconX, IconPlus, IconPencil } from "../../components/Icon";
+import { IconCheck, IconX, IconPlus } from "../../components/Icon";
+import { fetchAutoBetSettings } from "../../lib/autoBetting";
 import {
   fetchTelegramSettings,
   saveTelegramSettings,
@@ -56,7 +57,7 @@ function bookmakerColor(name: string): string {
   return DOT_COLORS[hash % DOT_COLORS.length]!;
 }
 
-type TimelineEvent = { date: number; profit: number };
+type TimelineEvent = { date: number; profit: number; withdrawal?: boolean };
 
 /** "YYYY-MM-DD" de hoje em São Paulo (UTC-3 fixo). */
 const todaySaoPaulo = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
@@ -66,11 +67,10 @@ const formatDay = (ymd: string) => `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}/${ymd
 type SeriesPoint = TelegramBancaSummary["series"]["peguei"][number];
 
 const RANGE_OPTIONS = [
-  { key: "1", label: "24h" },
   { key: "7", label: "7d" },
   { key: "30", label: "30d" },
   { key: "90", label: "90d" },
-  { key: "all", label: "Tudo" },
+  { key: "all", label: "tudo" },
 ] as const;
 type RangeKey = (typeof RANGE_OPTIONS)[number]["key"];
 
@@ -130,7 +130,6 @@ function BankrollChart({
   });
   const areaPoints = `0,${height} ${points.join(" ")} ${width},${height}`;
   const refY = height - ((referenceValue - min) / span) * height;
-  const yLabels = [max, (max + min) / 2, min];
 
   function handleMove(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -194,7 +193,7 @@ function BankrollChart({
             stroke="currentColor"
             strokeWidth="1"
             strokeDasharray="5 4"
-            className="text-text-quaternary"
+            className="text-vip/60"
             vectorEffect="non-scaling-stroke"
           />
           <polyline points={points.join(" ")} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" className="text-accent" />
@@ -226,21 +225,26 @@ function BankrollChart({
         </svg>
 
         <div className="pointer-events-none absolute inset-0">
-          {yLabels.map((v, i) => (
-            <span
-              key={i}
-              className="absolute left-1 -translate-y-1/2 rounded bg-surface/80 px-1 font-mono text-[10px] text-text-tertiary"
-              style={{ top: `${(((height - ((v - min) / span) * height) / height) * 100).toFixed(2)}%` }}
-            >
-              {formatValue(v)}
-            </span>
-          ))}
           <span
-            className="absolute right-1 -translate-y-full rounded bg-surface/80 px-1 font-mono text-[10px] text-text-tertiary"
+            className="absolute left-1 -translate-y-full rounded bg-surface/80 px-1 font-mono text-[10px] text-vip"
             style={{ top: `${((refY / height) * 100).toFixed(2)}%` }}
           >
             banca inicial {formatValue(referenceValue)}
           </span>
+          {/* Saque: ponto azul no degrau — HTML (não <circle>) porque o svg
+              estica sem manter proporção e o círculo viraria elipse. */}
+          {chronological.map((e, i) =>
+            e.withdrawal ? (
+              <span
+                key={i}
+                className="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-verified ring-2 ring-surface"
+                style={{
+                  left: `${(i / (values.length - 1)) * 100}%`,
+                  top: `${(((height - ((values[i]! - min) / span) * height) / height) * 100).toFixed(2)}%`,
+                }}
+              />
+            ) : null,
+          )}
         </div>
 
         {hovered && hoveredValue !== null && (
@@ -256,6 +260,7 @@ function BankrollChart({
             <div className={`font-bold ${hoveredValue >= referenceValue ? "text-accent" : "text-live"}`}>
               {formatValue(hoveredValue)}
             </div>
+            {hovered.withdrawal && <div className="text-verified">saque</div>}
           </div>
         )}
       </div>
@@ -306,118 +311,69 @@ const NO_TELEGRAM_FOLD: TelegramFold = {
   abertoCount: 0,
 };
 
-const PROFIT_TABLE_SORTS = [
+// Casas (D29 · "Meu perfil v3 · unificado"): o que era "Unidade & saldos" e
+// a tabela de lucro por casa viraram uma linha só por casa — apostas, lucro,
+// ROI, depositado, sacado e saldo lado a lado.
+const CASA_SORTS = [
   { key: "profit", label: "Lucro" },
   { key: "total", label: "Apostas" },
   { key: "roi", label: "ROI" },
+  { key: "saldo", label: "Saldo" },
 ] as const;
-type ProfitTableSortKey = (typeof PROFIT_TABLE_SORTS)[number]["key"];
+type CasaSortKey = (typeof CASA_SORTS)[number]["key"];
+type ProfileTab = "casas" | "grupos" | "saques";
+const CASAS_PREVIEW = 14;
 
-/** Standalone card — bookmakers or groups ranked by profit, apostas or ROI
- * (user-switchable), giving each breakdown its own visual weight instead of
- * being squeezed as a footnote under the bankroll chart. */
-function ProfitTable({
-  title,
-  nameHeader,
-  rows,
-  unitValue,
-  displayUnit,
-  labelFor,
-  dotFor,
+type CasaRow = {
+  key: string;
+  total: number;
+  profit: number;
+  staked: number;
+  roiPct: number | null;
+  deposited: number | null;
+  withdrawn: number;
+  saldo: number | null;
+};
+
+const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const monthYear = (iso: string) => {
+  const d = new Date(iso);
+  return `${MONTHS[d.getMonth()]}/${d.getFullYear()}`;
+};
+
+/** "1.234,56" — valor em R$ sem o prefixo, como as colunas da tabela de casas. */
+const plainBrl = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const signedUnits = (v: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}u`;
+const signedPct = (v: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}%`;
+
+function SegmentedButtons<K extends string>({
+  options,
+  value,
+  onChange,
 }: {
-  title: string;
-  nameHeader: string;
-  rows: TelegramBancaRow[];
-  unitValue: number | null;
-  displayUnit: "u" | "brl";
-  labelFor?: (key: string) => string;
-  dotFor?: (key: string) => string;
+  options: readonly { key: K; label: string }[];
+  value: K;
+  onChange: (key: K) => void;
 }) {
-  const [sortKey, setSortKey] = useState<ProfitTableSortKey>("profit");
-
-  const sortedRows = useMemo(() => {
-    const copy = [...rows];
-    if (sortKey === "total") copy.sort((a, b) => b.total - a.total);
-    else if (sortKey === "roi") copy.sort((a, b) => (b.roiPct ?? -Infinity) - (a.roiPct ?? -Infinity));
-    else copy.sort((a, b) => b.profit - a.profit);
-    return copy;
-  }, [rows, sortKey]);
-
-  function formatProfit(v: number): string {
-    if (displayUnit === "brl" && unitValue != null) return `${v >= 0 ? "+" : ""}${brl(v * unitValue)}`;
-    return `${v >= 0 ? "+" : ""}${v.toFixed(1)}u`;
-  }
-
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4 lg:p-[22px]">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 lg:mb-4">
-        <span className="text-[14px] font-bold">{title}</span>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] tracking-[0.05em] text-text-tertiary">ORDENAR POR</span>
-          <div className="flex gap-1.5 rounded-[10px] bg-surface-alt p-1">
-            {PROFIT_TABLE_SORTS.map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setSortKey(opt.key)}
-                className={`rounded-[8px] px-2.5 py-1 font-mono text-[11px] font-semibold ${
-                  sortKey === opt.key ? "bg-accent text-[#08090A]" : "text-text-secondary"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-      {rows.length === 0 ? (
-        <p className="text-[12px] text-text-tertiary">Sem dados ainda.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-[12.5px] lg:min-w-[480px] lg:text-[13px]">
-            <thead>
-              <tr className="border-b border-border-subtle text-left font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
-                <th className="py-2 pr-2 font-normal lg:pr-3">{nameHeader}</th>
-                <th className="py-2 pr-2 text-right font-normal lg:pr-3">APOSTAS</th>
-                <th className="py-2 pr-2 text-right font-normal lg:pr-3">LUCRO</th>
-                <th className="py-2 pl-2 text-right font-normal lg:pl-3">ROI</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedRows.map((row) => (
-                <tr key={row.key} className="border-b border-border-subtle last:border-0">
-                  <td className="py-2.5 pr-2 lg:pr-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      {dotFor && <span className={`h-2 w-2 flex-none rounded-full ${dotFor(row.key)}`} />}
-                      <span className="truncate font-semibold">{labelFor ? labelFor(row.key) : row.key}</span>
-                    </div>
-                  </td>
-                  <td className="py-2.5 pr-2 text-right font-mono text-text-secondary lg:pr-3">{row.total}</td>
-                  <td
-                    className={`whitespace-nowrap py-2.5 pr-2 text-right font-mono font-semibold lg:pr-3 ${
-                      row.profit >= 0 ? "text-accent" : "text-live"
-                    }`}
-                  >
-                    {formatProfit(row.profit)}
-                  </td>
-                  <td
-                    className={`whitespace-nowrap py-2.5 pl-2 text-right font-mono lg:pl-3 ${
-                      row.roiPct == null ? "text-text-tertiary" : row.roiPct >= 0 ? "text-accent" : "text-live"
-                    }`}
-                  >
-                    {row.roiPct == null ? "—" : `${row.roiPct >= 0 ? "+" : ""}${row.roiPct.toFixed(1)}%`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <div className="flex gap-[3px] rounded-[9px] border border-border bg-surface-alt p-[3px]">
+      {options.map((opt) => (
+        <button
+          key={opt.key}
+          onClick={() => onChange(opt.key)}
+          className={`rounded-[7px] px-2.5 py-[5px] font-mono text-[11px] lg:px-[11px] ${
+            value === opt.key ? "bg-accent font-bold text-[#08090A]" : "text-text-secondary"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
     </div>
   );
 }
 
 export function MyProfilePage() {
-  const { me, canAccess } = useAuth();
+  const { me, session, canAccess } = useAuth();
   const [bets, setBets] = useState<ProfileTip[] | null>(null);
   const [tg, setTg] = useState<TelegramFold | null>(null);
   // Só a contagem real (o endpoint sempre limita `data` a 100 registros,
@@ -442,13 +398,17 @@ export function MyProfilePage() {
 
   // Saques: tiram do saldo da casa e da banca atual, nunca do lucro.
   const [withdrawals, setWithdrawals] = useState<TelegramBookmakerWithdrawal[]>([]);
-  const [addingWithdrawal, setAddingWithdrawal] = useState(false);
+  const [tab, setTab] = useState<ProfileTab>("casas");
+  const [casaSort, setCasaSort] = useState<CasaSortKey>("profit");
+  const [showAllCasas, setShowAllCasas] = useState(false);
+  const [autoBetEnabled, setAutoBetEnabled] = useState<boolean | null>(null);
   const [withdrawalBookmaker, setWithdrawalBookmaker] = useState("");
   const [withdrawalAmount, setWithdrawalAmount] = useState("");
   const [withdrawalDate, setWithdrawalDate] = useState(todaySaoPaulo);
   const [withdrawalError, setWithdrawalError] = useState<string | null>(null);
 
-  // Ranked lists below the chart — bookmakers and groups sorted by profit.
+  // Casas e grupos de todo o período (não seguem o filtro do gráfico): o
+  // saldo de cada casa é de todo o período, então o lucro ao lado também.
   const [bookmakerRows, setBookmakerRows] = useState<TelegramBancaRow[]>([]);
   const [groupRows, setGroupRows] = useState<TelegramBancaRow[]>([]);
 
@@ -496,6 +456,8 @@ export function MyProfilePage() {
         const map: Record<string, number | null> = {};
         for (const row of banca.peguei.byBookmaker) map[row.key] = row.profitBRL;
         setProfitByBookmaker(map);
+        setBookmakerRows(banca.peguei.byBookmaker);
+        setGroupRows([...banca.peguei.byGroup].sort((a, b) => b.profit - a.profit));
       })
       .catch(() => {
         setTg(NO_TELEGRAM_FOLD);
@@ -513,23 +475,21 @@ export function MyProfilePage() {
   useEffect(() => {
     if (!canAccess("telegram_banca")) {
       setTelegramSeries([]);
-      setBookmakerRows([]);
-      setGroupRows([]);
       return;
     }
     const days = chartRange === "all" ? undefined : Number(chartRange);
     fetchTelegramBanca(undefined, days)
-      .then((res) => {
-        setTelegramSeries(res.series.peguei);
-        setBookmakerRows([...res.peguei.byBookmaker].sort((a, b) => b.profit - a.profit));
-        setGroupRows([...res.peguei.byGroup].sort((a, b) => b.profit - a.profit));
-      })
-      .catch(() => {
-        setTelegramSeries([]);
-        setBookmakerRows([]);
-        setGroupRows([]);
-      });
+      .then((res) => setTelegramSeries(res.series.peguei))
+      .catch(() => setTelegramSeries([]));
   }, [chartRange, canAccess]);
+
+  // Chip "Aposta automática ligada" no cabeçalho — a tela é só de admin por enquanto.
+  useEffect(() => {
+    if (me?.role !== "admin") return;
+    fetchAutoBetSettings()
+      .then((s) => setAutoBetEnabled(s.enabled))
+      .catch(() => setAutoBetEnabled(null));
+  }, [me?.role]);
 
   const settled = useMemo(
     () => bets?.filter((b) => b.status === "green" || b.status === "red") ?? null,
@@ -568,6 +528,7 @@ export function MyProfilePage() {
       bancaInicial,
       bankroll: bancaInicial + combinedPnl - withdrawnUnits,
       withdrawnTotal,
+      withdrawnUnits,
       unitValue: tg.unitValue,
       abertoUnits: tg.abertoUnits,
       abertoCount: tg.abertoCount,
@@ -608,7 +569,7 @@ export function MyProfilePage() {
     const unitValue = tg?.unitValue;
     if (!unitValue || unitValue <= 0) return [];
     return withdrawals
-      .map((w) => ({ date: withdrawalTime(w), profit: -w.amount / unitValue }))
+      .map((w) => ({ date: withdrawalTime(w), profit: -w.amount / unitValue, withdrawal: true }))
       .filter((e) => rangeCutoffMs === null || e.date >= rangeCutoffMs);
   }, [withdrawals, tg, rangeCutoffMs]);
 
@@ -629,6 +590,44 @@ export function MyProfilePage() {
     for (const w of withdrawals) map[w.bookmaker] = (map[w.bookmaker] ?? 0) + w.amount;
     return map;
   }, [withdrawals]);
+
+  const casaRows = useMemo<CasaRow[]>(() => {
+    const byKey = new Map(bookmakerRows.map((r) => [r.key, r]));
+    const keys = [...new Set([...balances.map((b) => b.bookmaker), ...bookmakerRows.map((r) => r.key)])];
+    const rows = keys.map((key) => {
+      const row = byKey.get(key);
+      const deposited = balances.find((b) => b.bookmaker === key)?.balance ?? null;
+      const withdrawn = withdrawnByBookmaker[key] ?? 0;
+      return {
+        key,
+        total: row?.total ?? 0,
+        profit: row?.profit ?? 0,
+        staked: row?.staked ?? 0,
+        roiPct: row?.roiPct ?? null,
+        deposited,
+        withdrawn,
+        saldo: deposited === null ? null : deposited + (profitByBookmaker?.[key] ?? 0) - withdrawn,
+      };
+    });
+    if (casaSort === "total") rows.sort((a, b) => b.total - a.total);
+    else if (casaSort === "roi") rows.sort((a, b) => (b.roiPct ?? -Infinity) - (a.roiPct ?? -Infinity));
+    else if (casaSort === "saldo") rows.sort((a, b) => (b.saldo ?? -Infinity) - (a.saldo ?? -Infinity));
+    else rows.sort((a, b) => b.profit - a.profit);
+    return rows;
+  }, [bookmakerRows, balances, withdrawnByBookmaker, profitByBookmaker, casaSort]);
+
+  const casaTotals = useMemo(() => {
+    const profit = casaRows.reduce((sum, r) => sum + r.profit, 0);
+    const staked = casaRows.reduce((sum, r) => sum + r.staked, 0);
+    return {
+      total: casaRows.reduce((sum, r) => sum + r.total, 0),
+      profit,
+      roiPct: staked > 0 ? (profit / staked) * 100 : null,
+      deposited: casaRows.reduce((sum, r) => sum + (r.deposited ?? 0), 0),
+      withdrawn: casaRows.reduce((sum, r) => sum + r.withdrawn, 0),
+      saldo: casaRows.reduce((sum, r) => sum + (r.saldo ?? 0), 0),
+    };
+  }, [casaRows]);
 
   const availableBookmakers = useMemo(
     () => bookmakerNames.filter((name) => !balances.some((b) => b.bookmaker === name)),
@@ -697,7 +696,10 @@ export function MyProfilePage() {
     if (!Number.isFinite(value)) return;
     const current = balances.find((b) => b.bookmaker === bookmaker);
     if (current && current.balance === value) return;
-    const next = balances.map((b) => (b.bookmaker === bookmaker ? { ...b, balance: value } : b));
+    // Casa que só tinha tips pegas (sem depósito lançado) ganha a linha aqui.
+    const next = current
+      ? balances.map((b) => (b.bookmaker === bookmaker ? { ...b, balance: value } : b))
+      : [...balances, { bookmaker, balance: value }];
     void persistBalances(next);
   }
 
@@ -714,7 +716,6 @@ export function MyProfilePage() {
       setWithdrawals((prev) => [saved, ...prev].sort((a, b) => b.withdrawnAt.localeCompare(a.withdrawnAt)));
       setWithdrawalAmount("");
       setWithdrawalDate(todaySaoPaulo());
-      setAddingWithdrawal(false);
     } catch {
       setWithdrawalError("Não consegui salvar o saque.");
     } finally {
@@ -732,55 +733,89 @@ export function MyProfilePage() {
     }
   }
 
+  function openSaques(bookmaker?: string) {
+    setTab("saques");
+    setWithdrawalError(null);
+    const target = bookmaker ?? (withdrawalBookmaker || balances[0]?.bookmaker || "");
+    if (target !== withdrawalBookmaker) {
+      setWithdrawalBookmaker(target);
+      setWithdrawalAmount("");
+    }
+  }
+
   if (!me) return null;
 
   const hasTelegram = canAccess("telegram_banca");
+  const memberSince = session?.user.created_at ? monthYear(session.user.created_at) : null;
+  const visibleCasas = showAllCasas ? casaRows : casaRows.slice(0, CASAS_PREVIEW);
+  const casaGrid =
+    "grid grid-cols-[minmax(0,1fr)_70px_86px_86px_100px_90px_110px_64px] items-center gap-3.5 px-4 lg:px-[22px]";
+
+  const selectedCasa = casaRows.find((r) => r.key === withdrawalBookmaker) ?? null;
+  const withdrawalValue = Number(withdrawalAmount.trim().replace(",", "."));
+  const withdrawalPreview = Number.isFinite(withdrawalValue) && withdrawalValue > 0 ? withdrawalValue : 0;
+
+  const unitChip = hasTelegram && (
+    <span className="flex h-[34px] flex-none items-center gap-2 rounded-[10px] border border-border bg-surface-alt px-3 text-[12px]">
+      <span className="font-mono text-[11px] text-text-tertiary">1u =</span>
+      {editingUnitValue ? (
+        <input
+          autoFocus
+          defaultValue={unitValueRaw}
+          inputMode="decimal"
+          aria-label="Valor da unidade"
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={(e) => void saveUnitValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") setEditingUnitValue(false);
+          }}
+          className="w-20 rounded-[6px] bg-surface-chip px-1.5 py-0.5 font-mono text-[12px] outline-none"
+        />
+      ) : (
+        <>
+          <span className="font-mono font-bold">
+            {unitValueRaw.trim() !== "" ? brl(Number(unitValueRaw.replace(",", "."))) : "—"}
+          </span>
+          <button onClick={() => setEditingUnitValue(true)} className="text-[11px] text-accent">
+            {unitValueRaw.trim() !== "" ? "editar" : "definir"}
+          </button>
+        </>
+      )}
+      {savingBalances && <span className="text-[10px] text-text-tertiary">salvando…</span>}
+    </span>
+  );
+
+  const autoBetChip = me.role === "admin" && autoBetEnabled !== null && (
+    <Link
+      to="/auto-betting"
+      className="flex h-[34px] flex-none items-center gap-2 rounded-[10px] border border-border bg-surface-alt px-3 text-[12px] text-text-muted"
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${autoBetEnabled ? "bg-accent" : "bg-text-quaternary"}`} />
+      Aposta automática {autoBetEnabled ? "ligada" : "desligada"}
+      <span className="text-text-tertiary">›</span>
+    </Link>
+  );
+
+  const eqLabel = "mb-2 font-mono text-[10px] tracking-[0.05em] text-text-tertiary";
+  const eqSub = "mt-[3px] font-mono text-[11px] text-text-tertiary";
+  const eqOp = "hidden flex-none px-[18px] font-mono text-[20px] text-text-quaternary/50 lg:block";
+  const tabClass = (key: ProfileTab) =>
+    `-mb-px border-b-2 py-4 text-[13px] ${key === tab ? "border-accent font-bold" : "border-transparent text-text-secondary"}`;
 
   return (
-    <div className="pb-24 lg:max-w-[1600px] lg:pb-6 lg:pl-6 lg:pr-6 lg:pt-6">
-      {/* ---------- Desktop ---------- */}
-      <div className="hidden lg:block">
-        <div className="mb-6 flex items-center gap-3">
-          <span className="text-[22px] font-bold tracking-[-0.02em]">Meu Perfil</span>
-          <div className="ml-auto flex items-center gap-3">
-            {me.role === "admin" && (
-              <Link
-                to="/admin"
-                className="rounded-[11px] border border-vip-border bg-vip-soft px-4 py-2 text-[13px] font-semibold text-vip"
-              >
-                Painel
-              </Link>
-            )}
-            <Link
-              to="/profile/edit"
-              className="rounded-[11px] border border-border-strong px-4 py-2 text-[13px] font-semibold text-text"
-            >
-              Editar perfil
-            </Link>
-            <Link to="/new-tip" className="rounded-[11px] bg-accent px-4 py-2 text-[13px] font-semibold text-[#08090A]">
-              Publicar tip
-            </Link>
+    <div className="pb-24 lg:max-w-[1600px] lg:px-[30px] lg:pb-[30px] lg:pt-[26px]">
+      {/* ---------- Cabeçalho: avatar, chips de unidade/aposta automática e ações ---------- */}
+      <div className="flex flex-wrap items-center gap-3 px-5 pb-4 pt-3 lg:mb-[18px] lg:flex-nowrap lg:gap-4 lg:p-0">
+        <Avatar name={me.displayName} seed={me.id} src={me.avatarUrl} size={56} />
+        <div className="min-w-0 flex-1 lg:flex-none">
+          <div className="truncate text-[18px] font-bold tracking-[-0.02em] lg:text-[22px]">{me.displayName}</div>
+          <div className="mt-[3px] truncate font-mono text-[11px] text-text-tertiary lg:text-[12px]">
+            @{me.username}
+            {memberSince && ` · desde ${memberSince}`}
           </div>
         </div>
-
-        <div className="mb-6 flex items-center gap-4.5">
-          <Avatar name={me.displayName} seed={me.id} src={me.avatarUrl} size={72} />
-          <div>
-            <div className="text-[22px] font-bold">{me.displayName}</div>
-            <div className="font-mono text-[13px] text-text-tertiary">@{me.username}</div>
-            {me.bio && <p className="mt-1 max-w-lg text-[13px] text-text-secondary">{me.bio}</p>}
-          </div>
-        </div>
-      </div>
-
-      {/* ---------- Mobile header ---------- */}
-      <div className="lg:hidden">
-        <div className="flex items-center gap-3.5 px-5 pb-4 pt-3">
-          <Avatar name={me.displayName} seed={me.id} src={me.avatarUrl} size={62} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[18px] font-bold">{me.displayName}</div>
-            <div className="truncate font-mono text-[11px] text-text-tertiary">@{me.username}</div>
-          </div>
+        <div className="flex items-center gap-2 lg:hidden">
           <Link
             to="/profile/edit"
             className="flex-none rounded-[11px] border border-border-strong px-3.5 py-2 text-[13px] font-semibold text-text-secondary"
@@ -789,110 +824,130 @@ export function MyProfilePage() {
           </Link>
           <AccountMenu />
         </div>
-
-        {me.bio && <p className="px-5 pb-4 text-[14px] text-text-muted">{me.bio}</p>}
+        {(unitChip || autoBetChip) && (
+          <div className="flex w-full flex-wrap items-center gap-2 lg:ml-3.5 lg:w-auto lg:flex-nowrap lg:gap-2.5">
+            {unitChip}
+            {autoBetChip}
+          </div>
+        )}
+        <div className="ml-auto hidden items-center gap-2.5 lg:flex">
+          {me.role === "admin" && (
+            <Link
+              to="/admin"
+              className="flex h-[38px] items-center rounded-[11px] border border-vip-border bg-vip-soft px-[15px] text-[13px] font-semibold text-vip"
+            >
+              Painel
+            </Link>
+          )}
+          <Link
+            to="/profile/edit"
+            className="flex h-[38px] items-center rounded-[11px] border border-border-strong px-[15px] text-[13px] font-semibold text-text"
+          >
+            Editar perfil
+          </Link>
+          <Link
+            to="/new-tip"
+            className="flex h-[38px] items-center rounded-[11px] bg-accent px-4 text-[13px] font-bold text-[#08090A]"
+          >
+            Publicar tip
+          </Link>
+        </div>
+        {me.bio && <p className="w-full text-[14px] text-text-muted lg:hidden">{me.bio}</p>}
       </div>
 
-      {/* ---------- Stats, chart, tables and balances: same tree on mobile and desktop ---------- */}
       {stats && (
-        <>
-          <div className="mx-4 mb-4 grid grid-cols-2 gap-2.5 lg:mx-0 lg:mb-6 lg:grid-cols-7 lg:gap-4">
-            <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
-              <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:mb-2.5">BANCA INICIAL</div>
-              <div className="font-mono text-[21px] font-bold lg:text-[26px]">{stats.bancaInicial.toFixed(1)}u</div>
-              {stats.unitValue != null && (
-                <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
-                  {brl(stats.bancaInicial * stats.unitValue)}
+        <div className="mx-4 flex flex-col gap-4 lg:mx-0 lg:gap-[18px]">
+          {/* ---------- Banca inicial + lucro − sacado = banca atual ---------- */}
+          <section className="overflow-hidden rounded-[18px] border border-border bg-surface">
+            <div className="grid grid-cols-3 gap-3 p-4 lg:flex lg:items-center lg:gap-0 lg:px-6 lg:py-5">
+              <div className="min-w-0 lg:flex-1">
+                <div className={eqLabel}>BANCA INICIAL</div>
+                <div className="font-mono text-[17px] font-bold text-text-muted lg:text-[22px]">{stats.bancaInicial.toFixed(1)}u</div>
+                {stats.unitValue != null && <div className={eqSub}>{brl(stats.bancaInicial * stats.unitValue)}</div>}
+              </div>
+              <span className={eqOp}>+</span>
+              <div className="min-w-0 lg:flex-1">
+                <div className={eqLabel}>LUCRO</div>
+                <div className={`font-mono text-[17px] font-bold lg:text-[22px] ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
+                  {stats.combinedPnl < 0 && "−"}
+                  {Math.abs(stats.combinedPnl).toFixed(1)}u
                 </div>
-              )}
-            </div>
-            <div className="order-first col-span-2 rounded-2xl border border-border bg-surface p-3.5 lg:order-none lg:col-span-1 lg:p-4.5">
-              <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:mb-2.5">BANCA ATUAL</div>
-              {/* Saque não é prejuízo: a cor segue o lucro, não a banca inicial. */}
-              <div className={`font-mono text-[30px] font-bold lg:text-[26px] ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
-                {stats.bankroll.toFixed(1)}u
+                {stats.unitValue != null && <div className={eqSub}>{brl(stats.combinedPnl * stats.unitValue)}</div>}
               </div>
-              {stats.unitValue != null && (
-                <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
-                  {brl(stats.bankroll * stats.unitValue)}
-                  {stats.withdrawnTotal > 0 && <span> · {brl(stats.withdrawnTotal)} sacado</span>}
-                </div>
-              )}
-            </div>
-            <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
-              <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:mb-2.5">LUCRO</div>
-              <div className={`font-mono text-[21px] font-bold lg:text-[26px] ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
-                {stats.combinedPnl >= 0 ? "+" : ""}
-                {stats.combinedPnl.toFixed(1)}u
+              <span className={eqOp}>−</span>
+              <div className="min-w-0 lg:flex-1">
+                <div className={eqLabel}>SACADO</div>
+                <div className="font-mono text-[17px] font-bold text-verified lg:text-[22px]">{stats.withdrawnUnits.toFixed(1)}u</div>
+                <div className={eqSub}>{brl(stats.withdrawnTotal)}</div>
               </div>
-              {stats.unitValue != null && (
-                <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
-                  {stats.combinedPnl >= 0 ? "+" : ""}
-                  {brl(stats.combinedPnl * stats.unitValue)}
-                </div>
-              )}
-            </div>
-            <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
-              <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:mb-2.5">WINRATE</div>
-              <div className="font-mono text-[21px] font-bold lg:text-[26px]">{stats.hitRate.toFixed(0)}%</div>
-            </div>
-            <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
-              <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:mb-2.5">TIPS PEGAS</div>
-              <div className="font-mono text-[21px] font-bold lg:text-[26px]">{stats.tipsCount}</div>
-            </div>
-            <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
-              <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:mb-2.5">ROI</div>
-              <div className={`font-mono text-[21px] font-bold lg:text-[26px] ${stats.combinedRoi >= 0 ? "text-accent" : "text-live"}`}>
-                {stats.combinedRoi >= 0 ? "+" : ""}
-                {stats.combinedRoi.toFixed(1)}%
-              </div>
-            </div>
-            <div className="rounded-2xl border border-border bg-surface p-3.5 lg:p-4.5">
-              <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:mb-2.5">EM ABERTO</div>
-              <div className="font-mono text-[21px] font-bold lg:text-[26px]">{stats.abertoUnits.toFixed(1)}u</div>
-              <div className="mt-0.5 font-mono text-[11px] text-text-tertiary">
-                {stats.unitValue != null ? brl(stats.abertoUnits * stats.unitValue) : `${stats.abertoCount} aposta${stats.abertoCount !== 1 ? "s" : ""}`}
-              </div>
-            </div>
-          </div>
-
-          <div className="mx-4 flex flex-col gap-4 lg:mx-0 lg:flex-row lg:items-start lg:gap-6">
-            <div className="flex min-w-0 flex-1 flex-col gap-4 lg:gap-6">
-            <div className="rounded-2xl border border-border bg-surface p-4 lg:p-[22px]">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[14px] font-bold">Evolução da banca</span>
-                <div className="flex items-center gap-3">
-                  <span className="font-mono text-[11px] text-text-tertiary">
-                    {stats.combinedPnl >= 0 ? "+" : ""}
-                    {stats.combinedPnl.toFixed(1)}u desde o início
-                  </span>
-                  <Link to="/telegram-tips/relatorio" className="font-mono text-[11px] text-accent">
-                    ver detalhes →
-                  </Link>
-                </div>
-              </div>
-              <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex gap-1 rounded-[12px] bg-surface-alt p-1 lg:gap-1.5">
-                  {RANGE_OPTIONS.map((r) => (
-                    <button
-                      key={r.key}
-                      onClick={() => setChartRange(r.key)}
-                      className={`rounded-[9px] px-2 py-1 font-mono text-[11px] font-semibold lg:px-3 ${
-                        chartRange === r.key ? "bg-accent text-[#08090A]" : "text-text-secondary"
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
+              <span className={eqOp}>=</span>
+              <div className="order-first col-span-3 min-w-0 rounded-[14px] border border-accent-border bg-accent-soft px-[18px] py-3.5 lg:order-none lg:flex-[1.3]">
+                <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-accent">BANCA ATUAL</div>
+                <div className="font-mono text-[28px] font-bold tracking-[-0.02em]">
+                  {stats.bankroll.toFixed(1)}
+                  <span className="text-[17px] text-text-secondary">u</span>
                 </div>
                 {stats.unitValue != null && (
-                  <div className="flex gap-1 rounded-[12px] bg-surface-alt p-1 lg:gap-1.5">
+                  <div className="mt-0.5 font-mono text-[11px] text-text-secondary">{brl(stats.bankroll * stats.unitValue)}</div>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 border-t border-border-subtle lg:grid-cols-4">
+              {[
+                {
+                  label: "ROI",
+                  value: signedPct(stats.combinedRoi),
+                  className: stats.combinedRoi >= 0 ? "text-accent" : "text-live",
+                },
+                { label: "WINRATE", value: `${stats.hitRate.toFixed(0)}%` },
+                { label: "TIPS PEGAS", value: String(stats.tipsCount) },
+                {
+                  label: "EM ABERTO",
+                  value: `${stats.abertoUnits.toFixed(1)}u`,
+                  className: "text-vip",
+                  sub:
+                    stats.unitValue != null
+                      ? brl(stats.abertoUnits * stats.unitValue)
+                      : `${stats.abertoCount} aposta${stats.abertoCount !== 1 ? "s" : ""}`,
+                },
+              ].map((cell, i) => (
+                <div
+                  key={cell.label}
+                  className={`flex flex-wrap items-baseline gap-x-2.5 border-border-subtle px-4 py-[13px] lg:px-6 ${
+                    i % 2 === 1 ? "border-l" : ""
+                  } ${i >= 2 ? "border-t lg:border-t-0" : ""} ${i === 2 ? "lg:border-l" : ""}`}
+                >
+                  <span className="font-mono text-[10px] tracking-[0.05em] text-text-tertiary">{cell.label}</span>
+                  <span className={`font-mono text-[15px] font-bold ${cell.className ?? ""}`}>{cell.value}</span>
+                  {cell.sub && <span className="font-mono text-[11px] text-text-tertiary">{cell.sub}</span>}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* ---------- Evolução da banca ---------- */}
+          <section className="rounded-[18px] border border-border bg-surface px-4 pb-3.5 pt-4 lg:px-[22px] lg:pt-[18px]">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <span className="text-[14px] font-bold">Evolução da banca</span>
+              {withdrawals.length > 0 && (
+                <span className="flex items-center gap-1.5 font-mono text-[11px] text-text-tertiary">
+                  <span className="h-2 w-2 rounded-full bg-verified" />
+                  saque
+                </span>
+              )}
+              <Link to="/telegram-tips/relatorio" className="font-mono text-[11px] text-accent">
+                ver detalhes →
+              </Link>
+              <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+                <SegmentedButtons options={RANGE_OPTIONS} value={chartRange} onChange={setChartRange} />
+                {stats.unitValue != null && (
+                  <div className="flex gap-[3px] rounded-[9px] border border-border bg-surface-alt p-[3px]">
                     {(["u", "brl"] as const).map((u) => (
                       <button
                         key={u}
                         onClick={() => setChartUnit(u)}
-                        className={`rounded-[9px] px-2 py-1 font-mono text-[11px] font-semibold lg:px-3 ${
-                          chartUnit === u ? "bg-accent text-[#08090A]" : "text-text-secondary"
+                        className={`rounded-[7px] px-2.5 py-[5px] font-mono text-[11px] ${
+                          chartUnit === u ? "bg-text/10 text-text" : "text-text-secondary"
                         }`}
                       >
                         {u === "u" ? "u" : "R$"}
@@ -901,315 +956,390 @@ export function MyProfilePage() {
                   </div>
                 )}
               </div>
-              <BankrollChart
-                timeline={windowTimeline}
-                startValue={chartStartValue}
-                referenceValue={stats.bancaInicial}
-                unitValue={stats.unitValue}
-                displayUnit={stats.unitValue != null ? chartUnit : "u"}
-              />
             </div>
+            <BankrollChart
+              timeline={windowTimeline}
+              startValue={chartStartValue}
+              referenceValue={stats.bancaInicial}
+              unitValue={stats.unitValue}
+              displayUnit={stats.unitValue != null ? chartUnit : "u"}
+            />
+          </section>
 
-            {hasTelegram && (bookmakerRows.length > 0 || groupRows.length > 0) && (
-              <>
-                <ProfitTable
-                  title="Casas de apostas"
-                  nameHeader="CASA"
-                  rows={bookmakerRows}
-                  unitValue={stats.unitValue}
-                  displayUnit={stats.unitValue != null ? chartUnit : "u"}
-                  labelFor={bookmakerLabel}
-                  dotFor={bookmakerColor}
-                />
-                <ProfitTable
-                  title="Grupos"
-                  nameHeader="GRUPO"
-                  rows={groupRows}
-                  unitValue={stats.unitValue}
-                  displayUnit={stats.unitValue != null ? chartUnit : "u"}
-                />
-              </>
-            )}
-            </div>
-
-            {hasTelegram && (
-              <div className="w-full flex-none rounded-2xl border border-border bg-surface p-4 lg:w-[500px] lg:p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <span className="text-[14px] font-bold">Unidade & saldos</span>
-                  <div className="flex items-center gap-2">
-                    {savingBalances && <span className="text-[11px] text-text-tertiary">salvando…</span>}
-                    {balances.length > 0 && (
-                      <button
-                        onClick={() => {
-                          setAddingWithdrawal((v) => !v);
-                          setWithdrawalError(null);
-                          if (!withdrawalBookmaker) setWithdrawalBookmaker(balances[0]!.bookmaker);
-                        }}
-                        className="flex items-center gap-1 rounded-[10px] border border-border-strong px-2.5 py-1.5 text-[11px] font-semibold text-text-secondary"
-                      >
-                        <span className="text-[13px] leading-none">−</span>
-                        saque
-                      </button>
-                    )}
+          {/* ---------- Casas · Grupos · Saques ---------- */}
+          {hasTelegram && (
+            <section className="overflow-hidden rounded-[18px] border border-border bg-surface">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-border-subtle px-4 lg:px-[22px]">
+                <button onClick={() => setTab("casas")} className={tabClass("casas")}>
+                  Casas <span className="font-mono font-medium text-text-tertiary">{casaRows.length}</span>
+                </button>
+                <button onClick={() => setTab("grupos")} className={tabClass("grupos")}>
+                  Grupos <span className="font-mono font-medium text-text-tertiary">{groupRows.length}</span>
+                </button>
+                <button onClick={() => openSaques()} className={tabClass("saques")}>
+                  Saques <span className="font-mono font-medium text-text-tertiary">{withdrawals.length}</span>
+                </button>
+                {tab === "casas" && (
+                  <div className="flex w-full items-center gap-2 pb-3 lg:ml-auto lg:w-auto lg:pb-0">
+                    <span className="hidden font-mono text-[10px] tracking-[0.05em] text-text-tertiary sm:inline">ORDENAR</span>
+                    <SegmentedButtons options={CASA_SORTS} value={casaSort} onChange={setCasaSort} />
                     <button
                       onClick={() => setAddingBookmaker((v) => !v)}
-                      className="flex items-center gap-1 rounded-[10px] border border-border-strong px-2.5 py-1.5 text-[11px] font-semibold text-text-secondary"
+                      className="ml-auto flex h-8 items-center gap-1.5 rounded-[9px] border border-border-strong px-3 text-[12px] font-semibold lg:ml-0"
                     >
                       <IconPlus size={12} />
                       casa
                     </button>
                   </div>
-                </div>
+                )}
+              </div>
 
-                <div className="mb-4">
-                  <div className="mb-1 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">VALOR DA UNIDADE</div>
-                  {editingUnitValue ? (
-                    <input
-                      autoFocus
-                      defaultValue={unitValueRaw}
-                      inputMode="decimal"
-                      onFocus={(e) => e.currentTarget.select()}
-                      onBlur={(e) => void saveUnitValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") e.currentTarget.blur();
-                        if (e.key === "Escape") setEditingUnitValue(false);
-                      }}
-                      className="w-full rounded-[10px] border border-border-strong bg-surface-chip px-3 py-2 text-[13px]"
-                    />
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-[18px] font-bold">
-                        {unitValueRaw.trim() !== "" ? brl(Number(unitValueRaw.replace(",", "."))) : "—"}
-                      </span>
-                      <button onClick={() => setEditingUnitValue(true)} className="text-[11px] font-semibold text-accent">
-                        editar
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {addingWithdrawal && (
-                  <div className="mb-4 rounded-[10px] border border-border-subtle bg-surface-chip p-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
+              {tab === "casas" && (
+                <>
+                  {addingBookmaker && (
+                    <div className="flex flex-wrap items-center gap-1.5 border-b border-border-subtle px-4 py-3 lg:px-[22px]">
                       <select
-                        value={withdrawalBookmaker}
-                        onChange={(e) => setWithdrawalBookmaker(e.target.value)}
-                        aria-label="Casa do saque"
-                        className="min-w-0 flex-1 rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
+                        value={newBookmaker}
+                        onChange={(e) => setNewBookmaker(e.target.value)}
+                        aria-label="Casa"
+                        className="min-w-0 flex-1 rounded-[8px] border border-border-strong bg-surface-alt px-2 py-1.5 text-[12px] lg:max-w-[260px]"
                       >
-                        {balances.map((b) => (
-                          <option key={b.bookmaker} value={b.bookmaker}>
-                            {bookmakerLabel(b.bookmaker)}
+                        <option value="" disabled>
+                          Escolha a casa
+                        </option>
+                        {availableBookmakers.map((name) => (
+                          <option key={name} value={name}>
+                            {bookmakerLabel(name)}
                           </option>
                         ))}
+                        <option value={OTHER_OPTION}>+ Outra casa…</option>
                       </select>
+                      {newBookmaker === OTHER_OPTION && (
+                        <input
+                          value={customBookmaker}
+                          onChange={(e) => setCustomBookmaker(e.target.value)}
+                          placeholder="Nome"
+                          className="w-28 flex-none rounded-[8px] border border-border-strong bg-surface-alt px-2 py-1.5 text-[12px]"
+                        />
+                      )}
                       <input
-                        value={withdrawalAmount}
-                        onChange={(e) => setWithdrawalAmount(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && void addWithdrawal()}
+                        value={newBalance}
+                        onChange={(e) => setNewBalance(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && addBalance()}
                         inputMode="decimal"
-                        placeholder="Valor"
-                        aria-label="Valor sacado"
-                        className="w-20 flex-none rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
-                      />
-                      <input
-                        type="date"
-                        value={withdrawalDate}
-                        max={todaySaoPaulo()}
-                        onChange={(e) => setWithdrawalDate(e.target.value)}
-                        aria-label="Data do saque"
-                        className="flex-none rounded-[8px] border border-border-strong bg-surface px-2 py-1 text-[12px]"
+                        placeholder="Depositado"
+                        className="w-28 flex-none rounded-[8px] border border-border-strong bg-surface-alt px-2 py-1.5 text-[12px]"
                       />
                       <button
-                        onClick={() => void addWithdrawal()}
-                        className="flex h-7 flex-none items-center justify-center rounded-[8px] bg-accent px-2.5 text-[11px] font-semibold text-[#08090A]"
+                        onClick={addBalance}
+                        className="flex h-7 flex-none items-center justify-center rounded-[8px] bg-accent px-3 text-[11px] font-semibold text-[#08090A]"
                       >
-                        Lançar
+                        Adicionar
                       </button>
                     </div>
-                    <p className={`mt-1.5 text-[11px] ${withdrawalError ? "text-live" : "text-text-tertiary"}`}>
-                      {withdrawalError ?? "Sai do saldo da casa e da banca atual — não conta como prejuízo."}
-                    </p>
-                  </div>
-                )}
+                  )}
 
-                {addingBookmaker && (
-                  <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2">
-                    <select
-                      value={newBookmaker}
-                      onChange={(e) => setNewBookmaker(e.target.value)}
-                      className="min-w-0 flex-1 rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
-                    >
-                      <option value="" disabled>
-                        Escolha a casa
-                      </option>
-                      {availableBookmakers.map((name) => (
-                        <option key={name} value={name}>
-                          {bookmakerLabel(name)}
-                        </option>
-                      ))}
-                      <option value={OTHER_OPTION}>+ Outra casa…</option>
-                    </select>
-                    {newBookmaker === OTHER_OPTION && (
-                      <input
-                        value={customBookmaker}
-                        onChange={(e) => setCustomBookmaker(e.target.value)}
-                        placeholder="Nome"
-                        className="w-20 flex-none rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
-                      />
-                    )}
-                    <input
-                      value={newBalance}
-                      onChange={(e) => setNewBalance(e.target.value)}
-                      inputMode="decimal"
-                      placeholder="Saldo"
-                      className="w-16 flex-none rounded-[8px] border border-border-strong bg-surface px-2 py-1.5 text-[12px]"
-                    />
-                    <button
-                      onClick={addBalance}
-                      className="flex h-7 w-7 flex-none items-center justify-center rounded-[8px] bg-accent text-[#08090A]"
-                      aria-label="Adicionar casa"
-                    >
-                      <IconPlus size={14} />
-                    </button>
-                  </div>
-                )}
-
-                <div className="hidden grid-cols-[minmax(140px,1fr)_92px_190px] gap-2 px-1 font-mono lg:grid text-[10px] tracking-[0.05em] text-text-tertiary">
-                  <span>CASA</span>
-                  <span className="text-right">SALDO</span>
-                  <span className="text-right">VARIAÇÃO</span>
-                </div>
-
-                <div className="flex flex-col">
-                  {balances.map((b) => {
-                    const profit = profitByBookmaker?.[b.bookmaker] ?? null;
-                    const withdrawn = withdrawnByBookmaker[b.bookmaker] ?? 0;
-                    const current = b.balance + (profit ?? 0) - withdrawn;
-                    const isEditing = editingBookmaker === b.bookmaker;
-                    return (
-                      <div
-                        key={b.bookmaker}
-                        className="group grid grid-cols-[1fr_auto_auto] items-center gap-x-2 gap-y-0.5 border-b border-border-subtle px-1 py-2.5 last:border-0 lg:grid-cols-[minmax(140px,1fr)_92px_190px] lg:gap-y-0"
-                      >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className={`h-2 w-2 flex-none rounded-full ${bookmakerColor(b.bookmaker)}`} />
-                          <span className="min-w-[64px] truncate text-[12.5px] font-semibold">{bookmakerLabel(b.bookmaker)}</span>
-                          <button
-                            onClick={() => removeBalance(b.bookmaker)}
-                            aria-label="Remover"
-                            className="ml-auto hidden flex-none text-text-tertiary opacity-0 group-hover:opacity-100 lg:block"
-                          >
-                            <IconX size={11} />
-                          </button>
-                        </div>
-                        <div className="text-right font-mono text-[12.5px] font-bold">{brl(current)}</div>
-                        <button
-                          onClick={() => removeBalance(b.bookmaker)}
-                          aria-label="Remover"
-                          className="-m-1 flex-none p-1 text-text-tertiary lg:hidden"
+                  {casaRows.length === 0 ? (
+                    <p className="py-8 text-center text-[12px] text-text-tertiary">Nenhuma casa cadastrada ainda.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <div className="min-w-[860px]">
+                        <div
+                          className={`${casaGrid} border-b border-border-subtle py-[11px] font-mono text-[10px] tracking-[0.05em] text-text-tertiary`}
                         >
-                          <IconX size={12} />
-                        </button>
-                        <div className="col-span-3 pl-4 text-left lg:col-span-1 lg:pl-0 lg:text-right">
-                          {isEditing ? (
-                            <input
-                              autoFocus
-                              defaultValue={String(b.balance)}
-                              inputMode="decimal"
-                              onFocus={(e) => e.currentTarget.select()}
-                              onBlur={(e) => saveEditedBalance(b.bookmaker, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") e.currentTarget.blur();
-                                if (e.key === "Escape") setEditingBookmaker(null);
-                              }}
-                              className="w-24 rounded bg-surface-chip px-1 py-0.5 text-right font-mono text-[11px] outline-none"
-                            />
-                          ) : (
-                            <button
-                              onClick={() => setEditingBookmaker(b.bookmaker)}
-                              className="inline-flex items-center gap-1 font-mono text-[11px]"
-                            >
-                              {profit !== null && profit !== 0 && (
-                                <span className={profit > 0 ? "text-accent" : "text-live"}>
-                                  {profit > 0 ? "+" : ""}
-                                  {brl(profit)} de{" "}
-                                </span>
-                              )}
-                              <span className="text-text-tertiary">{brl(b.balance)}</span>
-                              {withdrawn > 0 && <span className="text-text-tertiary">· −{brl(withdrawn)} sacado</span>}
-                              <IconPencil size={10} className="text-text-quaternary" />
-                            </button>
+                          <span>CASA</span>
+                          <span className="text-right">APOSTAS</span>
+                          <span className="text-right">LUCRO</span>
+                          <span className="text-right">ROI</span>
+                          <span className="text-right">DEPOSITADO</span>
+                          <span className="text-right">SACADO</span>
+                          <span className="text-right">SALDO</span>
+                          <span />
+                        </div>
+                        {visibleCasas.map((c) => {
+                          const zerada = c.withdrawn > 0 && c.saldo !== null && Math.abs(c.saldo) < 0.005;
+                          return (
+                            <div key={c.key} className={`${casaGrid} group border-b border-border-subtle py-2.5`}>
+                              <div className="flex min-w-0 items-center gap-2.5">
+                                <span className={`h-2 w-2 flex-none rounded-full ${bookmakerColor(c.key)}`} />
+                                <span className="truncate text-[13px] font-semibold">{bookmakerLabel(c.key)}</span>
+                                {zerada && (
+                                  <span className="flex-none rounded-[5px] bg-verified-soft px-1.5 py-0.5 font-mono text-[9px] text-verified">
+                                    SACOU TUDO
+                                  </span>
+                                )}
+                                {c.deposited !== null && (
+                                  <button
+                                    onClick={() => {
+                                      if (window.confirm(`Remover ${bookmakerLabel(c.key)} dos saldos?`)) removeBalance(c.key);
+                                    }}
+                                    aria-label="Remover casa"
+                                    className="flex-none text-text-tertiary opacity-0 group-hover:opacity-100"
+                                  >
+                                    <IconX size={11} />
+                                  </button>
+                                )}
+                              </div>
+                              <span className="text-right font-mono text-[12px] text-text-secondary">{c.total}</span>
+                              <span className={`text-right font-mono text-[13px] font-bold ${c.profit >= 0 ? "text-accent" : "text-live"}`}>
+                                {signedUnits(c.profit)}
+                              </span>
+                              <span
+                                className={`text-right font-mono text-[12px] ${
+                                  c.roiPct == null ? "text-text-tertiary" : c.roiPct >= 0 ? "text-accent" : "text-live"
+                                }`}
+                              >
+                                {c.roiPct == null ? "—" : signedPct(c.roiPct)}
+                              </span>
+                              <div className="text-right">
+                                {editingBookmaker === c.key ? (
+                                  <input
+                                    autoFocus
+                                    defaultValue={c.deposited !== null ? String(c.deposited) : ""}
+                                    inputMode="decimal"
+                                    aria-label="Valor depositado"
+                                    onFocus={(e) => e.currentTarget.select()}
+                                    onBlur={(e) => saveEditedBalance(c.key, e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") e.currentTarget.blur();
+                                      if (e.key === "Escape") setEditingBookmaker(null);
+                                    }}
+                                    className="w-full rounded bg-surface-alt px-1 py-0.5 text-right font-mono text-[12px] outline-none"
+                                  />
+                                ) : (
+                                  <button
+                                    onClick={() => setEditingBookmaker(c.key)}
+                                    title="Editar valor depositado"
+                                    className="font-mono text-[12px] text-text-secondary hover:text-text"
+                                  >
+                                    {c.deposited !== null ? plainBrl(c.deposited) : "—"}
+                                  </button>
+                                )}
+                              </div>
+                              <span className={`text-right font-mono text-[12px] ${c.withdrawn > 0 ? "text-verified" : "text-text-quaternary/50"}`}>
+                                {c.withdrawn > 0 ? plainBrl(c.withdrawn) : "—"}
+                              </span>
+                              <span
+                                className={`text-right font-mono text-[13px] font-bold ${
+                                  c.saldo === null ? "text-text-tertiary" : c.saldo < 0 ? "text-live" : ""
+                                }`}
+                              >
+                                {c.saldo === null ? "—" : `${c.saldo < 0 ? "−" : ""}${plainBrl(Math.abs(c.saldo))}`}
+                              </span>
+                              <button
+                                onClick={() => openSaques(c.key)}
+                                className={`flex h-7 items-center justify-self-end rounded-[8px] border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted ${
+                                  c.saldo !== null && c.saldo > 0 ? "" : "invisible"
+                                }`}
+                              >
+                                sacar
+                              </button>
+                            </div>
+                          );
+                        })}
+                        <div className={`${casaGrid} border-t border-border bg-surface-chip py-[13px]`}>
+                          <span className="font-mono text-[11px] text-text-tertiary">
+                            TOTAL · {casaRows.length} casa{casaRows.length !== 1 ? "s" : ""}
+                            {casaRows.length > CASAS_PREVIEW && (
+                              <>
+                                {" · "}
+                                <button onClick={() => setShowAllCasas((v) => !v)} className="text-accent">
+                                  {showAllCasas ? "ver menos" : "ver todas"}
+                                </button>
+                              </>
+                            )}
+                          </span>
+                          <span className="text-right font-mono text-[12px] text-text-secondary">{casaTotals.total}</span>
+                          <span className={`text-right font-mono text-[13px] font-bold ${casaTotals.profit >= 0 ? "text-accent" : "text-live"}`}>
+                            {signedUnits(casaTotals.profit)}
+                          </span>
+                          <span
+                            className={`text-right font-mono text-[12px] font-bold ${
+                              casaTotals.roiPct == null ? "text-text-tertiary" : casaTotals.roiPct >= 0 ? "text-accent" : "text-live"
+                            }`}
+                          >
+                            {casaTotals.roiPct == null ? "—" : signedPct(casaTotals.roiPct)}
+                          </span>
+                          <span className="text-right font-mono text-[12px] text-text-secondary">{plainBrl(casaTotals.deposited)}</span>
+                          <span className="text-right font-mono text-[12px] text-verified">{plainBrl(casaTotals.withdrawn)}</span>
+                          <span className="text-right font-mono text-[14px] font-bold">{plainBrl(casaTotals.saldo)}</span>
+                          <span />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {tab === "grupos" &&
+                (groupRows.length === 0 ? (
+                  <p className="py-8 text-center text-[12px] text-text-tertiary">Sem dados ainda.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[480px]">
+                      <div className="grid grid-cols-[minmax(0,1fr)_90px_100px_90px] gap-3.5 border-b border-border-subtle px-4 py-[11px] font-mono text-[10px] tracking-[0.05em] text-text-tertiary lg:px-[22px]">
+                        <span>GRUPO</span>
+                        <span className="text-right">APOSTAS</span>
+                        <span className="text-right">LUCRO</span>
+                        <span className="text-right">ROI</span>
+                      </div>
+                      {groupRows.map((g) => (
+                        <div
+                          key={g.key}
+                          className="grid grid-cols-[minmax(0,1fr)_90px_100px_90px] items-center gap-3.5 border-b border-border-subtle px-4 py-[13px] last:border-0 lg:px-[22px]"
+                        >
+                          <span className="truncate text-[13px] font-semibold">{g.key}</span>
+                          <span className="text-right font-mono text-[12px] text-text-secondary">{g.total}</span>
+                          <span className={`text-right font-mono text-[13px] font-bold ${g.profit >= 0 ? "text-accent" : "text-live"}`}>
+                            {signedUnits(g.profit)}
+                          </span>
+                          <span
+                            className={`text-right font-mono text-[12px] ${
+                              g.roiPct == null ? "text-text-tertiary" : g.roiPct >= 0 ? "text-accent" : "text-live"
+                            }`}
+                          >
+                            {g.roiPct == null ? "—" : signedPct(g.roiPct)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
+              {tab === "saques" && (
+                <div className="grid lg:grid-cols-[380px_minmax(0,1fr)]">
+                  <div className="border-b border-border-subtle px-4 py-5 lg:border-b-0 lg:border-r lg:px-[22px]">
+                    <div className="mb-3.5 text-[13px] font-bold">Novo saque</div>
+                    {balances.length === 0 ? (
+                      <p className="text-[12px] text-text-tertiary">Lance o depósito de uma casa na aba Casas primeiro.</p>
+                    ) : (
+                      <>
+                        <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">CASA</div>
+                        <div className="mb-3 flex h-[42px] items-center gap-2 rounded-[10px] border border-border-strong bg-surface-alt px-3">
+                          {withdrawalBookmaker && (
+                            <span className={`h-2 w-2 flex-none rounded-full ${bookmakerColor(withdrawalBookmaker)}`} />
+                          )}
+                          <select
+                            value={withdrawalBookmaker}
+                            onChange={(e) => {
+                              setWithdrawalBookmaker(e.target.value);
+                              setWithdrawalAmount("");
+                            }}
+                            aria-label="Casa do saque"
+                            className="min-w-0 flex-1 bg-transparent text-[13px] font-semibold outline-none"
+                          >
+                            {balances.map((b) => (
+                              <option key={b.bookmaker} value={b.bookmaker}>
+                                {bookmakerLabel(b.bookmaker)}
+                              </option>
+                            ))}
+                          </select>
+                          {selectedCasa?.saldo != null && (
+                            <span className="flex-none font-mono text-[11px] text-text-secondary">saldo {brl(selectedCasa.saldo)}</span>
                           )}
                         </div>
-                      </div>
-                    );
-                  })}
-                  {balances.length === 0 && (
-                    <p className="py-4 text-center text-[12px] text-text-tertiary">Nenhuma casa cadastrada ainda.</p>
-                  )}
-                </div>
-
-                {balances.length > 0 && (
-                  <div className="mt-2 flex items-center justify-between border-t border-border pt-3">
-                    <span className="font-mono text-[11px] text-text-tertiary">
-                      TOTAL · {balances.length} casa{balances.length !== 1 ? "s" : ""}
-                    </span>
-                    <div className="text-right">
-                      <div className="font-mono text-[14px] font-bold">
-                        {brl(
-                          balances.reduce(
-                            (sum, b) => sum + b.balance + (profitByBookmaker?.[b.bookmaker] ?? 0) - (withdrawnByBookmaker[b.bookmaker] ?? 0),
-                            0,
-                          ),
-                        )}
-                      </div>
-                      {(() => {
-                        const totalProfit = balances.reduce((sum, b) => sum + (profitByBookmaker?.[b.bookmaker] ?? 0), 0);
-                        return (
-                          <div className={`font-mono text-[11px] font-semibold ${totalProfit >= 0 ? "text-accent" : "text-live"}`}>
-                            {totalProfit >= 0 ? "+" : ""}
-                            {brl(totalProfit)} de lucro
+                        <div className="mb-3.5 grid grid-cols-[minmax(0,1fr)_130px] gap-2.5">
+                          <div>
+                            <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">VALOR</div>
+                            <div className="flex h-[42px] items-center gap-1.5 rounded-[10px] border border-accent bg-surface-alt pl-3 pr-1.5 font-mono text-[14px]">
+                              <span className="text-text-tertiary">R$</span>
+                              <input
+                                value={withdrawalAmount}
+                                onChange={(e) => setWithdrawalAmount(e.target.value)}
+                                onKeyDown={(e) => e.key === "Enter" && void addWithdrawal()}
+                                inputMode="decimal"
+                                placeholder="0,00"
+                                aria-label="Valor sacado"
+                                className="min-w-0 flex-1 bg-transparent outline-none"
+                              />
+                              {selectedCasa?.saldo != null && selectedCasa.saldo > 0 && (
+                                <button
+                                  onClick={() => setWithdrawalAmount(selectedCasa.saldo!.toFixed(2))}
+                                  className="flex-none rounded-[6px] border border-accent-border px-[7px] py-1 text-[10px] text-accent"
+                                >
+                                  tudo
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        );
-                      })()}
-                    </div>
+                          <div>
+                            <div className="mb-1.5 font-mono text-[10px] tracking-[0.05em] text-text-tertiary">DATA</div>
+                            <input
+                              type="date"
+                              value={withdrawalDate}
+                              max={todaySaoPaulo()}
+                              onChange={(e) => setWithdrawalDate(e.target.value)}
+                              aria-label="Data do saque"
+                              className="h-[42px] w-full rounded-[10px] border border-border-strong bg-surface-alt px-2.5 font-mono text-[12px] text-text-muted"
+                            />
+                          </div>
+                        </div>
+                        <div className="mb-3.5 flex flex-col gap-2 rounded-[10px] border border-border-subtle bg-surface-chip px-[13px] py-[11px] text-[11px]">
+                          {selectedCasa?.saldo != null && (
+                            <div className="flex justify-between gap-2">
+                              <span className="text-text-secondary">Saldo {bookmakerLabel(selectedCasa.key)}</span>
+                              <span className="font-mono">
+                                {brl(selectedCasa.saldo)} → <b>{brl(selectedCasa.saldo - withdrawalPreview)}</b>
+                              </span>
+                            </div>
+                          )}
+                          {stats.unitValue != null && stats.unitValue > 0 && (
+                            <div className="flex justify-between gap-2">
+                              <span className="text-text-secondary">Banca atual</span>
+                              <span className="font-mono">
+                                {stats.bankroll.toFixed(1)}u → <b>{(stats.bankroll - withdrawalPreview / stats.unitValue).toFixed(1)}u</b>
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex justify-between gap-2">
+                            <span className="text-text-secondary">Lucro e ROI</span>
+                            <span className="font-mono text-accent">não mudam</span>
+                          </div>
+                        </div>
+                        {withdrawalError && <p className="mb-2 text-[11px] text-live">{withdrawalError}</p>}
+                        <button
+                          onClick={() => void addWithdrawal()}
+                          disabled={savingBalances}
+                          className="flex h-[42px] w-full items-center justify-center rounded-[10px] bg-accent text-[13px] font-bold text-[#08090A] disabled:opacity-60"
+                        >
+                          Confirmar saque
+                        </button>
+                      </>
+                    )}
                   </div>
-                )}
-
-                {withdrawals.length > 0 && (
-                  <div className="mt-4 border-t border-border pt-3">
-                    <div className="mb-1.5 flex items-center justify-between font-mono text-[10px] tracking-[0.05em] text-text-tertiary">
-                      <span>SAQUES</span>
-                      <span>{brl(withdrawals.reduce((sum, w) => sum + w.amount, 0))}</span>
+                  <div className="flex flex-col px-4 py-5 lg:px-[22px]">
+                    <div className="flex items-baseline justify-between border-b border-border-subtle pb-[9px]">
+                      <span className="font-mono text-[10px] tracking-[0.05em] text-text-tertiary">HISTÓRICO</span>
+                      <span className="font-mono text-[13px] font-bold text-verified">{brl(stats.withdrawnTotal)}</span>
                     </div>
+                    {withdrawals.length === 0 && <p className="py-4 text-[12px] text-text-tertiary">Nenhum saque lançado.</p>}
                     {withdrawals.map((w) => (
-                      <div key={w.id} className="group flex items-center gap-2 px-1 py-1.5 text-[12px]">
-                        <span className="w-[58px] flex-none font-mono text-[11px] text-text-tertiary">{formatDay(w.withdrawnAt)}</span>
+                      <div key={w.id} className="flex items-center gap-3 border-b border-border-subtle px-0.5 py-[13px]">
+                        <span className="w-16 flex-none font-mono text-[11px] text-text-tertiary">{formatDay(w.withdrawnAt)}</span>
                         <span className={`h-2 w-2 flex-none rounded-full ${bookmakerColor(w.bookmaker)}`} />
-                        <span className="min-w-0 flex-1 truncate">{bookmakerLabel(w.bookmaker)}</span>
-                        <span className="font-mono font-semibold">−{brl(w.amount)}</span>
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{bookmakerLabel(w.bookmaker)}</span>
+                        <span className="font-mono text-[13px] font-bold">{brl(w.amount)}</span>
                         <button
                           onClick={() => {
                             if (window.confirm(`Apagar o saque de ${brl(w.amount)} (${formatDay(w.withdrawnAt)})?`)) void removeWithdrawal(w.id);
                           }}
-                          aria-label="Apagar saque"
-                          className="flex-none p-0.5 text-text-tertiary lg:opacity-0 lg:group-hover:opacity-100"
+                          className="text-[11px] text-text-tertiary hover:text-live"
                         >
-                          <IconX size={11} />
+                          apagar
                         </button>
                       </div>
                     ))}
+                    <p className="max-w-[420px] pt-3.5 text-[11px] leading-[1.55] text-text-tertiary">
+                      Saque tira dinheiro da banca, mas não conta como perda. Lucro da casa = saldo + sacado − depositado.
+                    </p>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-        </>
+                </div>
+              )}
+            </section>
+          )}
+        </div>
       )}
-      {!stats && (
-        <p className="py-10 text-center text-sm text-text-tertiary lg:hidden">Carregando…</p>
-      )}
+      {!stats && <p className="py-10 text-center text-sm text-text-tertiary">Carregando…</p>}
 
       {/* ---------- Mobile: native (non-Telegram) bets, only when there are any ---------- */}
       {bets && bets.length > 0 && (
@@ -1245,21 +1375,6 @@ export function MyProfilePage() {
               );
             })}
           </div>
-        </div>
-      )}
-
-      {me.role === "admin" && (
-        <div className="mt-6 px-4 lg:px-0">
-          <Link
-            to="/auto-betting"
-            className="flex items-center gap-3 rounded-2xl border border-border bg-surface p-4 lg:w-[500px] lg:p-5"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="text-[14px] font-bold">Aposta automática</div>
-              <div className="text-[12px] text-text-tertiary">Ligar a extensão, modo, teto por aposta e histórico</div>
-            </div>
-            <span className="text-[18px] text-text-tertiary">›</span>
-          </Link>
         </div>
       )}
     </div>
