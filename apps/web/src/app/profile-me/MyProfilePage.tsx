@@ -900,7 +900,7 @@ export function MyProfilePage() {
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-2 border-t border-border-subtle lg:grid-cols-4">
+            <div className="grid grid-cols-2 border-t border-border-subtle lg:grid-cols-5">
               {[
                 {
                   label: "ROI",
@@ -910,6 +910,18 @@ export function MyProfilePage() {
                 { label: "WINRATE", value: `${stats.hitRate.toFixed(0)}%` },
                 { label: "TIPS PEGAS", value: String(stats.tipsCount) },
                 {
+                  // Tudo que a banca já chegou a ter: o que entrou + o que ganhou,
+                  // antes de tirar os saques.
+                  label: "LUCRO TOTAL",
+                  value: `${(stats.bancaInicial + stats.combinedPnl).toFixed(1)}u`,
+                  className: "text-accent",
+                  sub:
+                    stats.unitValue != null
+                      ? brl((stats.bancaInicial + stats.combinedPnl) * stats.unitValue)
+                      : undefined,
+                  title: "Banca inicial + lucro (antes dos saques)",
+                },
+                {
                   label: "EM ABERTO",
                   value: `${stats.abertoUnits.toFixed(1)}u`,
                   className: "text-vip",
@@ -918,12 +930,15 @@ export function MyProfilePage() {
                       ? brl(stats.abertoUnits * stats.unitValue)
                       : `${stats.abertoCount} aposta${stats.abertoCount !== 1 ? "s" : ""}`,
                 },
-              ].map((cell, i) => (
+              ].map((cell, i, cells) => (
                 <div
                   key={cell.label}
+                  title={"title" in cell ? cell.title : undefined}
                   className={`flex flex-wrap items-baseline gap-x-2.5 border-border-subtle px-4 py-[13px] lg:px-6 ${
                     i % 2 === 1 ? "border-l" : ""
-                  } ${i >= 2 ? "border-t lg:border-t-0" : ""} ${i === 2 ? "lg:border-l" : ""}`}
+                  } ${i >= 2 ? "border-t lg:border-t-0" : ""} ${i > 0 ? "lg:border-l" : ""} ${
+                    i === cells.length - 1 && cells.length % 2 === 1 ? "col-span-2 lg:col-span-1" : ""
+                  }`}
                 >
                   <span className="font-mono text-[10px] tracking-[0.05em] text-text-tertiary">{cell.label}</span>
                   <span className={`font-mono text-[15px] font-bold ${cell.className ?? ""}`}>{cell.value}</span>
