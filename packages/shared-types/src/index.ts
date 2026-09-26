@@ -503,6 +503,29 @@ export const UpdateTelegramTipInput = z.object({
 });
 export type UpdateTelegramTipInput = z.infer<typeof UpdateTelegramTipInput>;
 
+/** Admin → "Adicionar tip": uma tip que chegou fora dos grupos monitorados
+ * (DM, outro chat, print de alguém). Vira uma TelegramTip normal, marcada
+ * com parsePattern "manual". A foto vai em base64 (já reduzida no navegador)
+ * e, se faltar odd/jogo/mercado, passa pela mesma OCR das tips do Telegram. */
+export const CreateManualTelegramTipInput = z.object({
+  groupId: z.string().uuid(),
+  match: z.string().trim().max(200).nullable().optional(),
+  selection: z.string().trim().max(200).nullable().optional(),
+  marketType: TelegramTipMarketType.nullable().optional(),
+  odd: z.number().positive().max(10_000).nullable().optional(),
+  unit: z.number().positive().max(100),
+  bookmaker: z.string().trim().max(80).nullable().optional(),
+  betUrl: z.string().url().refine(isHttpUrl, "betUrl must be an http(s) URL").nullable().optional(),
+  limit: z.number().positive().nullable().optional(),
+  /** Quando a tip foi enviada (ISO) — padrão: agora. */
+  receivedAt: z.string().datetime().optional(),
+  /** Texto original da mensagem, se tiver. */
+  rawMessage: z.string().max(4000).nullable().optional(),
+  /** Imagem do bilhete em base64 (sem o prefixo data:), jpeg/png/webp. */
+  photoBase64: z.string().max(8_000_000).nullable().optional(),
+});
+export type CreateManualTelegramTipInput = z.infer<typeof CreateManualTelegramTipInput>;
+
 /** This user's own take on a tip — whether they took it, and their own
  * unit/odd/casa if so. Always writes to the current signed-in user, never a
  * body-supplied userId (see PATCH /telegram-tips/:id/take). */

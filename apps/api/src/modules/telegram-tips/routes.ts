@@ -5,6 +5,7 @@ import {
   UpdateTelegramGroupInput,
   UpdateTelegramTipInput,
   UpdateTelegramTipTakeInput,
+  CreateManualTelegramTipInput,
   UpdateTelegramBancaSettingsInput,
   UpdateTelegramBookmakerBalancesInput,
   CreateTelegramBookmakerWithdrawalInput,
@@ -19,6 +20,7 @@ import {
 import { matchBookmakerBet, type CandidateTip, ODD_TOLERANCE, textSimilarity, GAME_SIMILARITY_THRESHOLD } from "@evobo/worker";
 import { authGuard } from "../../middleware/authGuard.js";
 import { roleGuard } from "../../middleware/roleGuard.js";
+import { randomUUID } from "node:crypto";
 import { prisma } from "../../db/prisma.js";
 import { supabaseAdmin } from "../../db/supabase.js";
 
@@ -47,6 +49,20 @@ function ensurePhotoBucket(): Promise<void> {
   }
   return bucketReady;
 }
+
+/** Tipo real da imagem pelos primeiros bytes — nunca confia no que o cliente diz. */
+function detectImageType(buffer: Buffer): { contentType: string; ext: string } | null {
+  if (buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { contentType: "image/jpeg", ext: "jpg" };
+  if (buffer.length > 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return { contentType: "image/png", ext: "png" };
+  }
+  if (buffer.length > 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP") {
+    return { contentType: "image/webp", ext: "webp" };
+  }
+  return null;
+}
+
+const MANUAL_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 
 /** Batch-resolves storage paths to signed URLs, preserving null slots for tips without a photo. */
 async function resolvePhotoUrls(paths: (string | null)[]): Promise<Map<string, string>> {
@@ -878,6 +894,81 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     }
 
     return result;
+  });
+
+  // Tip que chegou fora dos grupos monitorados (DM, outro chat, print) —
+  // o admin cadastra à mão com foto/unidade/odd/limite/grupo. Vira uma
+  // TelegramTip comum (entra em banca, relatório e grading), com
+  // parsePattern "manual" e telegramMessageId NEGATIVO: nunca colide com um
+  // id real do Telegram, então rebuild/fill-gaps (que apagam/deduplicam por
+  // id de mensagem) e as reações ✅/❌ nunca a tocam, e a fila da aposta
+  // automática a ignora (ver betting-queue). Admin only.
+  app.post("/manual", { bodyLimit: 10 * 1024 * 1024 }, async (request, reply) => {
+    if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
+    const parsed = CreateManualTelegramTipInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
+    }
+    const input = parsed.data;
+
+    const group = await prisma.telegramGroup.findUnique({ where: { id: input.groupId }, select: { id: true } });
+    if (!group) return reply.code(400).send({ error: "unknown_group" });
+
+    let photoPath: string | null = null;
+    if (input.photoBase64) {
+      const buffer = Buffer.from(input.photoBase64, "base64");
+      if (buffer.length > MANUAL_PHOTO_MAX_BYTES) return reply.code(413).send({ error: "photo_too_large" });
+      const type = detectImageType(buffer);
+      if (!type) return reply.code(400).send({ error: "invalid_photo" });
+      await ensurePhotoBucket();
+      const path = `${group.id}/manual-${randomUUID()}.${type.ext}`;
+      const { error } = await supabaseAdmin.storage.from(PHOTO_BUCKET).upload(path, buffer, { contentType: type.contentType });
+      if (error) {
+        request.log.error({ err: error }, "manual tip photo upload failed");
+        return reply.code(502).send({ error: "photo_upload_failed" });
+      }
+      photoPath = path;
+    }
+
+    const odd = input.odd ?? null;
+    const tip = await prisma.telegramTip.create({
+      data: {
+        groupId: group.id,
+        telegramMessageId: BigInt(-Date.now()),
+        receivedAt: input.receivedAt ? new Date(input.receivedAt) : new Date(),
+        match: input.match || null,
+        // "" = mercado faltando, mesma convenção do processMessage.ts.
+        selection: input.selection || "",
+        marketType: input.marketType ?? null,
+        unit: input.unit,
+        odd,
+        oddSource: odd !== null ? "manual" : null,
+        bookmaker: input.bookmaker || null,
+        betUrl: input.betUrl ?? null,
+        limit: input.limit ?? null,
+        photoPath,
+        parsePattern: "manual",
+        rawMessage: input.rawMessage || null,
+      },
+      include: { group: { select: { name: true } } },
+    });
+
+    // Mesma OCR das tips do Telegram, só pro que ficou em branco. Falha aqui
+    // não desfaz a tip — os campos continuam editáveis na lista.
+    if (photoPath && (odd === null || !tip.match || !tip.selection)) {
+      try {
+        const { enqueueTipOcr } = await import("@evobo/worker");
+        await enqueueTipOcr({ id: tip.id, photoPath, needMarket: !tip.selection, needGame: !tip.match, needOdd: odd === null });
+      } catch (err) {
+        request.log.error({ err }, "manual tip OCR enqueue failed");
+      }
+    }
+
+    const [photoUrls, myTakes] = await Promise.all([
+      resolvePhotoUrls([tip.photoPath]),
+      fetchMyTakes([tip.id], request.authUser!.id),
+    ]);
+    return reply.code(201).send(serializeTip(tip, photoUrls, myTakes.get(tip.id)));
   });
 
   // Apaga a tip de vez (chat/correção que nunca devia ter virado tip, ou

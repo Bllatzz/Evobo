@@ -128,6 +128,9 @@ export async function bettingQueueRoutes(app: FastifyInstance) {
         receivedAt: { gte: floor },
         result: "pending",
         betUrl: { contains: HOST[bookmaker] },
+        // Tip adicionada à mão no Admin (id de mensagem negativo) já foi
+        // apostada/enviada em outro lugar — nunca entra na aposta automática.
+        telegramMessageId: { gt: 0 },
       },
       include: { group: { select: { name: true } } },
       orderBy: [{ receivedAt: "asc" }, { id: "asc" }],

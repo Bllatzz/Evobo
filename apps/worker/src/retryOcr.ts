@@ -43,3 +43,24 @@ export async function retryMissingOcr(): Promise<{ groupsEnqueued: number; tipsE
 
   return { groupsEnqueued: byPhoto.size, tipsEnqueued: candidates.length };
 }
+
+/** OCR de uma tip só — usada pela tip adicionada à mão no Admin (foto enviada
+ * pelo navegador, não baixada do Telegram). Preenche só o que veio vazio. */
+export async function enqueueTipOcr(tip: {
+  id: string;
+  photoPath: string;
+  needMarket: boolean;
+  needGame: boolean;
+  needOdd: boolean;
+}): Promise<void> {
+  const retryOpts = { attempts: 3, backoff: { type: "exponential" as const, delay: 5_000 } };
+  await extractDetailsQueue.add(
+    "extract",
+    {
+      photoPath: tip.photoPath,
+      kind: "combo",
+      tips: [{ id: tip.id, needMarket: tip.needMarket, needGame: tip.needGame, needOdd: tip.needOdd, needMarketType: true }],
+    },
+    retryOpts,
+  );
+}

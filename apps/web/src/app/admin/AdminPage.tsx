@@ -64,6 +64,12 @@ const navCards = [
     description: "Corrigir unidade/odd/casa e marcar green/red/reembolso",
   },
   {
+    to: "/admin/telegram-tips?nova=1",
+    Icon: IconTelegram,
+    label: "Adicionar tip",
+    description: "Tip que chegou fora dos grupos: foto, unidade, odd, limite e grupo",
+  },
+  {
     to: "/auto-betting",
     Icon: IconRobot,
     label: "Aposta automática",

@@ -18,7 +18,7 @@ import { backfillReactionTake } from "./backfillReactionTake.js";
 import { sendMyReaction } from "./sendReaction.js";
 import { syncRecentSignals } from "./syncRecentSignals.js";
 
-export { retryMissingOcr } from "./retryOcr.js";
+export { retryMissingOcr, enqueueTipOcr } from "./retryOcr.js";
 export { runDailyGrading } from "./betAnalytix/runDailyGrading.js";
 export { runTippyGrading } from "./tippy/runTippyGrading.js";
 export {
