@@ -65,6 +65,43 @@ function detectImageType(buffer: Buffer): { contentType: string; ext: string } |
 const MANUAL_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 const MANUAL_GROUP_CHAT_PREFIX = "manual:";
 
+/** Foto enviada pelo Admin (base64) → Storage. Devolve o path ou o código de
+ * erro pra resposta — o tipo vem dos bytes, nunca do que o cliente diz. */
+async function uploadAdminPhoto(
+  base64: string,
+  groupId: string,
+): Promise<{ path: string } | { error: "photo_too_large" | "invalid_photo" | "photo_upload_failed"; status: number }> {
+  const buffer = Buffer.from(base64, "base64");
+  if (buffer.length > MANUAL_PHOTO_MAX_BYTES) return { error: "photo_too_large", status: 413 };
+  const type = detectImageType(buffer);
+  if (!type) return { error: "invalid_photo", status: 400 };
+  await ensurePhotoBucket();
+  const path = `${groupId}/manual-${randomUUID()}.${type.ext}`;
+  const { error } = await supabaseAdmin.storage.from(PHOTO_BUCKET).upload(path, buffer, { contentType: type.contentType });
+  if (error) {
+    console.error("[telegram-tips] admin photo upload failed:", error);
+    return { error: "photo_upload_failed", status: 502 };
+  }
+  return { path };
+}
+
+/** OCR só pro que ficou em branco; falha aqui nunca desfaz a gravação. */
+async function enqueueOcrIfMissing(tip: { id: string; photoPath: string | null; odd: unknown; match: string | null; selection: string | null }) {
+  if (!tip.photoPath || (tip.odd !== null && tip.match && tip.selection)) return;
+  try {
+    const { enqueueTipOcr } = await import("@evobo/worker");
+    await enqueueTipOcr({
+      id: tip.id,
+      photoPath: tip.photoPath,
+      needMarket: !tip.selection,
+      needGame: !tip.match,
+      needOdd: tip.odd === null,
+    });
+  } catch (err) {
+    console.error("[telegram-tips] OCR enqueue failed:", err);
+  }
+}
+
 /** Batch-resolves storage paths to signed URLs, preserving null slots for tips without a photo. */
 async function resolvePhotoUrls(paths: (string | null)[]): Promise<Map<string, string>> {
   const distinct = [...new Set(paths.filter((p): p is string => p !== null))];
@@ -612,13 +649,47 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
   // pra todo mundo. Editável só pelo admin (tela /admin/telegram-tips);
   // acompanhamento pessoal (peguei/não peguei + minha unidade/odd/casa) é
   // outro endpoint, ver PATCH /:id/take.
-  app.patch<{ Params: { id: string } }>("/:id", async (request, reply) => {
+  app.patch<{ Params: { id: string } }>("/:id", { bodyLimit: 10 * 1024 * 1024 }, async (request, reply) => {
     if (request.authUser!.roleName !== "admin") return reply.code(403).send({ error: "forbidden" });
     const parsed = UpdateTelegramTipInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
     const input = parsed.data;
+
+    const existing = await prisma.telegramTip.findUnique({
+      where: { id: request.params.id },
+      select: { groupId: true, telegramMessageId: true, parsePattern: true },
+    });
+    if (!existing) return reply.code(404).send({ error: "not_found" });
+
+    // Grupo e hora identificam a mensagem de origem de uma tip do Telegram
+    // (rebuild/reações/aposta automática dependem deles) — só a manual muda.
+    const isManual = existing.parsePattern === "manual";
+    if (!isManual && (input.groupId !== undefined || input.receivedAt !== undefined)) {
+      return reply.code(400).send({ error: "only_manual_tips" });
+    }
+    if (input.groupId !== undefined) {
+      const group = await prisma.telegramGroup.findUnique({ where: { id: input.groupId }, select: { id: true } });
+      if (!group) return reply.code(400).send({ error: "unknown_group" });
+    }
+
+    // A foto é da mensagem, não de uma seleção: trocar/remover vale pra todas
+    // as tips que vieram na mesma mensagem (mesmo bilhete). A foto antiga
+    // nunca é apagada do Storage aqui (mesma regra do DELETE /:id).
+    let nextPhotoPath: string | null | undefined;
+    if (input.photoBase64 === null) nextPhotoPath = null;
+    else if (input.photoBase64 !== undefined) {
+      const uploaded = await uploadAdminPhoto(input.photoBase64, input.groupId ?? existing.groupId);
+      if ("error" in uploaded) return reply.code(uploaded.status).send({ error: uploaded.error });
+      nextPhotoPath = uploaded.path;
+    }
+    if (nextPhotoPath !== undefined) {
+      await prisma.telegramTip.updateMany({
+        where: { groupId: existing.groupId, telegramMessageId: existing.telegramMessageId },
+        data: { photoPath: nextPhotoPath },
+      });
+    }
 
     // Corrigir a casa oficial (ex.: "bdeal" -> "betfair", um hostname mal
     // reconhecido) só trocava a coluna `bookmaker` — o mesmo nome errado
@@ -660,9 +731,14 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         ...(input.betUrl !== undefined ? { betUrl: input.betUrl } : {}),
         ...(input.odd !== undefined ? { odd: input.odd, oddSource: input.odd !== null ? "manual" : null } : {}),
         ...(input.limit !== undefined ? { limit: input.limit } : {}),
+        ...(input.rawMessage !== undefined ? { rawMessage: input.rawMessage || null } : {}),
+        ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
+        ...(input.receivedAt !== undefined ? { receivedAt: new Date(input.receivedAt) } : {}),
       },
       include: { group: { select: { name: true } } },
     });
+
+    if (nextPhotoPath) await enqueueOcrIfMissing(tip);
 
     const [photoUrls, myTakes] = await Promise.all([
       resolvePhotoUrls([tip.photoPath]),
@@ -932,18 +1008,9 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
 
     let photoPath: string | null = null;
     if (input.photoBase64) {
-      const buffer = Buffer.from(input.photoBase64, "base64");
-      if (buffer.length > MANUAL_PHOTO_MAX_BYTES) return reply.code(413).send({ error: "photo_too_large" });
-      const type = detectImageType(buffer);
-      if (!type) return reply.code(400).send({ error: "invalid_photo" });
-      await ensurePhotoBucket();
-      const path = `${group.id}/manual-${randomUUID()}.${type.ext}`;
-      const { error } = await supabaseAdmin.storage.from(PHOTO_BUCKET).upload(path, buffer, { contentType: type.contentType });
-      if (error) {
-        request.log.error({ err: error }, "manual tip photo upload failed");
-        return reply.code(502).send({ error: "photo_upload_failed" });
-      }
-      photoPath = path;
+      const uploaded = await uploadAdminPhoto(input.photoBase64, group.id);
+      if ("error" in uploaded) return reply.code(uploaded.status).send({ error: uploaded.error });
+      photoPath = uploaded.path;
     }
 
     const odd = input.odd ?? null;
@@ -969,16 +1036,8 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       include: { group: { select: { name: true } } },
     });
 
-    // Mesma OCR das tips do Telegram, só pro que ficou em branco. Falha aqui
-    // não desfaz a tip — os campos continuam editáveis na lista.
-    if (photoPath && (odd === null || !tip.match || !tip.selection)) {
-      try {
-        const { enqueueTipOcr } = await import("@evobo/worker");
-        await enqueueTipOcr({ id: tip.id, photoPath, needMarket: !tip.selection, needGame: !tip.match, needOdd: odd === null });
-      } catch (err) {
-        request.log.error({ err }, "manual tip OCR enqueue failed");
-      }
-    }
+    // Mesma OCR das tips do Telegram, só pro que ficou em branco.
+    await enqueueOcrIfMissing(tip);
 
     const [photoUrls, myTakes] = await Promise.all([
       resolvePhotoUrls([tip.photoPath]),

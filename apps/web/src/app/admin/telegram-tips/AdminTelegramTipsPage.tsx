@@ -21,7 +21,7 @@ import { groupTipsByMessage, groupColor, relativeTime, type MessageGroup } from 
 import { Dropdown } from "../../../components/Dropdown";
 import { BookmakerCombobox } from "../../../components/BookmakerCombobox";
 import { Modal } from "../../../components/Modal";
-import { AddManualTipModal } from "./AddManualTipModal";
+import { TipFormModal } from "./TipFormModal";
 import { bookmakerLabel } from "../../../lib/bookmakers";
 import { safeHttpUrl } from "../../../lib/safeUrl";
 import {
@@ -32,6 +32,7 @@ import {
   IconEyeOff,
   IconX,
   IconTrash,
+  IconPencil,
 } from "../../../components/Icon";
 
 const PAGE_SIZE = 30;
@@ -206,12 +207,14 @@ function AdminTipRow({
   bookmakers,
   onUpdate,
   onDelete,
+  onEdit,
 }: {
   tip: TelegramTip;
   index: number;
   bookmakers: string[];
   onUpdate: (tip: TelegramTip) => void;
   onDelete: (tip: TelegramTip) => void;
+  onEdit: (tip: TelegramTip) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [match, setMatch] = useState(tip.match ?? "");
@@ -249,6 +252,14 @@ function AdminTipRow({
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>{chip.text}</span>
         {tip.needsReview && <span className="flex-none rounded-md bg-vip-soft px-2 py-1 font-mono text-[9px] font-bold text-vip">!</span>}
+        <button
+          onClick={() => onEdit(tip)}
+          aria-label="Editar tip"
+          title="Editar (foto, grupo, data e tudo mais)"
+          className="flex-none rounded-lg border border-border-strong bg-surface-chip p-1.5 text-text-secondary"
+        >
+          <IconPencil size={14} />
+        </button>
         <button
           onClick={() => onDelete(tip)}
           aria-label="Excluir tip"
@@ -289,6 +300,14 @@ function AdminTipRow({
             PRECISA REVISAR
           </span>
         )}
+        <button
+          onClick={() => onEdit(tip)}
+          aria-label="Editar tip"
+          title="Editar (foto, grupo, data e tudo mais)"
+          className="flex-none self-start rounded-lg border border-border-strong bg-surface-chip p-1.5 text-text-secondary"
+        >
+          <IconPencil size={14} />
+        </button>
         <button
           onClick={() => onDelete(tip)}
           aria-label="Excluir tip"
@@ -426,6 +445,7 @@ function AdminMessageGroupCard({
   onOpenPhoto,
   onUpdate,
   onDelete,
+  onEdit,
 }: {
   group: MessageGroup;
   bookmakers: string[];
@@ -434,6 +454,7 @@ function AdminMessageGroupCard({
   onOpenPhoto: (url: string) => void;
   onUpdate: (tip: TelegramTip) => void;
   onDelete: (tip: TelegramTip) => void;
+  onEdit: (tip: TelegramTip) => void;
 }) {
   return (
     <div className="rounded-[18px] border border-border bg-surface p-3.5 lg:p-4">
@@ -486,7 +507,15 @@ function AdminMessageGroupCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-col">
             {group.tips.map((tip, i) => (
-              <AdminTipRow key={tip.id} tip={tip} index={i + 1} bookmakers={bookmakers} onUpdate={onUpdate} onDelete={onDelete} />
+              <AdminTipRow
+                key={tip.id}
+                tip={tip}
+                index={i + 1}
+                bookmakers={bookmakers}
+                onUpdate={onUpdate}
+                onDelete={onDelete}
+                onEdit={onEdit}
+              />
             ))}
           </div>
         </div>
@@ -529,9 +558,12 @@ export function AdminTelegramTipsPage() {
   // /admin/telegram-tips?nova=1 (card do painel Admin) já abre o formulário.
   const [searchParams, setSearchParams] = useSearchParams();
   const [addingTip, setAddingTip] = useState(() => searchParams.get("nova") === "1");
+  const [editingTip, setEditingTip] = useState<TelegramTip | null>(null);
+  const [formVersion, setFormVersion] = useState(0);
 
   function closeAddTip() {
     setAddingTip(false);
+    setEditingTip(null);
     if (searchParams.has("nova")) {
       searchParams.delete("nova");
       setSearchParams(searchParams, { replace: true });
@@ -768,7 +800,9 @@ export function AdminTelegramTipsPage() {
 
       {groupedList.map((group) => (
         <AdminMessageGroupCard
-          key={group.key}
+          // formVersion remonta os cards depois de salvar no formulário —
+          // cada linha guarda os próprios campos em estado local.
+          key={`${group.key}:${formVersion}`}
           group={group}
           bookmakers={bookmakers}
           photoVisible={photoOverrides[group.key] ?? true}
@@ -776,6 +810,7 @@ export function AdminTelegramTipsPage() {
           onOpenPhoto={setPhotoModal}
           onUpdate={updateTip}
           onDelete={deleteTip}
+          onEdit={setEditingTip}
         />
       ))}
 
@@ -839,11 +874,15 @@ export function AdminTelegramTipsPage() {
         <div className="p-4">{body}</div>
       </div>
 
-      <AddManualTipModal
-        open={addingTip}
+      <TipFormModal
+        open={addingTip || editingTip !== null}
+        editing={editingTip}
         onClose={closeAddTip}
-        onCreated={() => {
-          if (page === 1) load();
+        onSaved={() => {
+          setFormVersion((v) => v + 1);
+          // Editar recarrega a página atual (uma foto nova vale pras outras
+          // tips da mesma mensagem); adicionar volta pra primeira.
+          if (editingTip || page === 1) load();
           else setPage(1);
         }}
         onGroupCreated={(group) =>
