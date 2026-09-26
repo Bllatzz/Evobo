@@ -807,6 +807,11 @@ export function MyProfilePage() {
 
   const eqLabel = "mb-2 font-mono text-[11px] font-semibold tracking-[0.05em] text-text-secondary";
   const eqSub = "mt-1 font-mono text-[12.5px] text-text-muted";
+  const eqValue = "whitespace-nowrap font-mono text-[18px] font-bold lg:text-[22px]";
+  // R$ em destaque, unidade embaixo. Sem valor da unidade só dá pra mostrar em u.
+  const unitValue = stats?.unitValue != null && stats.unitValue > 0 ? stats.unitValue : null;
+  const money = (u: number) => (unitValue !== null ? brl(u * unitValue) : `${u.toFixed(1)}u`);
+  const units = (u: number) => (unitValue !== null ? `${u.toFixed(1)}u` : null);
   const eqOp = "hidden flex-none px-[18px] font-mono text-[22px] text-text-tertiary lg:block";
   const tabClass = (key: ProfileTab) =>
     `-mb-px border-b-2 py-4 text-[13px] ${key === tab ? "border-accent font-bold" : "border-transparent text-text-secondary"}`;
@@ -870,45 +875,39 @@ export function MyProfilePage() {
             <div className="grid grid-cols-2 gap-3 p-4 lg:flex lg:items-center lg:gap-0 lg:px-6 lg:py-5">
               <div className="min-w-0 lg:flex-1">
                 <div className={eqLabel}>BANCA INICIAL</div>
-                <div className="font-mono text-[18px] font-bold lg:text-[24px]">{stats.bancaInicial.toFixed(1)}u</div>
-                {stats.unitValue != null && <div className={eqSub}>{brl(stats.bancaInicial * stats.unitValue)}</div>}
+                <div className={eqValue}>{money(stats.bancaInicial)}</div>
+                {units(stats.bancaInicial) && <div className={eqSub}>{units(stats.bancaInicial)}</div>}
               </div>
               <span className={eqOp}>+</span>
               <div className="min-w-0 lg:flex-1">
                 <div className={eqLabel}>LUCRO</div>
-                <div className={`font-mono text-[18px] font-bold lg:text-[24px] ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
-                  {stats.combinedPnl < 0 && "−"}
-                  {Math.abs(stats.combinedPnl).toFixed(1)}u
+                <div className={`${eqValue} ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
+                  {stats.combinedPnl >= 0 ? "+" : ""}
+                  {money(stats.combinedPnl)}
                 </div>
-                {stats.unitValue != null && <div className={eqSub}>{brl(stats.combinedPnl * stats.unitValue)}</div>}
+                {units(stats.combinedPnl) && <div className={eqSub}>{units(stats.combinedPnl)}</div>}
               </div>
               <span className={eqOp}>=</span>
               {/* Tudo que a banca já chegou a ter: o que entrou + o que ganhou, antes dos saques. */}
               <div className="min-w-0 lg:flex-1" title="Banca inicial + lucro (antes dos saques)">
                 <div className={eqLabel}>LUCRO TOTAL</div>
-                <div className="font-mono text-[18px] font-bold text-text lg:text-[24px]">
-                  {(stats.bancaInicial + stats.combinedPnl).toFixed(1)}u
-                </div>
-                {stats.unitValue != null && (
-                  <div className={eqSub}>{brl((stats.bancaInicial + stats.combinedPnl) * stats.unitValue)}</div>
+                <div className={`${eqValue} text-text`}>{money(stats.bancaInicial + stats.combinedPnl)}</div>
+                {units(stats.bancaInicial + stats.combinedPnl) && (
+                  <div className={eqSub}>{units(stats.bancaInicial + stats.combinedPnl)}</div>
                 )}
               </div>
               <span className={eqOp}>−</span>
               <div className="min-w-0 lg:flex-1">
                 <div className={eqLabel}>SACADO</div>
-                <div className="font-mono text-[18px] font-bold text-verified lg:text-[24px]">{stats.withdrawnUnits.toFixed(1)}u</div>
-                <div className={eqSub}>{brl(stats.withdrawnTotal)}</div>
+                {/* Saque é lançado em R$ — sem valor da unidade não tem como mostrar em u. */}
+                <div className={`${eqValue} text-verified`}>{brl(stats.withdrawnTotal)}</div>
+                {units(stats.withdrawnUnits) && <div className={eqSub}>{units(stats.withdrawnUnits)}</div>}
               </div>
               <span className={eqOp}>=</span>
               <div className="order-first col-span-2 min-w-0 rounded-[14px] border border-accent-border bg-accent-soft px-[18px] py-3.5 lg:order-none lg:flex-[1.3]">
                 <div className="mb-1.5 font-mono text-[11px] font-semibold tracking-[0.05em] text-accent">BANCA ATUAL</div>
-                <div className="font-mono text-[30px] font-bold tracking-[-0.02em]">
-                  {stats.bankroll.toFixed(1)}
-                  <span className="text-[17px] text-text-secondary">u</span>
-                </div>
-                {stats.unitValue != null && (
-                  <div className="mt-0.5 font-mono text-[12.5px] text-text-muted">{brl(stats.bankroll * stats.unitValue)}</div>
-                )}
+                <div className="font-mono text-[30px] font-bold tracking-[-0.02em]">{money(stats.bankroll)}</div>
+                {units(stats.bankroll) && <div className="mt-0.5 font-mono text-[12.5px] text-text-muted">{units(stats.bankroll)}</div>}
               </div>
             </div>
             <div className="grid grid-cols-2 border-t border-border-subtle lg:grid-cols-4">
@@ -922,12 +921,9 @@ export function MyProfilePage() {
                 { label: "TIPS PEGAS", value: String(stats.tipsCount) },
                 {
                   label: "EM ABERTO",
-                  value: `${stats.abertoUnits.toFixed(1)}u`,
+                  value: money(stats.abertoUnits),
                   className: "text-vip",
-                  sub:
-                    stats.unitValue != null
-                      ? brl(stats.abertoUnits * stats.unitValue)
-                      : `${stats.abertoCount} aposta${stats.abertoCount !== 1 ? "s" : ""}`,
+                  sub: units(stats.abertoUnits) ?? `${stats.abertoCount} aposta${stats.abertoCount !== 1 ? "s" : ""}`,
                 },
               ].map((cell, i, cells) => (
                 <div
