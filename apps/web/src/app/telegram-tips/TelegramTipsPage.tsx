@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatOdds } from "../../lib/format";
 import { Link } from "react-router-dom";
 import {
   fetchTelegramTips,
@@ -210,6 +211,11 @@ function TipRow({
   // parseDraftNumber rounds it down to a plain number.
   const [unitText, setUnitText] = useState(() => (effUnit != null ? String(effUnit) : ""));
   const [oddText, setOddText] = useState(() => (effOdd != null ? String(effOdd) : ""));
+  // "Retorno" também é editável: digitar o prêmio que a casa mostra (ex.:
+  // R$ 48,75 em R$ 20) calcula a odd exata (2,4375) — odd quebrada que a casa
+  // arredonda na tela. null = mostrando o valor calculado, não o digitado.
+  const [returnText, setReturnText] = useState<string | null>(null);
+  const stakeBRL = effUnit != null && unitValue != null ? effUnit * unitValue : null;
   // Falls back to the official casa, then the filtered/first parsed option,
   // so "Abrir aposta" already has somewhere to go before the user explicitly
   // picks a casa — otherwise every tip started with the link dead.
@@ -256,7 +262,7 @@ function TipRow({
             {tip.marketType}
           </span>
         )}
-        <span className="flex-none font-mono text-[12px] font-bold">{effOdd != null ? effOdd.toFixed(2) : "—"}</span>
+        <span className="flex-none font-mono text-[12px] font-bold">{effOdd != null ? formatOdds(effOdd) : "—"}</span>
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{effUnit != null ? `${effUnit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
           {chip.text}
@@ -282,7 +288,7 @@ function TipRow({
             {tip.marketType}
           </span>
         )}
-        <span className="flex-none font-mono text-[12px] font-bold">{effOdd != null ? effOdd.toFixed(2) : "—"}</span>
+        <span className="flex-none font-mono text-[12px] font-bold">{effOdd != null ? formatOdds(effOdd) : "—"}</span>
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{effUnit != null ? `${effUnit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
           {chip.text}
@@ -344,7 +350,7 @@ function TipRow({
           />
           {oddDrifted && (
             <span className="text-[10px] leading-tight text-vip">
-              Odd da mensagem era {tip.originalOdd!.toFixed(2)} e está {tip.odd!.toFixed(2)} agora.
+              Odd da mensagem era {formatOdds(tip.originalOdd!)} e está {formatOdds(tip.odd!)} agora.
             </span>
           )}
         </div>
@@ -359,11 +365,29 @@ function TipRow({
         </div>
         <div className="flex flex-col gap-0.5 rounded-[10px] border border-border-subtle bg-surface-chip p-2.5">
           <span className="text-[10px] text-text-secondary">Retorno</span>
-          <span className="truncate font-mono text-[14px] font-bold">
-            {effUnit != null && unitValue != null && effOdd != null
-              ? formatBRL(effUnit * unitValue * effOdd)
-              : "—"}
-          </span>
+          {stakeBRL != null && stakeBRL > 0 ? (
+            <div className="flex items-center gap-1 font-mono text-[14px] font-bold">
+              <span>R$</span>
+              <input
+                inputMode="decimal"
+                value={returnText ?? (effOdd != null ? (stakeBRL * effOdd).toFixed(2).replace(".", ",") : "")}
+                onFocus={(e) => e.currentTarget.select()}
+                onChange={(e) => {
+                  setReturnText(e.target.value);
+                  const prize = parseDraftNumber(e.target.value.replace(/\.(?=\d{3}(\D|$))/g, ""));
+                  if (prize === null) return;
+                  const odd = Math.round((prize / stakeBRL) * 10_000) / 10_000;
+                  setOddText(String(odd));
+                  onUpdateDraft(tip, { odd });
+                }}
+                onBlur={() => setReturnText(null)}
+                title="Digite o prêmio que a casa mostra — a odd exata é calculada"
+                className="w-full min-w-0 rounded bg-transparent outline-none"
+              />
+            </div>
+          ) : (
+            <span className="truncate font-mono text-[14px] font-bold">—</span>
+          )}
         </div>
       </div>
 

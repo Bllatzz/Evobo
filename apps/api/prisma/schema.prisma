@@ -450,7 +450,7 @@ model TelegramTip {
   /// tips sem foto/já completas por texto, que nunca chamam a OCR).
   marketType        String?  @map("market_type")
   unit              Decimal? @db.Decimal(5, 2)
-  odd               Decimal? @db.Decimal(6, 2)
+  odd               Decimal? @db.Decimal(10, 4)
   /// "ocr" (Gemini Vision) | "manual" | "text" (already explicit in the
   /// Telegram message body, e.g. "ODD: 2.80") — null until one of them sets it.
   oddSource         String?  @map("odd_source")
@@ -458,7 +458,7 @@ model TelegramTip {
   /// `odd` whenever oddSource is "text"/"ocr", untouched by a manual edit, so
   /// the dashboard can flag "a odd mudou desde a mensagem" (a drop/move) by
   /// comparing this against the current `odd`.
-  originalOdd       Decimal? @map("original_odd") @db.Decimal(6, 2)
+  originalOdd       Decimal? @map("original_odd") @db.Decimal(10, 4)
   bookmaker         String?
   betUrl            String?  @map("bet_url")
   /// Set instead of bookmaker/betUrl when the tip can be placed at more than
@@ -508,7 +508,7 @@ model TelegramTipTake {
   /// "pending" (never explicitly set — the true default) | "taken" | "skipped".
   takenStatus String   @default("pending") @map("taken_status")
   unit        Decimal? @db.Decimal(5, 2)
-  odd         Decimal? @db.Decimal(6, 2)
+  odd         Decimal? @db.Decimal(10, 4)
   bookmaker   String?
   betUrl      String?  @map("bet_url")
   /// Bônus/turbinada em R$ pago por fora da odd (ex.: "Aposta Turbinada

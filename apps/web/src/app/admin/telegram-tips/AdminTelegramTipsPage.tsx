@@ -22,6 +22,7 @@ import { Dropdown } from "../../../components/Dropdown";
 import { BookmakerCombobox } from "../../../components/BookmakerCombobox";
 import { Modal } from "../../../components/Modal";
 import { TipFormModal } from "./TipFormModal";
+import { formatOdds } from "../../../lib/format";
 import { bookmakerLabel } from "../../../lib/bookmakers";
 import { safeHttpUrl } from "../../../lib/safeUrl";
 import {
@@ -248,7 +249,7 @@ function AdminTipRow({
             {tip.marketType}
           </span>
         )}
-        <span className="flex-none font-mono text-[12px] font-bold">{tip.odd != null ? tip.odd.toFixed(2) : "—"}</span>
+        <span className="flex-none font-mono text-[12px] font-bold">{tip.odd != null ? formatOdds(tip.odd) : "—"}</span>
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>{chip.text}</span>
         {tip.needsReview && <span className="flex-none rounded-md bg-vip-soft px-2 py-1 font-mono text-[9px] font-bold text-vip">!</span>}
@@ -290,7 +291,7 @@ function AdminTipRow({
           rows={Math.max(1, selection.split("\n").length)}
           className="min-w-0 flex-1 resize-none rounded bg-transparent text-[13px] font-semibold leading-snug text-text outline-none"
         />
-        <span className="flex-none font-mono text-[12px] font-bold">{tip.odd != null ? tip.odd.toFixed(2) : "—"}</span>
+        <span className="flex-none font-mono text-[12px] font-bold">{tip.odd != null ? formatOdds(tip.odd) : "—"}</span>
         <span className="flex-none font-mono text-[12px] text-text-tertiary">{tip.unit != null ? `${tip.unit}u` : "—"}</span>
         <span className={`flex-none rounded-md px-2 py-1 font-mono text-[9px] font-bold tracking-[0.03em] ${chip.className}`}>
           {saving ? "…" : chip.text}
