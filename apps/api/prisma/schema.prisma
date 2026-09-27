@@ -552,6 +552,8 @@ model TelegramBookmakerBalance {
   userId    String   @map("user_id") @db.Uuid
   bookmaker String
   balance   Decimal  @db.Decimal(10, 2)
+  /// Lucro de apostas não lançadas no Evobo (saque acima do saldo calculado).
+  untrackedProfit Decimal @default(0) @map("untracked_profit") @db.Decimal(10, 2)
   updatedAt DateTime @updatedAt @map("updated_at")
   user      User     @relation(fields: [userId], references: [id])
 

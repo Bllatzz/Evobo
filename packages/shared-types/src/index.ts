@@ -700,6 +700,8 @@ export type UpdateTelegramBancaSettingsInput = z.infer<typeof UpdateTelegramBanc
 export const TelegramBookmakerBalanceSchema = z.object({
   bookmaker: z.string().min(1).max(80),
   balance: z.number(),
+  /** Lucro de apostas não lançadas no Evobo — soma no saldo, não no depositado. */
+  untrackedProfit: z.number().optional(),
 });
 export type TelegramBookmakerBalance = z.infer<typeof TelegramBookmakerBalanceSchema>;
 

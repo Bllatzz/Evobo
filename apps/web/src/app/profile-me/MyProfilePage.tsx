@@ -336,6 +336,8 @@ type CasaRow = {
   roiPct: number | null;
   deposited: number | null;
   withdrawn: number;
+  /** R$ de apostas não lançadas no Evobo (saque acima do saldo calculado). */
+  untracked: number;
   saldo: number | null;
 };
 
@@ -519,6 +521,9 @@ export function MyProfilePage() {
     // Sem valor da unidade não dá pra converter R$ em u — o saque só aparece nas casas.
     const withdrawnTotal = withdrawals.reduce((sum, w) => sum + w.amount, 0);
     const withdrawnUnits = tg.unitValue && tg.unitValue > 0 ? withdrawnTotal / tg.unitValue : 0;
+    // Apostas fora do Evobo: lucro real da banca, mas fora do ROI/winrate das tips.
+    const untrackedTotal = balances.reduce((sum, b) => sum + (b.untrackedProfit ?? 0), 0);
+    const untrackedUnits = tg.unitValue && tg.unitValue > 0 ? untrackedTotal / tg.unitValue : 0;
 
     return {
       pnl,
@@ -529,7 +534,7 @@ export function MyProfilePage() {
       staked,
       tipsCount: (bets?.length ?? 0) + tgTipsCount,
       bancaInicial,
-      bankroll: bancaInicial + combinedPnl - withdrawnUnits,
+      bankroll: bancaInicial + combinedPnl + untrackedUnits - withdrawnUnits,
       withdrawnTotal,
       withdrawnUnits,
       unitValue: tg.unitValue,
@@ -576,9 +581,23 @@ export function MyProfilePage() {
       .filter((e) => rangeCutoffMs === null || e.date >= rangeCutoffMs);
   }, [withdrawals, tg, rangeCutoffMs]);
 
+  // Lucro fora do Evobo só aparece num saque — entra no gráfico no dia do
+  // último saque daquela casa, compensando parte do degrau.
+  const untrackedWindowEvents = useMemo<TimelineEvent[]>(() => {
+    const unitValue = tg?.unitValue;
+    if (!unitValue || unitValue <= 0) return [];
+    return balances
+      .filter((b) => (b.untrackedProfit ?? 0) !== 0)
+      .flatMap((b) => {
+        const times = withdrawals.filter((w) => w.bookmaker === b.bookmaker).map(withdrawalTime);
+        return times.length ? [{ date: Math.max(...times), profit: b.untrackedProfit! / unitValue }] : [];
+      })
+      .filter((e) => rangeCutoffMs === null || e.date >= rangeCutoffMs);
+  }, [balances, withdrawals, tg, rangeCutoffMs]);
+
   const windowTimeline = useMemo<TimelineEvent[]>(
-    () => [...nativeWindowEvents, ...telegramWindowEvents, ...withdrawalWindowEvents],
-    [nativeWindowEvents, telegramWindowEvents, withdrawalWindowEvents],
+    () => [...nativeWindowEvents, ...telegramWindowEvents, ...withdrawalWindowEvents, ...untrackedWindowEvents],
+    [nativeWindowEvents, telegramWindowEvents, withdrawalWindowEvents, untrackedWindowEvents],
   );
 
   const chartStartValue = useMemo(() => {
@@ -599,7 +618,9 @@ export function MyProfilePage() {
     const keys = [...new Set([...balances.map((b) => b.bookmaker), ...bookmakerRows.map((r) => r.key)])];
     const rows = keys.map((key) => {
       const row = byKey.get(key);
-      const deposited = balances.find((b) => b.bookmaker === key)?.balance ?? null;
+      const balance = balances.find((b) => b.bookmaker === key);
+      const deposited = balance?.balance ?? null;
+      const untracked = balance?.untrackedProfit ?? 0;
       const withdrawn = withdrawnByBookmaker[key] ?? 0;
       return {
         key,
@@ -609,7 +630,8 @@ export function MyProfilePage() {
         roiPct: row?.roiPct ?? null,
         deposited,
         withdrawn,
-        saldo: deposited === null ? null : deposited + (profitByBookmaker?.[key] ?? 0) - withdrawn,
+        untracked,
+        saldo: deposited === null ? null : deposited + (profitByBookmaker?.[key] ?? 0) + untracked - withdrawn,
       };
     });
     const { key, dir } = casaSort;
@@ -719,10 +741,9 @@ export function MyProfilePage() {
       return;
     }
     setWithdrawalError(null);
-    // Sacar mais do que o saldo calculado = a casa tinha dinheiro que o Evobo
-    // não conhecia (saldo de antes, odd paga um pouco diferente). O excedente
-    // entra como depositado — nunca como lucro — e o saldo fica em zero, não
-    // negativo.
+    // Sacar mais do que o saldo calculado = teve aposta que não foi lançada no
+    // Evobo. O excedente entra como lucro fora do Evobo (não como depositado —
+    // não era dinheiro de antes) e o saldo fica em zero, não negativo.
     const excess = withdrawalExcess(withdrawalBookmaker, amount);
     setSavingBalances(true);
     try {
@@ -730,13 +751,7 @@ export function MyProfilePage() {
       setWithdrawals((prev) => [saved, ...prev].sort((a, b) => b.withdrawnAt.localeCompare(a.withdrawnAt)));
       setWithdrawalAmount("");
       setWithdrawalDate(todaySaoPaulo());
-      if (excess > 0) {
-        await persistBalances(
-          balances.map((b) =>
-            b.bookmaker === withdrawalBookmaker ? { ...b, balance: Math.round((b.balance + excess) * 100) / 100 } : b,
-          ),
-        );
-      }
+      if (excess > 0) addUntrackedProfit(withdrawalBookmaker, excess);
     } catch {
       setWithdrawalError("Não consegui salvar o saque.");
     } finally {
@@ -744,12 +759,26 @@ export function MyProfilePage() {
     }
   }
 
+  function addUntrackedProfit(bookmaker: string, amount: number) {
+    void persistBalances(
+      balances.map((b) =>
+        b.bookmaker === bookmaker
+          ? { ...b, untrackedProfit: Math.round(((b.untrackedProfit ?? 0) + amount) * 100) / 100 }
+          : b,
+      ),
+    );
+  }
+
   /** Quanto o saque passa do saldo calculado da casa (0 se não passa, ou se o
    * lucro da casa ainda não carregou e não dá pra saber). */
   function withdrawalExcess(bookmaker: string, amount: number): number {
-    const deposited = balances.find((b) => b.bookmaker === bookmaker)?.balance;
-    if (deposited === undefined || profitByBookmaker === null) return 0;
-    const saldo = deposited + (profitByBookmaker[bookmaker] ?? 0) - (withdrawnByBookmaker[bookmaker] ?? 0);
+    const balance = balances.find((b) => b.bookmaker === bookmaker);
+    if (balance === undefined || profitByBookmaker === null) return 0;
+    const saldo =
+      balance.balance +
+      (profitByBookmaker[bookmaker] ?? 0) +
+      (balance.untrackedProfit ?? 0) -
+      (withdrawnByBookmaker[bookmaker] ?? 0);
     const excess = Math.round((amount - Math.max(0, saldo)) * 100) / 100;
     return excess > 0 ? excess : 0;
   }
@@ -1175,6 +1204,7 @@ export function MyProfilePage() {
                                 {c.withdrawn > 0 ? plainBrl(c.withdrawn) : "—"}
                               </span>
                               <span
+                                title={c.untracked !== 0 ? `Inclui ${brl(c.untracked)} de apostas fora do Evobo` : undefined}
                                 className={`text-right font-mono text-[13px] font-bold ${
                                   c.saldo === null ? "text-text-tertiary" : c.saldo < 0 ? "text-live" : ""
                                 }`}
@@ -1182,11 +1212,11 @@ export function MyProfilePage() {
                                 {c.saldo === null ? "—" : `${c.saldo < 0 ? "−" : ""}${plainBrl(Math.abs(c.saldo))}`}
                               </span>
                               {c.saldo !== null && c.saldo < -0.005 && c.withdrawn > 0 && c.deposited !== null ? (
-                                // Negativo por saque = a casa tinha mais do que o Evobo sabia
-                                // (mesma regra do addWithdrawal): o que falta vira depositado.
+                                // Negativo por saque = aposta não lançada no Evobo (mesma regra
+                                // do addWithdrawal): o que falta vira lucro fora do Evobo.
                                 <button
-                                  onClick={() => saveEditedBalance(c.key, String(Math.round((c.deposited! - c.saldo!) * 100) / 100))}
-                                  title={`Você sacou ${brl(-c.saldo)} a mais do que o saldo calculado — lançar como depositado`}
+                                  onClick={() => addUntrackedProfit(c.key, Math.round(-c.saldo! * 100) / 100)}
+                                  title={`Você sacou ${brl(-c.saldo)} a mais do que o saldo calculado — lançar como lucro de apostas fora do Evobo`}
                                   className="flex h-7 items-center justify-self-end rounded-[8px] border border-verified/40 px-2.5 text-[11px] font-semibold text-verified"
                                 >
                                   ajustar
@@ -1344,8 +1374,8 @@ export function MyProfilePage() {
                           )}
                           {previewExcess > 0 && (
                             <div className="flex justify-between gap-2">
-                              <span className="text-text-secondary">Tinha a mais na casa</span>
-                              <span className="font-mono text-verified">+{brl(previewExcess)} no depositado</span>
+                              <span className="text-text-secondary">Apostas fora do Evobo</span>
+                              <span className="font-mono text-verified">+{brl(previewExcess)} de lucro</span>
                             </div>
                           )}
                           {stats.unitValue != null && stats.unitValue > 0 && (

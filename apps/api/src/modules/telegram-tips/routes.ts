@@ -1367,7 +1367,11 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       where: { userId: request.authUser!.id },
       orderBy: { bookmaker: "asc" },
     });
-    return rows.map((r) => ({ bookmaker: r.bookmaker, balance: Number(r.balance) }));
+    return rows.map((r) => ({
+      bookmaker: r.bookmaker,
+      balance: Number(r.balance),
+      untrackedProfit: Number(r.untrackedProfit),
+    }));
   });
 
   /** Substitui a lista inteira — poucas linhas, baixa frequência de escrita, não precisa de CRUD por linha. */
@@ -1380,7 +1384,9 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     await prisma.$transaction([
       prisma.telegramBookmakerBalance.deleteMany({ where: { userId } }),
       ...parsed.data.map((row) =>
-        prisma.telegramBookmakerBalance.create({ data: { userId, bookmaker: row.bookmaker, balance: row.balance } }),
+        prisma.telegramBookmakerBalance.create({
+          data: { userId, bookmaker: row.bookmaker, balance: row.balance, untrackedProfit: row.untrackedProfit ?? 0 },
+        }),
       ),
     ]);
     return parsed.data;
