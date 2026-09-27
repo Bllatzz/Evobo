@@ -338,6 +338,8 @@ type CasaRow = {
   withdrawn: number;
   /** R$ de diferença pro saldo real (apostas fora do Evobo, unidade que mudou…). */
   untracked: number;
+  /** R$ preso em apostas em aberto (já está dentro do saldo). */
+  open: number;
   saldo: number | null;
 };
 
@@ -401,6 +403,9 @@ export function MyProfilePage() {
   // so balances render without a premature "sem lucro ainda" flash.
   const [profitByBookmaker, setProfitByBookmaker] = useState<Record<string, number | null> | null>(null);
   const [editingBookmaker, setEditingBookmaker] = useState<string | null>(null);
+  const [editingSaldo, setEditingSaldo] = useState<string | null>(null);
+  // R$ preso em apostas em aberto por casa — faz parte do saldo, mas não dá pra sacar.
+  const [openByBookmaker, setOpenByBookmaker] = useState<Record<string, number>>({});
 
   // Saques: tiram do saldo da casa e da banca atual, nunca do lucro.
   const [withdrawals, setWithdrawals] = useState<TelegramBookmakerWithdrawal[]>([]);
@@ -465,6 +470,11 @@ export function MyProfilePage() {
         for (const row of banca.peguei.byBookmaker) map[row.key] = row.profitBRL;
         setProfitByBookmaker(map);
         setBookmakerRows(banca.peguei.byBookmaker);
+        const open: Record<string, number> = {};
+        if (unitValue && unitValue > 0) {
+          for (const [key, units] of Object.entries(banca.aberto.byBookmaker ?? {})) open[key] = units * unitValue;
+        }
+        setOpenByBookmaker(open);
         setGroupRows([...banca.peguei.byGroup].sort((a, b) => b.profit - a.profit));
       })
       .catch(() => {
@@ -634,6 +644,7 @@ export function MyProfilePage() {
         deposited,
         withdrawn,
         untracked,
+        open: openByBookmaker[key] ?? 0,
         saldo: deposited === null ? null : deposited + (profitByBookmaker?.[key] ?? 0) + untracked - withdrawn,
       };
     });
@@ -648,7 +659,7 @@ export function MyProfilePage() {
       return sign * (va - vb);
     });
     return rows;
-  }, [bookmakerRows, balances, withdrawnByBookmaker, profitByBookmaker, casaSort]);
+  }, [bookmakerRows, balances, withdrawnByBookmaker, profitByBookmaker, openByBookmaker, casaSort]);
 
   const casaTotals = useMemo(() => {
     const profit = casaRows.reduce((sum, r) => sum + r.profit, 0);
@@ -774,9 +785,22 @@ export function MyProfilePage() {
     );
   }
 
+  /** Saldo real digitado na casa (livre + em aposta): a diferença pro saldo
+   * calculado vira acerto da casa (apostas fora do Evobo, unidade que mudou). */
+  function saveRealSaldo(bookmaker: string, raw: string, saldo: number) {
+    setEditingSaldo(null);
+    const trimmed = raw.trim().replace(",", ".");
+    if (trimmed === "") return;
+    const value = Number(trimmed);
+    if (!Number.isFinite(value) || value < 0) return;
+    const diff = Math.round((value - saldo) * 100) / 100;
+    if (diff !== 0) addUntrackedProfit(bookmaker, diff);
+  }
+
   /** Quanto o saque difere do saldo calculado da casa. Saque parcial: só o que
-   * passa do saldo (nunca negativo). Sacando tudo: valor − saldo, pra mais ou
-   * pra menos. 0 se o lucro da casa ainda não carregou e não dá pra saber. */
+   * passa do saldo (nunca negativo). Sacando tudo: valor − saldo livre (o que
+   * está em aposta em aberto fica na casa), pra mais ou pra menos. 0 se o
+   * lucro da casa ainda não carregou e não dá pra saber. */
   function withdrawalAdjustment(bookmaker: string, amount: number, all: boolean): number {
     const balance = balances.find((b) => b.bookmaker === bookmaker);
     if (balance === undefined || profitByBookmaker === null) return 0;
@@ -785,7 +809,7 @@ export function MyProfilePage() {
       (profitByBookmaker[bookmaker] ?? 0) +
       (balance.untrackedProfit ?? 0) -
       (withdrawnByBookmaker[bookmaker] ?? 0);
-    if (all) return Math.round((amount - saldo) * 100) / 100;
+    if (all) return Math.round((amount - (saldo - (openByBookmaker[bookmaker] ?? 0))) * 100) / 100;
     const excess = Math.round((amount - Math.max(0, saldo)) * 100) / 100;
     return excess > 0 ? excess : 0;
   }
@@ -1151,7 +1175,7 @@ export function MyProfilePage() {
                           <span />
                         </div>
                         {casaRows.map((c) => {
-                          const zerada = c.withdrawn > 0 && c.saldo !== null && Math.abs(c.saldo) < 0.005;
+                          const zerada = c.withdrawn > 0 && c.saldo !== null && Math.abs(c.saldo - c.open) < 0.005;
                           return (
                             <div key={c.key} className={`${casaGrid} group border-b border-border-subtle py-2.5`}>
                               <div className="flex min-w-0 items-center gap-2.5">
@@ -1213,31 +1237,46 @@ export function MyProfilePage() {
                               <span className={`text-right font-mono text-[13px] ${c.withdrawn > 0 ? "text-verified" : "text-text-quaternary/50"}`}>
                                 {c.withdrawn > 0 ? plainBrl(c.withdrawn) : "—"}
                               </span>
-                              <span
-                                title={
-                                  c.untracked !== 0
-                                    ? `Inclui ${c.untracked > 0 ? "+" : "−"}${brl(Math.abs(c.untracked))} de acerto com o saldo real da casa (apostas fora do Evobo)`
-                                    : undefined
-                                }
-                                className={`text-right font-mono text-[13px] font-bold ${
-                                  c.saldo === null ? "text-text-tertiary" : c.saldo < 0 ? "text-live" : ""
-                                }`}
-                              >
-                                {c.saldo === null ? "—" : `${c.saldo < 0 ? "−" : ""}${plainBrl(Math.abs(c.saldo))}`}
-                              </span>
-                              {c.saldo !== null && c.saldo < -0.005 && c.withdrawn > 0 && c.deposited !== null ? (
-                                // Negativo por saque = aposta não lançada no Evobo (mesma regra
-                                // do addWithdrawal): o que falta vira lucro fora do Evobo.
-                                <button
-                                  onClick={() => addUntrackedProfit(c.key, Math.round(-c.saldo! * 100) / 100)}
-                                  title={`Você já sacou tudo, mas ${brl(-c.saldo)} a mais do que o Evobo calculou. Zera o saldo lançando essa diferença como lucro de apostas fora do Evobo.`}
-                                  className="flex h-7 items-center justify-self-end whitespace-nowrap rounded-[8px] border border-verified/40 px-2 text-[11px] font-semibold text-verified"
-                                >
-                                  zerar
-                                </button>
-                              ) : (
-                                // Mesmo com saldo calculado ≤ 0 a casa pode ter dinheiro de verdade
-                                // (unidade que mudou, aposta fora do Evobo) — "sacando tudo" acerta.
+                              <div className="text-right">
+                                {editingSaldo === c.key && c.saldo !== null ? (
+                                  <input
+                                    autoFocus
+                                    defaultValue={String(Math.max(0, Math.round(c.saldo * 100) / 100))}
+                                    inputMode="decimal"
+                                    aria-label="Saldo real na casa"
+                                    onFocus={(e) => e.currentTarget.select()}
+                                    onBlur={(e) => saveRealSaldo(c.key, e.target.value, c.saldo!)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") e.currentTarget.blur();
+                                      if (e.key === "Escape") setEditingSaldo(null);
+                                    }}
+                                    className="w-full rounded bg-surface-alt px-1 py-0.5 text-right font-mono text-[12px] outline-none"
+                                  />
+                                ) : (
+                                  <button
+                                    onClick={() => c.saldo !== null && setEditingSaldo(c.key)}
+                                    disabled={c.saldo === null}
+                                    title={[
+                                      "Corrigir: digite o saldo real da casa (livre + em aposta)",
+                                      c.untracked !== 0
+                                        ? `Inclui ${c.untracked > 0 ? "+" : "−"}${brl(Math.abs(c.untracked))} de acerto com o saldo real (apostas fora do Evobo)`
+                                        : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join("\n")}
+                                    className={`font-mono text-[13px] font-bold hover:underline ${
+                                      c.saldo === null ? "text-text-tertiary" : c.saldo < 0 ? "text-live" : ""
+                                    }`}
+                                  >
+                                    {c.saldo === null ? "—" : `${c.saldo < 0 ? "−" : ""}${plainBrl(Math.abs(c.saldo))}`}
+                                  </button>
+                                )}
+                                {c.open > 0 && (
+                                  <div className="font-mono text-[10px] text-text-tertiary">{plainBrl(c.open)} em aposta</div>
+                                )}
+                              </div>
+                              {/* Mesmo com saldo calculado ≤ 0 a casa pode ter dinheiro de verdade
+                                  (unidade que mudou, aposta fora do Evobo) — "sacando tudo" acerta. */}
                                 <button
                                   onClick={() => openSaques(c.key)}
                                   className={`flex h-7 items-center justify-self-end rounded-[8px] border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted ${
@@ -1246,7 +1285,7 @@ export function MyProfilePage() {
                                 >
                                   sacar
                                 </button>
-                              )}
+                              
                             </div>
                           );
                         })}
@@ -1358,10 +1397,10 @@ export function MyProfilePage() {
                                 aria-label="Valor sacado"
                                 className="min-w-0 flex-1 bg-transparent outline-none"
                               />
-                              {selectedCasa?.saldo != null && selectedCasa.saldo > 0 && (
+                              {selectedCasa?.saldo != null && selectedCasa.saldo - selectedCasa.open > 0 && (
                                 <button
                                   onClick={() => {
-                                    setWithdrawalAmount(selectedCasa.saldo!.toFixed(2));
+                                    setWithdrawalAmount((selectedCasa.saldo! - selectedCasa.open).toFixed(2));
                                     setWithdrawingAll(true);
                                   }}
                                   className="flex-none rounded-[6px] border border-accent-border px-[7px] py-1 text-[10px] text-accent"
@@ -1393,8 +1432,11 @@ export function MyProfilePage() {
                           <span className="text-[12px]">
                             <span className="font-semibold">Estou sacando tudo</span>
                             <span className="block text-[11px] text-text-tertiary">
-                              A casa fica zerada. Se o valor for diferente do saldo calculado, a diferença entra como lucro ou
-                              prejuízo de apostas fora do Evobo.
+                              {selectedCasa && selectedCasa.open > 0
+                                ? `A casa fica só com os ${brl(selectedCasa.open)} que estão em aposta.`
+                                : "A casa fica zerada."}{" "}
+                              Se o valor for diferente do saldo calculado, a diferença entra como lucro ou prejuízo de apostas
+                              fora do Evobo.
                             </span>
                           </span>
                         </label>
@@ -1404,7 +1446,9 @@ export function MyProfilePage() {
                               <span className="text-text-secondary">Saldo {bookmakerLabel(selectedCasa.key)}</span>
                               <span className="font-mono">
                                 {brl(selectedCasa.saldo)} →{" "}
-                                <b>{brl(withdrawingAll ? 0 : Math.max(0, selectedCasa.saldo - withdrawalPreview))}</b>
+                                <b>
+                                  {brl(withdrawingAll ? selectedCasa.open : Math.max(0, selectedCasa.saldo - withdrawalPreview))}
+                                </b>
                               </span>
                             </div>
                           )}

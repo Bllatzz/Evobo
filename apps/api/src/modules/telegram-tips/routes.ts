@@ -1310,6 +1310,12 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const openUnits = openTakes
       .filter((t) => matchesBookmaker(t.bookmaker ?? t.tip.bookmaker))
       .reduce((sum, t) => sum + Number(t.unit ?? t.tip.unit ?? 0), 0);
+    const openByBookmaker: Record<string, number> = {};
+    for (const t of openTakes) {
+      const bookmaker = t.bookmaker ?? t.tip.bookmaker;
+      if (!bookmaker || !matchesBookmaker(bookmaker)) continue;
+      openByBookmaker[bookmaker] = Math.round(((openByBookmaker[bookmaker] ?? 0) + Number(t.unit ?? t.tip.unit ?? 0)) * 100) / 100;
+    }
 
     return {
       geral: {
@@ -1326,6 +1332,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
         count: openTakes.filter((t) => matchesBookmaker(t.bookmaker ?? t.tip.bookmaker)).length,
         units: Math.round(openUnits * 100) / 100,
         unitsBRL: unitValue !== null ? Math.round(openUnits * unitValue * 100) / 100 : null,
+        byBookmaker: openByBookmaker,
       },
     };
   });

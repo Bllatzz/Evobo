@@ -679,7 +679,13 @@ export const TelegramBancaSummary = z.object({
    * dinheiro travado em apostas em aberto, que nunca entra em `totals`/`series`
    * (profit de tip pendente é null, não zero) e por isso nunca aparece em
    * lugar nenhum sem isso. Feeds the "Em Aberto" card on the profile. */
-  aberto: z.object({ count: z.number(), units: z.number(), unitsBRL: z.number().nullable() }),
+  aberto: z.object({
+    count: z.number(),
+    units: z.number(),
+    unitsBRL: z.number().nullable(),
+    /** Unidades em aberto por casa — parte do saldo da casa que está presa em aposta. */
+    byBookmaker: z.record(z.string(), z.number()).optional(),
+  }),
 });
 export type TelegramBancaSummary = z.infer<typeof TelegramBancaSummary>;
 
