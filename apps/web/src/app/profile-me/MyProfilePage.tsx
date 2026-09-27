@@ -343,6 +343,17 @@ type CasaRow = {
   saldo: number | null;
 };
 
+/** Valor em R$ digitado do jeito brasileiro ("2.281,89", "2281,89") ou com
+ * ponto decimal ("2281.89"). Com vírgula, pontos são milhar; sem vírgula, só
+ * "1.234" / "1.234.567" é milhar. NaN se não for número. */
+function parseBrl(raw: string): number {
+  const t = raw.trim().replace(/^R\$\s*/, "").replace(/\s/g, "");
+  if (t === "") return NaN;
+  if (t.includes(",")) return Number(t.replace(/\./g, "").replace(",", "."));
+  if (/^\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ""));
+  return Number(t);
+}
+
 const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const monthYear = (iso: string) => {
   const d = new Date(iso);
@@ -680,7 +691,7 @@ export function MyProfilePage() {
   );
 
   async function saveUnitValue(raw: string) {
-    const value = raw.trim() === "" ? null : Number(raw.replace(",", "."));
+    const value = raw.trim() === "" ? null : parseBrl(raw);
     if (value !== null && (Number.isNaN(value) || value <= 0)) {
       setEditingUnitValue(false);
       return;
@@ -712,7 +723,7 @@ export function MyProfilePage() {
 
   function addBalance() {
     const bookmaker = (newBookmaker === OTHER_OPTION ? customBookmaker : newBookmaker).trim();
-    const value = Number(newBalance.trim().replace(",", "."));
+    const value = parseBrl(newBalance);
     // Text or a negative amount is ignored — Number("abc") is NaN, which used
     // to be sent to the server and shown as "R$ NaN".
     if (!bookmaker || newBalance.trim() === "" || !Number.isFinite(value) || value < 0) return;
@@ -735,9 +746,8 @@ export function MyProfilePage() {
 
   function saveEditedBalance(bookmaker: string, raw: string) {
     setEditingBookmaker(null);
-    const trimmed = raw.trim().replace(",", ".");
-    if (trimmed === "") return;
-    const value = Number(trimmed);
+    if (raw.trim() === "") return;
+    const value = parseBrl(raw);
     if (!Number.isFinite(value)) return;
     const current = balances.find((b) => b.bookmaker === bookmaker);
     if (current && current.balance === value) return;
@@ -749,7 +759,7 @@ export function MyProfilePage() {
   }
 
   async function addWithdrawal() {
-    const amount = Number(withdrawalAmount.trim().replace(",", "."));
+    const amount = parseBrl(withdrawalAmount);
     if (!withdrawalBookmaker || !Number.isFinite(amount) || amount <= 0 || !withdrawalDate) {
       setWithdrawalError("Escolha a casa, o valor e a data.");
       return;
@@ -789,9 +799,8 @@ export function MyProfilePage() {
    * calculado vira acerto da casa (apostas fora do Evobo, unidade que mudou). */
   function saveRealSaldo(bookmaker: string, raw: string, saldo: number) {
     setEditingSaldo(null);
-    const trimmed = raw.trim().replace(",", ".");
-    if (trimmed === "") return;
-    const value = Number(trimmed);
+    if (raw.trim() === "") return;
+    const value = parseBrl(raw);
     if (!Number.isFinite(value) || value < 0) return;
     const diff = Math.round((value - saldo) * 100) / 100;
     if (diff !== 0) addUntrackedProfit(bookmaker, diff);
@@ -843,11 +852,13 @@ export function MyProfilePage() {
     "grid grid-cols-[minmax(0,1fr)_70px_86px_86px_100px_90px_110px_64px] items-center gap-3.5 px-4 lg:px-[22px]";
 
   const selectedCasa = casaRows.find((r) => r.key === withdrawalBookmaker) ?? null;
-  const withdrawalValue = Number(withdrawalAmount.trim().replace(",", "."));
+  const withdrawalValue = parseBrl(withdrawalAmount);
   const withdrawalPreview = Number.isFinite(withdrawalValue) && withdrawalValue > 0 ? withdrawalValue : 0;
-  const previewAdjustment = withdrawalBookmaker
-    ? withdrawalAdjustment(withdrawalBookmaker, withdrawalPreview, withdrawingAll)
-    : 0;
+  // Sem valor válido não há o que comparar — nada de "prejuízo" do saldo inteiro.
+  const previewAdjustment =
+    withdrawalBookmaker && withdrawalPreview > 0
+      ? withdrawalAdjustment(withdrawalBookmaker, withdrawalPreview, withdrawingAll)
+      : 0;
 
   const unitChip = hasTelegram && (
     <span className="flex h-[34px] flex-none items-center gap-2 rounded-[10px] border border-border bg-surface-alt px-3 text-[12px]">
@@ -1277,15 +1288,14 @@ export function MyProfilePage() {
                               </div>
                               {/* Mesmo com saldo calculado ≤ 0 a casa pode ter dinheiro de verdade
                                   (unidade que mudou, aposta fora do Evobo) — "sacando tudo" acerta. */}
-                                <button
-                                  onClick={() => openSaques(c.key)}
-                                  className={`flex h-7 items-center justify-self-end rounded-[8px] border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted ${
-                                    c.deposited !== null && !zerada ? "" : "invisible"
-                                  }`}
-                                >
-                                  sacar
-                                </button>
-                              
+                              <button
+                                onClick={() => openSaques(c.key)}
+                                className={`flex h-7 items-center justify-self-end rounded-[8px] border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted ${
+                                  c.deposited !== null && !zerada ? "" : "invisible"
+                                }`}
+                              >
+                                sacar
+                              </button>
                             </div>
                           );
                         })}
