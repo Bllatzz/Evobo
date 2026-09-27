@@ -336,7 +336,7 @@ type CasaRow = {
   roiPct: number | null;
   deposited: number | null;
   withdrawn: number;
-  /** R$ de apostas não lançadas no Evobo (saque acima do saldo calculado). */
+  /** R$ de diferença pro saldo real (apostas fora do Evobo, unidade que mudou…). */
   untracked: number;
   saldo: number | null;
 };
@@ -411,6 +411,9 @@ export function MyProfilePage() {
   const [withdrawalAmount, setWithdrawalAmount] = useState("");
   const [withdrawalDate, setWithdrawalDate] = useState(todaySaoPaulo);
   const [withdrawalError, setWithdrawalError] = useState<string | null>(null);
+  // "Estou sacando tudo": a casa fica zerada e a diferença pro saldo calculado
+  // (pra mais ou pra menos) vira ajuste da casa.
+  const [withdrawingAll, setWithdrawingAll] = useState(false);
 
   // Casas e grupos de todo o período (não seguem o filtro do gráfico): o
   // saldo de cada casa é de todo o período, então o lucro ao lado também.
@@ -743,15 +746,17 @@ export function MyProfilePage() {
     setWithdrawalError(null);
     // Sacar mais do que o saldo calculado = teve aposta que não foi lançada no
     // Evobo. O excedente entra como lucro fora do Evobo (não como depositado —
-    // não era dinheiro de antes) e o saldo fica em zero, não negativo.
-    const excess = withdrawalExcess(withdrawalBookmaker, amount);
+    // não era dinheiro de antes) e o saldo fica em zero, não negativo. Com
+    // "sacando tudo", a diferença pode ser pra menos também (prejuízo).
+    const adjustment = withdrawalAdjustment(withdrawalBookmaker, amount, withdrawingAll);
     setSavingBalances(true);
     try {
       const saved = await createWithdrawal({ bookmaker: withdrawalBookmaker, amount, withdrawnAt: withdrawalDate });
       setWithdrawals((prev) => [saved, ...prev].sort((a, b) => b.withdrawnAt.localeCompare(a.withdrawnAt)));
       setWithdrawalAmount("");
       setWithdrawalDate(todaySaoPaulo());
-      if (excess > 0) addUntrackedProfit(withdrawalBookmaker, excess);
+      setWithdrawingAll(false);
+      if (adjustment !== 0) addUntrackedProfit(withdrawalBookmaker, adjustment);
     } catch {
       setWithdrawalError("Não consegui salvar o saque.");
     } finally {
@@ -769,9 +774,10 @@ export function MyProfilePage() {
     );
   }
 
-  /** Quanto o saque passa do saldo calculado da casa (0 se não passa, ou se o
-   * lucro da casa ainda não carregou e não dá pra saber). */
-  function withdrawalExcess(bookmaker: string, amount: number): number {
+  /** Quanto o saque difere do saldo calculado da casa. Saque parcial: só o que
+   * passa do saldo (nunca negativo). Sacando tudo: valor − saldo, pra mais ou
+   * pra menos. 0 se o lucro da casa ainda não carregou e não dá pra saber. */
+  function withdrawalAdjustment(bookmaker: string, amount: number, all: boolean): number {
     const balance = balances.find((b) => b.bookmaker === bookmaker);
     if (balance === undefined || profitByBookmaker === null) return 0;
     const saldo =
@@ -779,6 +785,7 @@ export function MyProfilePage() {
       (profitByBookmaker[bookmaker] ?? 0) +
       (balance.untrackedProfit ?? 0) -
       (withdrawnByBookmaker[bookmaker] ?? 0);
+    if (all) return Math.round((amount - saldo) * 100) / 100;
     const excess = Math.round((amount - Math.max(0, saldo)) * 100) / 100;
     return excess > 0 ? excess : 0;
   }
@@ -800,6 +807,7 @@ export function MyProfilePage() {
     if (target !== withdrawalBookmaker) {
       setWithdrawalBookmaker(target);
       setWithdrawalAmount("");
+      setWithdrawingAll(false);
     }
   }
 
@@ -813,7 +821,9 @@ export function MyProfilePage() {
   const selectedCasa = casaRows.find((r) => r.key === withdrawalBookmaker) ?? null;
   const withdrawalValue = Number(withdrawalAmount.trim().replace(",", "."));
   const withdrawalPreview = Number.isFinite(withdrawalValue) && withdrawalValue > 0 ? withdrawalValue : 0;
-  const previewExcess = withdrawalBookmaker ? withdrawalExcess(withdrawalBookmaker, withdrawalPreview) : 0;
+  const previewAdjustment = withdrawalBookmaker
+    ? withdrawalAdjustment(withdrawalBookmaker, withdrawalPreview, withdrawingAll)
+    : 0;
 
   const unitChip = hasTelegram && (
     <span className="flex h-[34px] flex-none items-center gap-2 rounded-[10px] border border-border bg-surface-alt px-3 text-[12px]">
@@ -1204,7 +1214,11 @@ export function MyProfilePage() {
                                 {c.withdrawn > 0 ? plainBrl(c.withdrawn) : "—"}
                               </span>
                               <span
-                                title={c.untracked !== 0 ? `Inclui ${brl(c.untracked)} de apostas fora do Evobo` : undefined}
+                                title={
+                                  c.untracked !== 0
+                                    ? `Inclui ${c.untracked > 0 ? "+" : "−"}${brl(Math.abs(c.untracked))} de acerto com o saldo real da casa (apostas fora do Evobo)`
+                                    : undefined
+                                }
                                 className={`text-right font-mono text-[13px] font-bold ${
                                   c.saldo === null ? "text-text-tertiary" : c.saldo < 0 ? "text-live" : ""
                                 }`}
@@ -1216,16 +1230,18 @@ export function MyProfilePage() {
                                 // do addWithdrawal): o que falta vira lucro fora do Evobo.
                                 <button
                                   onClick={() => addUntrackedProfit(c.key, Math.round(-c.saldo! * 100) / 100)}
-                                  title={`Você sacou ${brl(-c.saldo)} a mais do que o saldo calculado — lançar como lucro de apostas fora do Evobo`}
-                                  className="flex h-7 items-center justify-self-end rounded-[8px] border border-verified/40 px-2.5 text-[11px] font-semibold text-verified"
+                                  title={`Você já sacou tudo, mas ${brl(-c.saldo)} a mais do que o Evobo calculou. Zera o saldo lançando essa diferença como lucro de apostas fora do Evobo.`}
+                                  className="flex h-7 items-center justify-self-end whitespace-nowrap rounded-[8px] border border-verified/40 px-2 text-[11px] font-semibold text-verified"
                                 >
-                                  ajustar
+                                  zerar
                                 </button>
                               ) : (
+                                // Mesmo com saldo calculado ≤ 0 a casa pode ter dinheiro de verdade
+                                // (unidade que mudou, aposta fora do Evobo) — "sacando tudo" acerta.
                                 <button
                                   onClick={() => openSaques(c.key)}
                                   className={`flex h-7 items-center justify-self-end rounded-[8px] border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted ${
-                                    c.saldo !== null && c.saldo > 0 ? "" : "invisible"
+                                    c.deposited !== null && !zerada ? "" : "invisible"
                                   }`}
                                 >
                                   sacar
@@ -1313,6 +1329,7 @@ export function MyProfilePage() {
                             onChange={(e) => {
                               setWithdrawalBookmaker(e.target.value);
                               setWithdrawalAmount("");
+                              setWithdrawingAll(false);
                             }}
                             aria-label="Casa do saque"
                             className="min-w-0 flex-1 bg-transparent text-[13px] font-semibold outline-none"
@@ -1343,7 +1360,10 @@ export function MyProfilePage() {
                               />
                               {selectedCasa?.saldo != null && selectedCasa.saldo > 0 && (
                                 <button
-                                  onClick={() => setWithdrawalAmount(selectedCasa.saldo!.toFixed(2))}
+                                  onClick={() => {
+                                    setWithdrawalAmount(selectedCasa.saldo!.toFixed(2));
+                                    setWithdrawingAll(true);
+                                  }}
                                   className="flex-none rounded-[6px] border border-accent-border px-[7px] py-1 text-[10px] text-accent"
                                 >
                                   tudo
@@ -1363,19 +1383,39 @@ export function MyProfilePage() {
                             />
                           </div>
                         </div>
+                        <label className="mb-3.5 flex cursor-pointer items-start gap-2.5 rounded-[10px] border border-border-subtle px-[13px] py-[11px]">
+                          <input
+                            type="checkbox"
+                            checked={withdrawingAll}
+                            onChange={(e) => setWithdrawingAll(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 flex-none accent-[var(--color-accent)]"
+                          />
+                          <span className="text-[12px]">
+                            <span className="font-semibold">Estou sacando tudo</span>
+                            <span className="block text-[11px] text-text-tertiary">
+                              A casa fica zerada. Se o valor for diferente do saldo calculado, a diferença entra como lucro ou
+                              prejuízo de apostas fora do Evobo.
+                            </span>
+                          </span>
+                        </label>
                         <div className="mb-3.5 flex flex-col gap-2 rounded-[10px] border border-border-subtle bg-surface-chip px-[13px] py-[11px] text-[11px]">
                           {selectedCasa?.saldo != null && (
                             <div className="flex justify-between gap-2">
                               <span className="text-text-secondary">Saldo {bookmakerLabel(selectedCasa.key)}</span>
                               <span className="font-mono">
-                                {brl(selectedCasa.saldo)} → <b>{brl(Math.max(0, selectedCasa.saldo - withdrawalPreview))}</b>
+                                {brl(selectedCasa.saldo)} →{" "}
+                                <b>{brl(withdrawingAll ? 0 : Math.max(0, selectedCasa.saldo - withdrawalPreview))}</b>
                               </span>
                             </div>
                           )}
-                          {previewExcess > 0 && (
+                          {previewAdjustment !== 0 && (
                             <div className="flex justify-between gap-2">
                               <span className="text-text-secondary">Apostas fora do Evobo</span>
-                              <span className="font-mono text-verified">+{brl(previewExcess)} de lucro</span>
+                              <span className={`font-mono ${previewAdjustment > 0 ? "text-verified" : "text-live"}`}>
+                                {previewAdjustment > 0
+                                  ? `+${brl(previewAdjustment)} de lucro`
+                                  : `−${brl(-previewAdjustment)} de prejuízo`}
+                              </span>
                             </div>
                           )}
                           {stats.unitValue != null && stats.unitValue > 0 && (
@@ -1383,7 +1423,7 @@ export function MyProfilePage() {
                               <span className="text-text-secondary">Banca atual</span>
                               <span className="font-mono">
                                 {stats.bankroll.toFixed(1)}u →{" "}
-                                <b>{(stats.bankroll - (withdrawalPreview - previewExcess) / stats.unitValue).toFixed(1)}u</b>
+                                <b>{(stats.bankroll - (withdrawalPreview - previewAdjustment) / stats.unitValue).toFixed(1)}u</b>
                               </span>
                             </div>
                           )}
