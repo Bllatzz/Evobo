@@ -52,6 +52,8 @@ export async function enqueueTipOcr(tip: {
   needMarket: boolean;
   needGame: boolean;
   needOdd: boolean;
+  /** false quando o admin já escolheu o mercado — a OCR não reclassifica. */
+  needMarketType: boolean;
 }): Promise<void> {
   const retryOpts = { attempts: 3, backoff: { type: "exponential" as const, delay: 5_000 } };
   await extractDetailsQueue.add(
@@ -59,7 +61,7 @@ export async function enqueueTipOcr(tip: {
     {
       photoPath: tip.photoPath,
       kind: "combo",
-      tips: [{ id: tip.id, needMarket: tip.needMarket, needGame: tip.needGame, needOdd: tip.needOdd, needMarketType: true }],
+      tips: [{ id: tip.id, needMarket: tip.needMarket, needGame: tip.needGame, needOdd: tip.needOdd, needMarketType: tip.needMarketType }],
     },
     retryOpts,
   );

@@ -152,6 +152,11 @@ export function TipFormModal({
   function onPaste(e: ClipboardEvent<HTMLDivElement>) {
     const item = [...e.clipboardData.items].find((i) => i.type.startsWith("image/"));
     if (!item) return;
+    // Colar num campo de texto algo que traz texto + imagem (Telegram Desktop,
+    // Word) é colar o texto — não troca a foto nem engole o texto.
+    const target = e.target as HTMLElement;
+    const inTextField = target.tagName === "TEXTAREA" || target.tagName === "INPUT";
+    if (inTextField && e.clipboardData.types.includes("text/plain")) return;
     e.preventDefault();
     void pickPhoto(item.getAsFile());
   }
@@ -192,7 +197,7 @@ export function TipFormModal({
     setSaving(true);
     setError(null);
     try {
-      let tip = await createManualTelegramTip({
+      const created = await createManualTelegramTip({
         groupId,
         match: match.trim() || null,
         selection: selection.trim() || null,
@@ -206,13 +211,22 @@ export function TipFormModal({
         rawMessage: rawMessage.trim() || null,
         photoBase64: photo ? photo.slice(photo.indexOf(",") + 1) : null,
       });
+      let tip = created;
       if (taken) {
-        tip = await patchTelegramTipTake(tip.id, {
-          takenStatus: "taken",
-          unit: unitValue,
-          ...(oddValue !== null ? { odd: oddValue } : {}),
-          ...(tip.bookmaker ? { bookmaker: tip.bookmaker } : {}),
-        });
+        try {
+          tip = await patchTelegramTipTake(created.id, {
+            takenStatus: "taken",
+            unit: unitValue,
+            ...(oddValue !== null ? { odd: oddValue } : {}),
+            ...(created.bookmaker ? { bookmaker: created.bookmaker } : {}),
+          });
+        } catch {
+          // A tip já existe — tentar de novo aqui criaria outra tip oficial.
+          onSaved(created);
+          onClose();
+          window.alert("Tip criada, mas não consegui marcar o \"peguei\". Marque na lista de tips.");
+          return;
+        }
       }
       onSaved(tip);
       onClose();
@@ -276,7 +290,7 @@ export function TipFormModal({
                 : "Tip que chegou fora dos grupos (DM, outro chat, print)."}
             </div>
           </div>
-          <button onClick={onClose} aria-label="Fechar" className="text-text-tertiary hover:text-text">
+          <button onClick={onClose} disabled={saving} aria-label="Fechar" className="text-text-tertiary hover:text-text disabled:opacity-40">
             <IconX size={16} />
           </button>
         </div>

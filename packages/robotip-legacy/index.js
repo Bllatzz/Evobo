@@ -43,9 +43,8 @@ function createApp() {
   app.get('/health', (req, res) => res.json({ ok: true }));
 
   // Mesma X-API-Key do robotip-analyzer original (lá API_KEY, aqui
-  // ROBOTIP_API_KEY), em todas as rotas /api.
-  // Sem a env,
-  // falha fechado só aqui (503) em vez de derrubar o evobo-api inteiro.
+  // ROBOTIP_API_KEY), em todas as rotas /api. Sem a env, falha fechado só
+  // aqui (503) em vez de derrubar o evobo-api inteiro.
   // EventSource (/api/alerts/events) não manda header, por isso ?api_key=.
   app.use('/api', (req, res, next) => {
     const apiKey = process.env.ROBOTIP_API_KEY;

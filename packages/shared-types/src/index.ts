@@ -396,7 +396,7 @@ export const CreateTelegramGroupInput = z.object({
 export type CreateTelegramGroupInput = z.infer<typeof CreateTelegramGroupInput>;
 
 export const UpdateTelegramGroupInput = z.object({
-  name: z.string().min(1).max(120).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
   active: z.boolean().optional(),
 });
 export type UpdateTelegramGroupInput = z.infer<typeof UpdateTelegramGroupInput>;
@@ -491,7 +491,7 @@ export type TelegramTip = z.infer<typeof TelegramTipSchema>;
 /** Official-record correction — admin only, from the Admin "VIP Telegram" screen. */
 export const UpdateTelegramTipInput = z.object({
   result: TelegramTipResult.optional(),
-  odd: z.number().positive().nullable().optional(),
+  odd: z.number().positive().max(10_000).nullable().optional(),
   unit: z.number().positive().nullable().optional(),
   selection: z.string().min(1).max(200).optional(),
   marketType: TelegramTipMarketType.nullable().optional(),
@@ -501,7 +501,7 @@ export const UpdateTelegramTipInput = z.object({
   /** "Limite de aposta" da casa em reais — quando setado, a unidade pessoal
    * de quem pegar essa tip é automaticamente limitada a isso (ver PATCH
    * /:id/take e TelegramTip.mine.limitApplied). */
-  limit: z.number().positive().nullable().optional(),
+  limit: z.number().positive().max(10_000_000).nullable().optional(),
   /** Texto original da mensagem. */
   rawMessage: z.string().max(4000).nullable().optional(),
   /** Nova foto do bilhete em base64 (sem o prefixo data:), jpeg/png/webp —
@@ -527,7 +527,7 @@ export const CreateManualTelegramTipInput = z.object({
   unit: z.number().positive().max(100),
   bookmaker: z.string().trim().max(80).nullable().optional(),
   betUrl: z.string().url().refine(isHttpUrl, "betUrl must be an http(s) URL").nullable().optional(),
-  limit: z.number().positive().nullable().optional(),
+  limit: z.number().positive().max(10_000_000).nullable().optional(),
   /** Quando a tip foi enviada (ISO) — padrão: agora. */
   receivedAt: z.string().datetime().optional(),
   /** Texto original da mensagem, se tiver. */
@@ -542,7 +542,7 @@ export type CreateManualTelegramTipInput = z.infer<typeof CreateManualTelegramTi
  * body-supplied userId (see PATCH /telegram-tips/:id/take). */
 export const UpdateTelegramTipTakeInput = z.object({
   takenStatus: TelegramTipTakenStatus.optional(),
-  odd: z.number().positive().nullable().optional(),
+  odd: z.number().positive().max(10_000).nullable().optional(),
   unit: z.number().positive().nullable().optional(),
   bookmaker: z.string().max(80).nullable().optional(),
   betUrl: z.string().url().refine(isHttpUrl, "betUrl must be an http(s) URL").nullable().optional(),

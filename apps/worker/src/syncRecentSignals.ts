@@ -19,7 +19,8 @@ export async function syncRecentSignals(client: TelegramClient, sinceHours: numb
 
   for (const group of groups) {
     const tips = await prisma.telegramTip.findMany({
-      where: { groupId: group.id, receivedAt: { gte: since } },
+      // Tip manual (id negativo) não existe no Telegram — getMessages com ela quebraria o lote.
+      where: { groupId: group.id, receivedAt: { gte: since }, telegramMessageId: { gt: 0 } },
       select: { telegramMessageId: true },
       distinct: ["telegramMessageId"],
     });

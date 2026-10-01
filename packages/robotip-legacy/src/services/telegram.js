@@ -403,7 +403,9 @@ async function startTelegramListener() {
     console.warn('Falha ao pré-carregar diálogos:', err.message);
   }
 
-  console.log(`Escutando mensagens de: ${botSource || '(todos os chats)'}`);
+  if (botSource) console.log(`Escutando mensagens de: ${botSource}`);
+  // Sem a env o filtro abaixo descarta toda mensagem — avisa uma vez em vez de silêncio.
+  else console.warn('[robotip-legacy] ROBOTIP_TELEGRAM_BOT_SOURCE não definido — todos os alertas serão ignorados.');
 
   // Sinal de vida real do listener — ver o watchdog no fim desta função.
   // Começa em Date.now() (não 0) pra não disparar reconexão falsa logo no
@@ -518,13 +520,9 @@ async function startTelegramListener() {
       // Só aceita mensagens do ROBOTIP_TELEGRAM_BOT_SOURCE — sem ele, qualquer
       // chat conseguiria forjar um alerta (e disparar aposta automática).
       if (!botSource) return;
-      {
-        const sender = await message.getSender();
-        const senderUsername = sender && (sender.username || sender.phone || String(sender.id));
-        if (senderUsername !== botSource && String(sender && sender.id) !== botSource) {
-          return;
-        }
-      }
+      const sender = await message.getSender();
+      const senderUsername = sender && (sender.username || sender.phone || String(sender.id));
+      if (senderUsername !== botSource && String(sender && sender.id) !== botSource) return;
 
       if (!claim(message.id)) return;
       console.log(`[LAG] msg ${message.id} via push, atraso ${Math.round(Date.now() / 1000 - message.date)}s`);

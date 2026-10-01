@@ -20,7 +20,7 @@ import {
 import { matchBookmakerBet, type CandidateTip, ODD_TOLERANCE, textSimilarity, GAME_SIMILARITY_THRESHOLD } from "@evobo/worker";
 import { authGuard } from "../../middleware/authGuard.js";
 import { roleGuard } from "../../middleware/roleGuard.js";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { prisma } from "../../db/prisma.js";
 import { supabaseAdmin } from "../../db/supabase.js";
 
@@ -86,7 +86,14 @@ async function uploadAdminPhoto(
 }
 
 /** OCR só pro que ficou em branco; falha aqui nunca desfaz a gravação. */
-async function enqueueOcrIfMissing(tip: { id: string; photoPath: string | null; odd: unknown; match: string | null; selection: string | null }) {
+async function enqueueOcrIfMissing(tip: {
+  id: string;
+  photoPath: string | null;
+  odd: unknown;
+  match: string | null;
+  selection: string | null;
+  marketType: string | null;
+}) {
   if (!tip.photoPath || (tip.odd !== null && tip.match && tip.selection)) return;
   try {
     const { enqueueTipOcr } = await import("@evobo/worker");
@@ -96,6 +103,7 @@ async function enqueueOcrIfMissing(tip: { id: string; photoPath: string | null; 
       needMarket: !tip.selection,
       needGame: !tip.match,
       needOdd: tip.odd === null,
+      needMarketType: tip.marketType === null,
     });
   } catch (err) {
     console.error("[telegram-tips] OCR enqueue failed:", err);
@@ -469,6 +477,9 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
     const { name, telegramChatId } = parsed.data;
+    // O prefixo é reservado pros grupos manuais (inativos) — vindo do cliente
+    // viraria um grupo ativo com chat falso e o worker quebraria nele.
+    if (telegramChatId?.startsWith(MANUAL_GROUP_CHAT_PREFIX)) return reply.code(400).send({ error: "invalid_chat_id" });
     // Sem chat: grupo só de tips manuais. Id sintético (nunca um número de
     // chat válido) e inativo — todo caminho do worker que fala com o
     // Telegram só lê grupos ativos, então ele nunca é escutado/consultado.
@@ -668,6 +679,9 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const isManual = existing.parsePattern === "manual";
     if (!isManual && (input.groupId !== undefined || input.receivedAt !== undefined)) {
       return reply.code(400).send({ error: "only_manual_tips" });
+    }
+    if (input.receivedAt !== undefined && !isPlausibleTipDate(input.receivedAt)) {
+      return reply.code(400).send({ error: "invalid_date" });
     }
     if (input.groupId !== undefined) {
       const group = await prisma.telegramGroup.findUnique({ where: { id: input.groupId }, select: { id: true } });
@@ -1002,6 +1016,9 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     }
     const input = parsed.data;
+    // Sem foto a OCR não tem de onde tirar a odd — a tip nunca seria preenchida nem gradada.
+    if (!input.photoBase64 && input.odd == null) return reply.code(400).send({ error: "odd_required_without_photo" });
+    if (input.receivedAt && !isPlausibleTipDate(input.receivedAt)) return reply.code(400).send({ error: "invalid_date" });
 
     const group = await prisma.telegramGroup.findUnique({ where: { id: input.groupId }, select: { id: true } });
     if (!group) return reply.code(400).send({ error: "unknown_group" });
@@ -1017,7 +1034,8 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const tip = await prisma.telegramTip.create({
       data: {
         groupId: group.id,
-        telegramMessageId: BigInt(-Date.now()),
+        // × 1000 + aleatório: duas tips no mesmo ms não viram a mesma "mensagem".
+        telegramMessageId: -(BigInt(Date.now()) * 1000n + BigInt(randomInt(1000))),
         receivedAt: input.receivedAt ? new Date(input.receivedAt) : new Date(),
         match: input.match || null,
         // "" = mercado faltando, mesma convenção do processMessage.ts.
@@ -1463,6 +1481,12 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     if (!deleted) return reply.code(404).send({ error: "not_found" });
     return reply.code(204).send();
   });
+}
+
+/** Data de tip manual: nada antes de 2000 nem mais de 1 dia no futuro (fuso). */
+function isPlausibleTipDate(iso: string): boolean {
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) && new Date(t).getUTCFullYear() >= 2000 && t <= Date.now() + 86_400_000;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -377,6 +377,8 @@ function TipRow({
                   const prize = parseDraftNumber(e.target.value.replace(/\.(?=\d{3}(\D|$))/g, ""));
                   if (prize === null) return;
                   const odd = Math.round((prize / stakeBRL) * 10_000) / 10_000;
+                  // Retorno menor que a stake (ou no meio da digitação) daria odd < 1.
+                  if (odd < 1.01) return;
                   setOddText(String(odd));
                   onUpdateDraft(tip, { odd });
                 }}

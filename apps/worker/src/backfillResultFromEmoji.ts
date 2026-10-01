@@ -47,7 +47,8 @@ export async function backfillResultFromEmoji(
 
   for (const group of groups) {
     const tips = await prisma.telegramTip.findMany({
-      where: { groupId: group.id },
+      // Tip manual (id negativo) não existe no Telegram — getMessages com ela quebraria o lote.
+      where: { groupId: group.id, telegramMessageId: { gt: 0 } },
       select: { telegramMessageId: true },
       distinct: ["telegramMessageId"],
     });
