@@ -36,9 +36,11 @@
     return r.width > 0 && r.height > 0 && st.visibility !== "hidden" && st.display !== "none" && !el.closest(".Hidden");
   };
 
+  // Só odd decimal ("1.85" / "1,85"). Fracionária ("6/5") ou americana
+  // ("+150") viraria 6 / 150 e passaria na trava de odd menor — fica null.
   const parseOdd = (t) => {
-    const n = parseFloat(String(t).replace(",", "."));
-    return Number.isFinite(n) ? n : null;
+    const m = /^\s*(\d+(?:[.,]\d+)?)\s*$/.exec(String(t));
+    return m ? parseFloat(m[1].replace(",", ".")) : null;
   };
 
   // "R$20,00" → 20 · "R$1.234,50" → 1234.5 · "20,00R$" → 20
@@ -252,9 +254,13 @@
   async function ensureBoostOn() {
     const buttons = () => QA("button").filter((b) => visible(b) && /^aumentar agora$/.test(norm(text(b))));
     const res = { vistas: buttons().length, ligou: 0, falhou: 0, detalhes: [] };
+    // O ligado some da lista; o bloqueado fica — sem lembrar dele o laço
+    // pegava o mesmo botão a cada volta e nunca chegava nos outros.
+    const tentados = new Set();
     for (let i = 0; i < res.vistas; i++) {
-      const btn = buttons()[0]; // o clicado some da lista
+      const btn = buttons().find((b) => !tentados.has(b));
       if (!btn) break;
+      tentados.add(btn);
       const bloco = btn.closest("[class*='bol-']")?.parentElement?.closest("[class*='bol-']") ?? btn.parentElement;
       const oferta = text(bloco).slice(0, 80);
       const bloqueado = btn.disabled || /adicione mais/i.test(oferta);
@@ -280,7 +286,8 @@
     if (!r) return null;
     const t = text(r);
     if (!/aposta feita/i.test(t)) return null;
-    const ref = /Ref\.?\s*([A-Z0-9]+)/i.exec(t);
+    // "Ref." / "Ref:" seguido de um código com dígito — não o "er" de "Referência".
+    const ref = /\bRef(?:\.|:)\s*([A-Z0-9]*\d[A-Z0-9]*)/i.exec(t);
     return { cabecalho: "Aposta Feita", items: [], betIds: ref ? [ref[1]] : [] };
   }
 

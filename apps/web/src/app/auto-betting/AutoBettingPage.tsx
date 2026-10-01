@@ -454,7 +454,13 @@ function HousesCard({
                 slug={b}
                 label={bookmakerLabel(b)}
                 hint={saved?.usernameHint ?? "—"}
-                status={saved ? <span className="text-accent">● conectado · {dayMonth(saved.updatedAt)}</span> : <span className="text-text-tertiary">não conectado</span>}
+                status={
+                  <>
+                    {saved ? <span className="text-accent">● conectado · {dayMonth(saved.updatedAt)}</span> : <span className="text-text-tertiary">não conectado</span>}
+                    {/* A extensão ainda não clica em "Fazer aposta" na Bet365 (BET365_REAL_ENABLED). */}
+                    {b === "bet365" && <span className="text-text-tertiary"> · só confere, não aposta</span>}
+                  </>
+                }
                 actions={
                   saved ? (
                     <>

@@ -31,6 +31,7 @@ const SLIP_RETRY_MS = 1000;
 // Sem batimento por mais que isso = a extensão ficou fora do ar (PC
 // desligado/dormindo, Chrome fechado). Folga sobre o alarme de 30s.
 const OFFLINE_GAP_MS = 2 * 60 * 1000;
+const CLOCK_SKEW_MS = 60 * 1000;
 
 // Endereço do Evobo fixo: o usuário só cola a chave. Um apiUrl que tenha
 // ficado salvo de versões antigas (ex.: localhost em teste) é ignorado.
@@ -99,7 +100,9 @@ function toRunnerTask(task, settings) {
     placeReal:
       settings.placeReal === true &&
       !task.key.startsWith("manual:") &&
-      ((task.bookmaker ?? bookmakerOf(task.betUrl)) !== "bet365" || BET365_REAL_ENABLED),
+      // Pelo rótulo da fila E pelo link: um link da Bet365 que viesse na fila
+      // da Betano também não aposta (o bet365/run.js tem a própria trava).
+      ((task.bookmaker !== "bet365" && bookmakerOf(task.betUrl) !== "bet365") || BET365_REAL_ENABLED),
     unitValueReais: settings.unitValueReais,
     maxStakeReais: settings.maxStakeReais,
     limitReais: task.limitReais,
@@ -478,14 +481,17 @@ async function poll() {
     }
     const { settings, tasks: betanoTasks } = await res.json();
     let bet365Tasks = [];
+    let erro365 = null;
     if (settings?.enabled) {
       const r365 = await fetch(`${config.apiUrl}/betting-queue/bet365`, { headers: apiHeaders(config) }).catch(() => null);
       if (r365?.ok) bet365Tasks = (await r365.json()).tasks ?? [];
+      else erro365 = r365 ? `http_${r365.status}` : "rede";
     }
     const tasks = [...betanoTasks.map((t) => ({ bookmaker: "betano", ...t })), ...bet365Tasks.map((t) => ({ bookmaker: "bet365", ...t }))].sort(
       (a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime(),
     );
-    await set("estado", { at: new Date().toISOString(), settings });
+    // Fila da Bet365 fora do ar não pode sumir em silêncio: aparece no estado.
+    await set("estado", { at: new Date().toISOString(), settings, ...(erro365 ? { erro365 } : {}) });
     if (!settings?.enabled) return { skipped: "desligado_no_evobo" };
 
     const done = await get("done", {});
@@ -496,7 +502,9 @@ async function poll() {
       if (done[task.key]) continue;
 
       // Chegou enquanto a extensão estava fora do ar: só registra.
-      if (new Date(task.receivedAt).getTime() < onlineDesde) {
+      // Folga de 60s: receivedAt é a hora do Telegram e onlineDesde a do PC —
+      // relógio um pouco adiantado descartava a tip que acabou de chegar.
+      if (new Date(task.receivedAt).getTime() < onlineDesde - CLOCK_SKEW_MS) {
         done[task.key] = true;
         delete waiting[task.key];
         await set("done", done);

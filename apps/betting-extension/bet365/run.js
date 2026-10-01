@@ -38,8 +38,8 @@
     return !!ok;
   }
 
-  // Clique real em "Fazer aposta" (ou "aceitar mudança + fazer aposta"),
-  // uma vez só por tip — mesmas travas do placeBet da Betano.
+  // Clique real em "Fazer aposta" (nunca no "aceitar mudança"), uma vez só
+  // por tip — mesmas travas do placeBet da Betano.
   async function placeBet(task, expectedTotal) {
     const mark = `evobo-aposta:${task.tipId}`;
     try {
@@ -48,9 +48,12 @@
       return { clicked: false, reason: "sem_sessionStorage" };
     }
     const b = S.readSnapshot()?.placeButton;
+    // "Aceitar" = a odd mudou (pra cima OU pra baixo) depois da conferência —
+    // aceitar aqui apostaria uma odd que ninguém conferiu.
+    if (b?.accept) return { clicked: false, reason: "odd_mudou", botao: b };
     if (!b || b.disabled) return { clicked: false, reason: "botao_desabilitado" };
     if (b.totalReais === null || cents(b.totalReais) !== cents(expectedTotal)) return { clicked: false, reason: "total_do_botao_diferente", botao: b };
-    const btn = [...document.querySelectorAll(".bsf-AcceptButton, .bsf-PlaceBetButton")].find((el) => el.offsetParent && !el.closest(".Hidden") && !/_Disabled/.test(el.className));
+    const btn = [...document.querySelectorAll(".bsf-PlaceBetButton")].find((el) => el.offsetParent && !el.closest(".Hidden") && !/_Disabled/.test(el.className));
     if (!btn) return { clicked: false, reason: "botao_desabilitado" };
     try {
       sessionStorage.setItem(mark, new Date().toISOString());
@@ -65,7 +68,10 @@
   }
 
   async function runTask(task) {
-    const real = task?.placeReal === true;
+    // Segunda trava, independente do background: só aposta de verdade se
+    // root.Bet365RealEnabled for ligado de propósito (os testes do clique
+    // ligam). Na extensão ninguém liga — a Bet365 só confere.
+    const real = task?.placeReal === true && root.Bet365RealEnabled === true;
     const report = { casa: "bet365", dryRun: !real, nadaFoiApostado: true, tipId: task?.tipId ?? null, startedAt: new Date().toISOString(), ok: false, abort: null, singles: null, multiple: null };
 
     if (!(await S.ensureSlipOpen())) return { ...report, abort: "bilhete_nao_encontrado", debug: { url: location.href } };
@@ -99,7 +105,10 @@
       if (singles.abort) return { ...report, abort: singles.abort };
       for (const leg of singles.legs) if (leg.action === "stake") fills.push({ inputId: snap.cards[leg.cardIndex].stakeInputId, reais: leg.stakeReais });
       expectedTotal = singles.expectedTotalReais;
-      if (task.multiple) {
+      // Mesma regra da Betano: múltipla só se todas as simples vão junto.
+      if (task.multiple && !singles.legs.every((l) => l.action === "stake")) {
+        report.multiple = { action: "skip", reason: "simples_nao_foram_todas", legId: task.multiple.id };
+      } else if (task.multiple) {
         const plan = planMultiple(task, snap);
         report.multiple = plan;
         if (plan.action === "stake") {
@@ -115,6 +124,16 @@
       const botao = S.readSnapshot()?.placeButton ?? null;
       const target = report.multiplaPura ? report.multiple : report.singles;
       Object.assign(target, { totalConfere: confere, campos, botao });
+      // Cada campo com o próprio valor — o total sozinho não pega stakes
+      // trocadas entre seleções (10/20 no lugar de 20/10).
+      const camposConferem = campos.every((c) => c.ok && c.esperado != null && cents(S.parseBRL(c.valor)) === cents(S.parseBRL(c.esperado)));
+      target.camposConferem = camposConferem;
+      if (report.multiplaPura && confere && !botao?.retornoReais) {
+        // Sem o retorno da Bet365 não dá pra conferir a odd real da múltipla.
+        Object.assign(report.multiple, { action: "skip", reason: "odd_ilegivel" });
+        report.ok = true;
+        return report;
+      }
       if (report.multiplaPura && confere && botao?.retornoReais) {
         // Odd real da múltipla pelo que a Bet365 calculou.
         const realOdd = round2(botao.retornoReais / report.multiple.stakeReais);
@@ -126,7 +145,7 @@
         }
         report.multiple.takeOdd = cents(realOdd) > cents(report.multiple.tipOdd) ? realOdd : null;
       }
-      if (real && confere) {
+      if (real && confere && camposConferem) {
         report.aposta = await placeBet(task, expectedTotal);
         if (report.aposta.clicked) report.nadaFoiApostado = false;
       }

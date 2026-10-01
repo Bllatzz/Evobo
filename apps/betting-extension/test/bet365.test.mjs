@@ -28,6 +28,8 @@ async function setup(fake) {
   await page.goto("https://fake.bet365.test/");
   await installFakeBet365(page, fake);
   for (const f of ["betano/plan.js", "bet365/slip.js", "bet365/login.js", "bet365/run.js"]) await page.addScriptTag({ path: join(ext, f) });
+  // Trava do clique de verdade: só o teste do "Fazer aposta" liga.
+  if (fake.realEnabled) await page.evaluate(() => (window.Bet365RealEnabled = true));
   return page;
 }
 const run = (page, task) => page.evaluate((t) => window.Bet365Run.runTask(t), task);
@@ -108,7 +110,7 @@ test("bet365: odd abaixo da tip numa simples — só a outra é preenchida", asy
 });
 
 test("bet365: placeReal clica em Fazer aposta uma vez e lê o comprovante", async () => {
-  const page = await setup({ cards: CARDS, receipt: true });
+  const page = await setup({ cards: CARDS, receipt: true, realEnabled: true });
   const task = {
     tipId: "g:4",
     placeReal: true,
@@ -122,6 +124,31 @@ test("bet365: placeReal clica em Fazer aposta uma vez e lê o comprovante", asyn
   const r = await run(page, task);
   assert.deepEqual([r.aposta.clicked, r.aposta.confirmed, r.aposta.betId], [true, true, "BK123XYZ"]);
   assert.equal(await page.evaluate(() => window.__placeClicks), 1);
+  await page.close();
+});
+
+test("bet365: sem a trava ligada, placeReal não clica (só confere)", async () => {
+  const page = await setup({ cards: CARDS, receipt: true });
+  const r = await run(page, {
+    tipId: "g:5",
+    placeReal: true,
+    unitValueReais: 20,
+    maxStakeReais: 50,
+    legs: [
+      { id: "a", match: "ATL Falcons x GB Packers", selection: "Mark Redman", odd: 16, unit: 0.5 },
+      { id: "b", match: "ATL Falcons x GB Packers", selection: "Jahan Dotson", odd: 8, unit: 1 },
+    ],
+  });
+  assert.equal(r.dryRun, true);
+  assert.equal(r.aposta, undefined);
+  assert.equal(await page.evaluate(() => window.__placeClicks), 0);
+  await page.close();
+});
+
+test("bet365: odd fracionária/americana não é lida como decimal", async () => {
+  const page = await setup({ cards: CARDS });
+  const odds = await page.evaluate(() => ["1,85", "2.5", "6/5", "+150", "2.00 2.20"].map(window.Bet365Slip.parseOdd));
+  assert.deepEqual(odds, [1.85, 2.5, null, null, null]);
   await page.close();
 });
 
