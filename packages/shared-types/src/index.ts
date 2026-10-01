@@ -705,9 +705,9 @@ export type UpdateTelegramBancaSettingsInput = z.infer<typeof UpdateTelegramBanc
 
 export const TelegramBookmakerBalanceSchema = z.object({
   bookmaker: z.string().min(1).max(80),
-  balance: z.number(),
+  balance: z.number().min(-10_000_000).max(10_000_000),
   /** Lucro de apostas não lançadas no Evobo — soma no saldo, não no depositado. */
-  untrackedProfit: z.number().optional(),
+  untrackedProfit: z.number().min(-10_000_000).max(10_000_000).optional(),
 });
 export type TelegramBookmakerBalance = z.infer<typeof TelegramBookmakerBalanceSchema>;
 
@@ -728,5 +728,8 @@ export const CreateTelegramBookmakerWithdrawalInput = z.object({
   bookmaker: z.string().trim().min(1).max(80),
   amount: z.number().positive().max(10_000_000),
   withdrawnAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** R$ que o saque soma no untrackedProfit da casa (saque acima do saldo, ou
+   * "sacando tudo" diferente do calculado). Revertido se o saque for apagado. */
+  adjustment: z.number().min(-10_000_000).max(10_000_000).optional(),
 });
 export type CreateTelegramBookmakerWithdrawalInput = z.infer<typeof CreateTelegramBookmakerWithdrawalInput>;

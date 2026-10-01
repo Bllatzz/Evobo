@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { Link } from "react-router-dom";
 import { fetchMyBets, type ProfileTip } from "../../lib/profile";
 import { formatOdds, formatUnits } from "../../lib/format";
@@ -345,13 +345,15 @@ type CasaRow = {
 
 /** Valor em R$ digitado do jeito brasileiro ("2.281,89", "2281,89") ou com
  * ponto decimal ("2281.89"). Com vírgula, pontos são milhar; sem vírgula, só
- * "1.234" / "1.234.567" é milhar. NaN se não for número. */
+ * "1.234" / "1.234.567" é milhar. NaN se não for número — inclusive o que o
+ * Number() aceitaria mas não é dinheiro ("Infinity", "1e5", "0x1F") e o
+ * formato americano "1,234.56" (viraria R$1,23). */
 function parseBrl(raw: string): number {
   const t = raw.trim().replace(/^R\$\s*/, "").replace(/\s/g, "");
-  if (t === "") return NaN;
-  if (t.includes(",")) return Number(t.replace(/\./g, "").replace(",", "."));
-  if (/^\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ""));
-  return Number(t);
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) return Number(t.replace(/\./g, "").replace(",", "."));
+  if (/^-?\d+(,\d+)?$/.test(t)) return Number(t.replace(",", "."));
+  if (/^-?\d+\.\d+$/.test(t)) return Number(t);
+  return NaN;
 }
 
 const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -558,6 +560,8 @@ export function MyProfilePage() {
       staked,
       tipsCount: (bets?.length ?? 0) + tgTipsCount,
       bancaInicial,
+      untrackedTotal,
+      untrackedUnits,
       bankroll: bancaInicial + combinedPnl + untrackedUnits - withdrawnUnits,
       withdrawnTotal,
       withdrawnUnits,
@@ -605,16 +609,18 @@ export function MyProfilePage() {
       .filter((e) => rangeCutoffMs === null || e.date >= rangeCutoffMs);
   }, [withdrawals, tg, rangeCutoffMs]);
 
-  // Lucro fora do Evobo só aparece num saque — entra no gráfico no dia do
-  // último saque daquela casa, compensando parte do degrau.
+  // Lucro fora do Evobo entra no gráfico no dia do último saque daquela casa,
+  // compensando parte do degrau. Casa sem saque (acerto pelo saldo real) entra
+  // hoje — senão o fim do gráfico não bate com a banca atual.
   const untrackedWindowEvents = useMemo<TimelineEvent[]>(() => {
     const unitValue = tg?.unitValue;
     if (!unitValue || unitValue <= 0) return [];
+    const now = Date.now();
     return balances
       .filter((b) => (b.untrackedProfit ?? 0) !== 0)
-      .flatMap((b) => {
+      .map((b) => {
         const times = withdrawals.filter((w) => w.bookmaker === b.bookmaker).map(withdrawalTime);
-        return times.length ? [{ date: Math.max(...times), profit: b.untrackedProfit! / unitValue }] : [];
+        return { date: times.length ? Math.max(...times) : now, profit: b.untrackedProfit! / unitValue };
       })
       .filter((e) => rangeCutoffMs === null || e.date >= rangeCutoffMs);
   }, [balances, withdrawals, tg, rangeCutoffMs]);
@@ -741,6 +747,13 @@ export function MyProfilePage() {
   }
 
   function removeBalance(bookmaker: string) {
+    // Os saques continuariam descontando da banca sem aparecer em casa
+    // nenhuma, e o acerto (que mora na linha do saldo) sumiria.
+    const balance = balances.find((b) => b.bookmaker === bookmaker);
+    if ((withdrawnByBookmaker[bookmaker] ?? 0) > 0 || (balance?.untrackedProfit ?? 0) !== 0) {
+      window.alert(`${bookmakerLabel(bookmaker)} tem saques ou acerto de saldo lançados. Apague os saques dela antes de remover.`);
+      return;
+    }
     void persistBalances(balances.filter((b) => b.bookmaker !== bookmaker));
   }
 
@@ -748,7 +761,7 @@ export function MyProfilePage() {
     setEditingBookmaker(null);
     if (raw.trim() === "") return;
     const value = parseBrl(raw);
-    if (!Number.isFinite(value)) return;
+    if (!Number.isFinite(value) || value < 0) return;
     const current = balances.find((b) => b.bookmaker === bookmaker);
     if (current && current.balance === value) return;
     // Casa que só tinha tips pegas (sem depósito lançado) ganha a linha aqui.
@@ -758,9 +771,30 @@ export function MyProfilePage() {
     void persistBalances(next);
   }
 
+  // Enter no campo VALOR não respeita o botão desabilitado — sem isso, dois
+  // Enters gravam o saque (e o acerto) duas vezes.
+  const savingWithdrawal = useRef(false);
+
+  /** O acerto de um saque é somado/desfeito pela API — relê os saldos dela
+   * em vez de remontar a lista local (que pode estar velha). */
+  async function reloadBalances() {
+    try {
+      setBalances(await fetchBookmakerBalances());
+    } catch {
+      // Mantém o que está na tela; o próximo carregamento da página corrige.
+    }
+  }
+
   async function addWithdrawal() {
+    if (savingWithdrawal.current) return;
     const amount = parseBrl(withdrawalAmount);
-    if (!withdrawalBookmaker || !Number.isFinite(amount) || amount <= 0 || !withdrawalDate) {
+    if (
+      !withdrawalBookmaker ||
+      !balances.some((b) => b.bookmaker === withdrawalBookmaker) ||
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !withdrawalDate
+    ) {
       setWithdrawalError("Escolha a casa, o valor e a data.");
       return;
     }
@@ -768,19 +802,22 @@ export function MyProfilePage() {
     // Sacar mais do que o saldo calculado = teve aposta que não foi lançada no
     // Evobo. O excedente entra como lucro fora do Evobo (não como depositado —
     // não era dinheiro de antes) e o saldo fica em zero, não negativo. Com
-    // "sacando tudo", a diferença pode ser pra menos também (prejuízo).
+    // "sacando tudo", a diferença pode ser pra menos também (prejuízo). A API
+    // grava saque e acerto juntos, e desfaz o acerto se o saque for apagado.
     const adjustment = withdrawalAdjustment(withdrawalBookmaker, amount, withdrawingAll);
+    savingWithdrawal.current = true;
     setSavingBalances(true);
     try {
-      const saved = await createWithdrawal({ bookmaker: withdrawalBookmaker, amount, withdrawnAt: withdrawalDate });
+      const saved = await createWithdrawal({ bookmaker: withdrawalBookmaker, amount, withdrawnAt: withdrawalDate, adjustment });
       setWithdrawals((prev) => [saved, ...prev].sort((a, b) => b.withdrawnAt.localeCompare(a.withdrawnAt)));
       setWithdrawalAmount("");
       setWithdrawalDate(todaySaoPaulo());
       setWithdrawingAll(false);
-      if (adjustment !== 0) addUntrackedProfit(withdrawalBookmaker, adjustment);
+      if (adjustment !== 0) await reloadBalances();
     } catch {
       setWithdrawalError("Não consegui salvar o saque.");
     } finally {
+      savingWithdrawal.current = false;
       setSavingBalances(false);
     }
   }
@@ -801,13 +838,15 @@ export function MyProfilePage() {
     setEditingSaldo(null);
     if (raw.trim() === "") return;
     const value = parseBrl(raw);
+    // Negativo é o saldo calculado voltando sem mudança (o campo abre com ele).
     if (!Number.isFinite(value) || value < 0) return;
     const diff = Math.round((value - saldo) * 100) / 100;
     if (diff !== 0) addUntrackedProfit(bookmaker, diff);
   }
 
   /** Quanto o saque difere do saldo calculado da casa. Saque parcial: só o que
-   * passa do saldo (nunca negativo). Sacando tudo: valor − saldo livre (o que
+   * passa do saldo, pra ele terminar em zero — inclusive se já estava negativo
+   * (nunca pra menos). Sacando tudo: valor − saldo livre (o que
    * está em aposta em aberto fica na casa), pra mais ou pra menos. 0 se o
    * lucro da casa ainda não carregou e não dá pra saber. */
   function withdrawalAdjustment(bookmaker: string, amount: number, all: boolean): number {
@@ -819,8 +858,8 @@ export function MyProfilePage() {
       (balance.untrackedProfit ?? 0) -
       (withdrawnByBookmaker[bookmaker] ?? 0);
     if (all) return Math.round((amount - (saldo - (openByBookmaker[bookmaker] ?? 0))) * 100) / 100;
-    const excess = Math.round((amount - Math.max(0, saldo)) * 100) / 100;
-    return excess > 0 ? excess : 0;
+    if (amount <= saldo) return 0;
+    return Math.round((amount - saldo) * 100) / 100;
   }
 
   async function removeWithdrawal(id: string) {
@@ -828,6 +867,8 @@ export function MyProfilePage() {
     setWithdrawals(previous.filter((w) => w.id !== id));
     try {
       await deleteWithdrawal(id);
+      // A API desfez o acerto que o saque tinha somado na casa.
+      await reloadBalances();
     } catch {
       setWithdrawals(previous);
     }
@@ -836,7 +877,10 @@ export function MyProfilePage() {
   function openSaques(bookmaker?: string) {
     setTab("saques");
     setWithdrawalError(null);
-    const target = bookmaker ?? (withdrawalBookmaker || balances[0]?.bookmaker || "");
+    // Casa removida desde a última vez não pode continuar selecionada: o select
+    // mostraria outra e o saque iria pra removida.
+    const current = balances.some((b) => b.bookmaker === withdrawalBookmaker) ? withdrawalBookmaker : "";
+    const target = bookmaker ?? (current || balances[0]?.bookmaker || "");
     if (target !== withdrawalBookmaker) {
       setWithdrawalBookmaker(target);
       setWithdrawalAmount("");
@@ -908,6 +952,8 @@ export function MyProfilePage() {
   // R$ em destaque, unidade embaixo. Sem valor da unidade só dá pra mostrar em u.
   const unitValue = stats?.unitValue != null && stats.unitValue > 0 ? stats.unitValue : null;
   const money = (u: number) => (unitValue !== null ? brl(u * unitValue) : `${u.toFixed(1)}u`);
+  // Lucro das tips + acerto das casas: o termo que fecha a conta da banca atual.
+  const totalProfit = stats ? stats.combinedPnl + stats.untrackedUnits : 0;
   const units = (u: number) => (unitValue !== null ? `${u.toFixed(1)}u` : null);
   const eqOp = "hidden flex-none px-[18px] font-mono text-[22px] text-text-tertiary lg:block";
   const tabClass = (key: ProfileTab) =>
@@ -976,21 +1022,30 @@ export function MyProfilePage() {
                 {units(stats.bancaInicial) && <div className={eqSub}>{units(stats.bancaInicial)}</div>}
               </div>
               <span className={eqOp}>+</span>
-              <div className="min-w-0 lg:flex-1">
+              {/* Inclui o acerto das casas (apostas fora do Evobo) — está na banca
+                  atual, então tem que estar na conta pra ela fechar. */}
+              <div
+                className="min-w-0 lg:flex-1"
+                title={
+                  stats.untrackedTotal !== 0
+                    ? `Inclui ${stats.untrackedTotal > 0 ? "+" : "−"}${brl(Math.abs(stats.untrackedTotal))} de apostas fora do Evobo (acerto com o saldo real das casas)`
+                    : undefined
+                }
+              >
                 <div className={eqLabel}>LUCRO</div>
-                <div className={`${eqValue} ${stats.combinedPnl >= 0 ? "text-accent" : "text-live"}`}>
-                  {stats.combinedPnl >= 0 ? "+" : ""}
-                  {money(stats.combinedPnl)}
+                <div className={`${eqValue} ${totalProfit >= 0 ? "text-accent" : "text-live"}`}>
+                  {totalProfit >= 0 ? "+" : ""}
+                  {money(totalProfit)}
                 </div>
-                {units(stats.combinedPnl) && <div className={eqSub}>{units(stats.combinedPnl)}</div>}
+                {units(totalProfit) && <div className={eqSub}>{units(totalProfit)}</div>}
               </div>
               <span className={eqOp}>=</span>
               {/* Tudo que a banca já chegou a ter: o que entrou + o que ganhou, antes dos saques. */}
               <div className="min-w-0 lg:flex-1" title="Banca inicial + lucro (antes dos saques)">
                 <div className={eqLabel}>LUCRO TOTAL</div>
-                <div className={`${eqValue} text-text`}>{money(stats.bancaInicial + stats.combinedPnl)}</div>
-                {units(stats.bancaInicial + stats.combinedPnl) && (
-                  <div className={eqSub}>{units(stats.bancaInicial + stats.combinedPnl)}</div>
+                <div className={`${eqValue} text-text`}>{money(stats.bancaInicial + totalProfit)}</div>
+                {units(stats.bancaInicial + totalProfit) && (
+                  <div className={eqSub}>{units(stats.bancaInicial + totalProfit)}</div>
                 )}
               </div>
               <span className={eqOp}>−</span>
@@ -1252,7 +1307,7 @@ export function MyProfilePage() {
                                 {editingSaldo === c.key && c.saldo !== null ? (
                                   <input
                                     autoFocus
-                                    defaultValue={String(Math.max(0, Math.round(c.saldo * 100) / 100))}
+                                    defaultValue={String(Math.round(c.saldo * 100) / 100)}
                                     inputMode="decimal"
                                     aria-label="Saldo real na casa"
                                     onFocus={(e) => e.currentTarget.select()}

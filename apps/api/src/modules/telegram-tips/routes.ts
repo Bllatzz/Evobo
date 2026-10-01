@@ -1392,7 +1392,7 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
       prisma.telegramBookmakerBalance.deleteMany({ where: { userId } }),
       ...parsed.data.map((row) =>
         prisma.telegramBookmakerBalance.create({
-          data: { userId, bookmaker: row.bookmaker, balance: row.balance, untrackedProfit: row.untrackedProfit ?? 0 },
+          data: { userId, bookmaker: row.bookmaker, balance: toCents(row.balance), untrackedProfit: toCents(row.untrackedProfit ?? 0) },
         }),
       ),
     ]);
@@ -1411,19 +1411,64 @@ export async function telegramTipsRoutes(app: FastifyInstance) {
     const parsed = CreateTelegramBookmakerWithdrawalInput.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
     const withdrawnAt = new Date(`${parsed.data.withdrawnAt}T00:00:00Z`);
-    if (Number.isNaN(withdrawnAt.getTime())) return reply.code(400).send({ error: "invalid_date" });
-    const row = await prisma.telegramBookmakerWithdrawal.create({
-      data: { userId: request.authUser!.id, bookmaker: parsed.data.bookmaker, amount: parsed.data.amount, withdrawnAt },
+    // "2026-02-31" vira 03/03 no Date sem erro — confere que o dia sobreviveu.
+    // Futuro: até 1 dia de folga pro fuso.
+    if (
+      Number.isNaN(withdrawnAt.getTime()) ||
+      withdrawnAt.toISOString().slice(0, 10) !== parsed.data.withdrawnAt ||
+      withdrawnAt.getUTCFullYear() < 2000 ||
+      withdrawnAt.getTime() > Date.now() + 86_400_000
+    ) {
+      return reply.code(400).send({ error: "invalid_date" });
+    }
+    const userId = request.authUser!.id;
+    const { bookmaker } = parsed.data;
+    const amount = toCents(parsed.data.amount);
+    // Saque e acerto na mesma transação: antes eram duas chamadas do navegador
+    // e o acerto se perdia se a segunda falhasse.
+    const row = await prisma.$transaction(async (tx) => {
+      let adjustment = toCents(parsed.data.adjustment ?? 0);
+      if (adjustment !== 0) {
+        const { count } = await tx.telegramBookmakerBalance.updateMany({
+          where: { userId, bookmaker },
+          data: { untrackedProfit: { increment: adjustment } },
+        });
+        // Sem linha de saldo pra casa não há onde somar — o saque não guarda um acerto que não houve.
+        if (count === 0) adjustment = 0;
+      }
+      return tx.telegramBookmakerWithdrawal.create({
+        data: { userId, bookmaker, amount, withdrawnAt, untrackedAdjustment: adjustment },
+      });
     });
     return reply.code(201).send(withdrawalView(row));
   });
 
   app.delete<{ Params: { id: string } }>("/withdrawals/:id", async (request, reply) => {
-    const { count } = await prisma.telegramBookmakerWithdrawal.deleteMany({ where: { id: request.params.id, userId: request.authUser!.id } });
-    if (count === 0) return reply.code(404).send({ error: "not_found" });
+    // A coluna é uuid: id malformado faria o Prisma lançar (500).
+    if (!UUID_RE.test(request.params.id)) return reply.code(404).send({ error: "not_found" });
+    const userId = request.authUser!.id;
+    const deleted = await prisma.$transaction(async (tx) => {
+      const row = await tx.telegramBookmakerWithdrawal.findFirst({ where: { id: request.params.id, userId } });
+      if (!row) return false;
+      await tx.telegramBookmakerWithdrawal.delete({ where: { id: row.id } });
+      // Desfaz o acerto que este saque somou na casa.
+      if (!row.untrackedAdjustment.isZero()) {
+        await tx.telegramBookmakerBalance.updateMany({
+          where: { userId, bookmaker: row.bookmaker },
+          data: { untrackedProfit: { decrement: row.untrackedAdjustment } },
+        });
+      }
+      return true;
+    });
+    if (!deleted) return reply.code(404).send({ error: "not_found" });
     return reply.code(204).send();
   });
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** numeric(10,2) arredonda sozinho; arredondar antes mantém resposta e banco iguais. */
+const toCents = (v: number) => Math.round(v * 100) / 100;
 
 function withdrawalView(r: { id: string; bookmaker: string; amount: Prisma.Decimal; withdrawnAt: Date }): TelegramBookmakerWithdrawal {
   return { id: r.id, bookmaker: r.bookmaker, amount: Number(r.amount), withdrawnAt: r.withdrawnAt.toISOString().slice(0, 10) };

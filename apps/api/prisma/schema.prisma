@@ -569,6 +569,8 @@ model TelegramBookmakerWithdrawal {
   bookmaker   String
   amount      Decimal  @db.Decimal(10, 2)
   withdrawnAt DateTime @map("withdrawn_at") @db.Date
+  /// What this saque added to the casa's untrackedProfit — reverted when the saque is deleted.
+  untrackedAdjustment Decimal @default(0) @map("untracked_adjustment") @db.Decimal(10, 2)
   createdAt   DateTime @default(now()) @map("created_at")
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
