@@ -15,11 +15,9 @@ const REPORT_SELECT = `
   SELECT r.id, r.name, r.market, r.query_filter, r.termex, r.is_live, r.lay_bet, r.done, r.error,
          r.count, r.greens, r.green_rate::float, r.mean_odd::float, r.profit::float,
          r.max_drawdown::float, r.pval::float, r.months, r.first_day::text, r.last_day::text, r.active_days,
-         -- Período = primeiro→último dia COM entrada; com poucas entradas isso
-         -- encolhe e infla jogos/dia, então nunca usa menos que os meses do relatório.
-         CASE WHEN r.first_day IS NOT NULL
-              THEN r.count::float / GREATEST(r.last_day - r.first_day + 1, COALESCE(r.months, 0) * 30.44, 1)
-         END AS per_day,
+         -- Calculado no sync do detalhe (98% das entradas, ver migration 017);
+         -- sem detalhe o frontend estima pelos meses.
+         r.per_day_calc AS per_day,
          r.created_at, r.scheduled_to, r.detail_synced_at,
          b.id AS bot_id, b.name AS bot_name
   FROM rt_reports r
@@ -295,6 +293,7 @@ router.post('/campaigns', async (req, res) => {
         botId != null ? Number(botId) : null, reportId != null ? Number(reportId) : null,
         filter, championReportId, margin]
     );
+    await optimizer.ensureDetail(championReportId);
     res.status(201).json({ id: rows[0].id });
   } catch (err) {
     fail(res, 'POST /api/lab/campaigns', err);

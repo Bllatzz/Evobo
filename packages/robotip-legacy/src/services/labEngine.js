@@ -155,7 +155,9 @@ function changeKind(ra, rb, openMax) {
  */
 function learnEffects(reports) {
   const openMax = openMaxByKey(reports);
-  const usable = reports.filter((r) => r.done && !r.error && r.count >= 100 && perDayOf(r));
+  // Só relatórios com o detalhe baixado: jogos/dia estimado pelos meses é
+  // grosseiro demais pra comparar volume entre dois relatórios.
+  const usable = reports.filter((r) => r.done && !r.error && r.count >= 100 && r.per_day != null);
   const parsed = usable.map((r) => {
     const pieces = parsePieces(r.query_filter);
     const fixed = pieces.filter((p) => !p.op || isFixedKey(p.key)).map((p) => p.raw).sort().join('&');

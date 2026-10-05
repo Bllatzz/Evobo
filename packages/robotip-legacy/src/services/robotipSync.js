@@ -162,6 +162,26 @@ function buildLeagues(detail) {
   return [...byId.values()];
 }
 
+// Jogos/dia = entradas ÷ dias do período onde caem 98% delas (mesma conta
+// da migration 017): uma entrada perdida meses antes não estica o período.
+const PER_DAY_SQL = `
+  WITH d AS (
+    SELECT day, count,
+           SUM(count) OVER (ORDER BY day) AS cum,
+           SUM(count) OVER () AS total
+    FROM rt_report_days WHERE report_id = $1
+  ), w AS (
+    SELECT MIN(day) FILTER (WHERE cum >= total * 0.01) AS a,
+           MIN(day) FILTER (WHERE cum >= total * 0.99) AS b
+    FROM d
+  )
+  UPDATE rt_reports SET per_day_calc = (
+    SELECT SUM(d.count)::float / GREATEST(w.b - w.a + 1, 7)
+    FROM w JOIN d ON d.day BETWEEN w.a AND w.b
+    GROUP BY w.a, w.b
+  )
+  WHERE id = $1`;
+
 async function syncReportDetail(id) {
   const detail = await robotip.fetchReportDetail(id);
   if (!detail) throw new Error(`relatório ${id} veio vazio`);
@@ -198,6 +218,7 @@ async function syncReportDetail(id) {
        WHERE id = $1`,
       [id]
     );
+    await client.query(PER_DAY_SQL, [id]);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');

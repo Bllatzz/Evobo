@@ -29,9 +29,7 @@ const log = (...args) => console.log(`[robotip-legacy] [${new Date().toISOString
 const REPORT_COLS = `
   r.id, r.name, r.market, r.query_filter, r.done, r.error, r.count, r.greens,
   r.mean_odd::float, r.months, r.pval::float, r.first_day::text, r.last_day::text,
-  CASE WHEN r.first_day IS NOT NULL
-       THEN r.count::float / GREATEST(r.last_day - r.first_day + 1, COALESCE(r.months, 0) * 30.44, 1)
-  END AS per_day,
+  r.per_day_calc AS per_day,
   r.detail_synced_at`;
 
 // ── Slots ───────────────────────────────────────────────────────────────────
@@ -215,9 +213,25 @@ async function checkSubmittedRuns() {
   }
 }
 
+/** Baixa o detalhe (dias) se ainda não tiver — é o que dá jogos/dia de verdade. */
+async function ensureDetail(reportId) {
+  if (reportId == null) return;
+  const { rows } = await pool.query('SELECT detail_synced_at FROM rt_reports WHERE id = $1', [reportId]);
+  if (rows[0] && !rows[0].detail_synced_at) {
+    await syncReportDetail(reportId).catch((err) => log(`detalhe do ${reportId}:`, err.message));
+  }
+}
+
 async function evaluateRun(runId, reportId) {
-  // Detalhe (dias) é o que dá jogos/dia de verdade — baixa na hora.
   await syncReportDetail(reportId).catch((err) => log(`detalhe do ${reportId}:`, err.message));
+  const { rows: meta } = await pool.query(
+    'SELECT run.parent_report_id, c.champion_report_id FROM rt_lab_runs run JOIN rt_lab_campaigns c ON c.id = run.campaign_id WHERE run.id = $1',
+    [runId]
+  );
+  if (meta[0]) {
+    await ensureDetail(meta[0].parent_report_id);
+    await ensureDetail(meta[0].champion_report_id);
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -320,5 +334,6 @@ module.exports = {
   submitCandidate,
   runOptimizerTick,
   checkSubmittedRuns,
+  ensureDetail,
   startLabOptimizer,
 };
