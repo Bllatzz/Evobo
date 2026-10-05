@@ -82,6 +82,7 @@ async function planCampaign(campaign, { limit = 20 } = {}) {
   ]);
   const runs = runsRes.rows;
   const margin = campaign.odd_margin;
+  const calibration = await marketCalibration(campaign.market, reports, margin);
   // Campeão com filtro de data não vale como ponto de partida (período
   // diferente dos testes, que nunca levam data) — roda o robô de novo sem.
   const champion = reports.find((r) => r.id === campaign.champion_report_id && !engine.hasDataFilter(r.query_filter)) ?? null;
@@ -103,7 +104,7 @@ async function planCampaign(campaign, { limit = 20 } = {}) {
       mutation: { kind: 'baseline', key: null, label: 'backtest do robô como está' },
       predicted: null, evidence: 0, gain: null, priority: Infinity,
     }];
-    return { champion: null, championMetrics: null, candidates, runs, effects: engine.learnEffects(reports) };
+    return { champion: null, championMetrics: null, candidates, runs, effects: engine.learnEffects(reports), calibration };
   }
 
   const effects = engine.learnEffects(reports);
@@ -122,9 +123,30 @@ async function planCampaign(campaign, { limit = 20 } = {}) {
       testedSigs,
       openMax: engine.openMaxByKey(reports),
     }),
-    { championMetrics, effects, margin }
+    { championMetrics, effects, margin, calibration }
   ).slice(0, limit);
-  return { champion, championMetrics, candidates, runs, effects };
+  return { champion, championMetrics, candidates, runs, effects, calibration };
+}
+
+/**
+ * Previsto × real de todos os testes já avaliados neste mercado (de qualquer
+ * campanha) — o motor usa o erro médio pra corrigir as próximas previsões.
+ */
+async function marketCalibration(market, reports, margin) {
+  const { rows } = await pool.query(
+    `SELECT run.mutation, run.predicted, run.report_id, run.parent_report_id
+     FROM rt_lab_runs run JOIN rt_lab_campaigns c ON c.id = run.campaign_id
+     WHERE c.market = $1 AND run.status = 'done' AND run.predicted IS NOT NULL
+       AND run.report_id IS NOT NULL AND run.parent_report_id IS NOT NULL`,
+    [market]
+  );
+  const byId = new Map(reports.map((r) => [r.id, r]));
+  return engine.calibrate(rows.map((run) => ({
+    kind: run.mutation.kind,
+    predicted: run.predicted,
+    parent: engine.metricsOf(byId.get(run.parent_report_id), margin),
+    result: engine.metricsOf(byId.get(run.report_id), margin),
+  })));
 }
 
 // ── Enviar / acompanhar ─────────────────────────────────────────────────────

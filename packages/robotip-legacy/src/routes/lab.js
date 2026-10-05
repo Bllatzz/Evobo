@@ -338,6 +338,12 @@ router.get('/campaigns/:id', async (req, res) => {
         parent: reportSummary(byId.get(r.parent_report_id), margin),
       })),
       effects: effectsList(plan.effects).slice(0, 40),
+      calibration: {
+        n: plan.calibration.n,
+        acc_err: plan.calibration.accErr,
+        vol_err: plan.calibration.volErr,
+        vol_n: plan.calibration.nVol,
+      },
     });
   } catch (err) {
     fail(res, 'GET /api/lab/campaigns/:id', err);

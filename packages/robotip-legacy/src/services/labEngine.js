@@ -340,7 +340,66 @@ function generateCandidates({ championFilter, marketReports, winners = [], teste
  * (pares reais) vale cheio; palpite (sem par parecido) vale metade, pra
  * evidência real ir na frente sem matar a exploração.
  */
-function rankCandidates(candidates, { championMetrics, effects, margin }) {
+// ── Calibração: previsto × real dos testes já feitos ────────────────────────
+
+// Quantos testes valem "metade" da correção (com poucos testes corrige pouco).
+const CALIBRATION_SHRINK = 3;
+
+/**
+ * Erro médio das previsões nos testes já feitos: quanto a assertividade e o
+ * volume reais ficaram acima (+) ou abaixo (−) do previsto, em relação à
+ * versão de onde cada teste saiu. Por tipo de mudança e no geral.
+ *
+ * `runs`: [{ kind, predicted: { acc, perDay, base? }, parent: metrics, result: metrics }].
+ * O volume só entra quando a previsão guardou a base (`predicted.base`) —
+ * previsões antigas usavam outra conta de jogos/dia.
+ */
+function calibrate(runs) {
+  const acc = { n: 0, sum: 0 };
+  const vol = { n: 0, sum: 0 };
+  const byKind = {};
+  for (const r of runs) {
+    if (!r.predicted || !r.parent || !r.result) continue;
+    const k = (byKind[r.kind] ??= { acc: { n: 0, sum: 0 }, vol: { n: 0, sum: 0 } });
+    const accErr = (r.result.acc - r.parent.acc) - (r.predicted.acc - (r.predicted.base?.acc ?? r.parent.acc));
+    acc.n++; acc.sum += accErr; k.acc.n++; k.acc.sum += accErr;
+    const base = r.predicted.base;
+    if (base?.perDay && r.parent.perDay && r.result.perDay && r.predicted.perDay) {
+      const volErr = Math.log(r.result.perDay / r.parent.perDay) - Math.log(r.predicted.perDay / base.perDay);
+      vol.n++; vol.sum += volErr; k.vol.n++; k.vol.sum += volErr;
+    }
+  }
+  const shrunk = (x, fallback = 0) => {
+    if (!x.n) return fallback;
+    const w = x.n / (x.n + CALIBRATION_SHRINK);
+    return w * (x.sum / x.n) + (1 - w) * fallback;
+  };
+  const global = { accBias: shrunk(acc), logVolBias: shrunk(vol) };
+  const kinds = {};
+  for (const [kind, k] of Object.entries(byKind)) {
+    kinds[kind] = { n: k.acc.n, accBias: shrunk(k.acc, global.accBias), logVolBias: shrunk(k.vol, global.logVolBias) };
+  }
+  return {
+    n: acc.n,
+    nVol: vol.n,
+    accErr: acc.n ? acc.sum / acc.n : null,
+    volErr: vol.n ? Math.exp(vol.sum / vol.n) - 1 : null,
+    global,
+    kinds,
+  };
+}
+
+function applyCalibration(effect, kind, calibration) {
+  if (!calibration?.n) return effect;
+  const b = calibration.kinds[kind] ?? calibration.global;
+  return {
+    ...effect,
+    dAcc: clamp(effect.dAcc + b.accBias, -0.1, 0.1),
+    volRatio: effect.volRatio * Math.exp(clamp(b.logVolBias, Math.log(0.5), Math.log(2))),
+  };
+}
+
+function rankCandidates(candidates, { championMetrics, effects, margin, calibration }) {
   return candidates
     .map((c) => {
       let effect;
@@ -357,7 +416,9 @@ function rankCandidates(candidates, { championMetrics, effects, margin }) {
         evidence = e?.n ?? 0;
         effect = e ?? PRIORS[c.mutation.kind];
       }
-      const predicted = predict(championMetrics, effect, margin);
+      effect = applyCalibration(effect, c.mutation.kind, calibration);
+      const base = { acc: championMetrics.acc, odd: championMetrics.odd, perDay: championMetrics.perDay, score: championMetrics.score };
+      const predicted = { ...predict(championMetrics, effect, margin), base };
       const gain = predicted.score - championMetrics.score;
       // Combo de duas mudanças vencedoras vai pra frente da fila.
       const weight = c.mutation.kind === 'combo' ? 1.5 : evidence ? 1 : 0.5;
@@ -381,5 +442,6 @@ module.exports = {
   learnEffects,
   generateCandidates,
   rankCandidates,
+  calibrate,
   KIND_LABEL,
 };
