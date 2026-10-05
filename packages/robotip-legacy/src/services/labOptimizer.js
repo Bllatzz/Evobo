@@ -82,7 +82,9 @@ async function planCampaign(campaign, { limit = 20 } = {}) {
   ]);
   const runs = runsRes.rows;
   const margin = campaign.odd_margin;
-  const champion = reports.find((r) => r.id === campaign.champion_report_id) ?? null;
+  // Campeão com filtro de data não vale como ponto de partida (período
+  // diferente dos testes, que nunca levam data) — roda o robô de novo sem.
+  const champion = reports.find((r) => r.id === campaign.champion_report_id && !engine.hasDataFilter(r.query_filter)) ?? null;
   const championMetrics = engine.metricsOf(champion, margin);
 
   // Já testado = qualquer relatório do mercado com o mesmo filtro, ou run
@@ -93,10 +95,11 @@ async function planCampaign(campaign, { limit = 20 } = {}) {
   // Sem relatório do campeão ainda (campanha criada a partir de um robô sem
   // backtest): o único candidato é rodar o próprio robô.
   if (!champion) {
-    const sig = engine.normalizeFilter(campaign.champion_filter);
+    const filter = engine.stripData(campaign.champion_filter);
+    const sig = engine.normalizeFilter(filter);
     const pending = runs.some((r) => r.sig === sig && r.status === 'submitted');
     const candidates = pending ? [] : [{
-      filter: campaign.champion_filter, sig,
+      filter, sig,
       mutation: { kind: 'baseline', key: null, label: 'backtest do robô como está' },
       predicted: null, evidence: 0, gain: null, priority: Infinity,
     }];
@@ -130,6 +133,8 @@ const KIND_SHORT = { tighten: '↑', loosen: '↓', remove: '−', add: '+', com
 
 /** Gera o backtest de um candidato no Robotip e registra o run. */
 async function submitCandidate(campaign, candidate) {
+  // Última barreira: nada sai daqui com filtro de data.
+  if (engine.hasDataFilter(candidate.filter)) candidate = { ...candidate, filter: engine.stripData(candidate.filter), sig: engine.normalizeFilter(engine.stripData(candidate.filter)) };
   const quota = await getQuota();
   if (quota.free <= 0) throw Object.assign(new Error('Sem slot de backtest livre agora.'), { status: 409 });
 
@@ -246,13 +251,13 @@ async function evaluateRun(runId, reportId) {
     const margin = campaign.odd_margin;
     const result = engine.metricsOf(report, margin);
     const parentM = engine.metricsOf(parent, margin);
-    const championM = engine.metricsOf(champion, margin);
+    const championM = champion && !engine.hasDataFilter(champion.query_filter) ? engine.metricsOf(champion, margin) : null;
 
     let verdict = result ? verdictFor(result, parentM) : 'worse';
     // Sem relatório de campeão (baseline) ou bateu o campeão atual com volume
     // suficiente: vira o novo campeão.
     const promote = result && report.count >= campaign.min_count && (!championM || result.score > championM.score);
-    const isBaseline = !campaign.champion_report_id;
+    const isBaseline = !champion || engine.hasDataFilter(champion.query_filter);
     if (isBaseline && result) verdict = 'champion';
     await client.query(
       `UPDATE rt_lab_runs SET status = 'done', verdict = $2, report_id = $3, finished_at = NOW() WHERE id = $1`,

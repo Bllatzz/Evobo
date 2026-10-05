@@ -39,6 +39,18 @@ function serialize(pieces) {
   return `${pieces.map(pieceToString).join('&')}&`;
 }
 
+/**
+ * Filtro sem período (peças `data-…`). Backtest gerado pelo Laboratório
+ * NUNCA leva filtro de data: um período herdado (ex.: até 02/04/2026) faz
+ * todo teste cobrir só os meses antes dele, porque o Robotip conta ~4.900
+ * entradas de trás pra frente a partir do fim do período.
+ */
+function stripData(query) {
+  return serialize(parsePieces(query).filter((p) => p.key !== 'data'));
+}
+
+const hasDataFilter = (query) => parsePieces(query).some((p) => p.key === 'data');
+
 /** Forma canônica pra saber se um filtro já foi testado: peças ordenadas, números normalizados. */
 function normalizeFilter(query, { ignoreData = false } = {}) {
   return parsePieces(query)
@@ -256,7 +268,7 @@ function fmtVal(v) {
  * label, parts? } }. Não repete filtros já testados (`testedSigs`).
  */
 function generateCandidates({ championFilter, marketReports, winners = [], testedSigs, openMax }) {
-  const pieces = parsePieces(championFilter);
+  const pieces = parsePieces(championFilter).filter((p) => p.key !== 'data');
   const ranges = rangesOf(pieces);
   const out = [];
   const push = (newPieces, mutation) => {
@@ -315,7 +327,7 @@ function generateCandidates({ championFilter, marketReports, winners = [], teste
   // (é assim que duas melhorias em parâmetros diferentes se juntam).
   for (const w of winners) {
     const keys = w.mutation.kind === 'combo' ? w.mutation.parts.map((p) => p.key) : [w.mutation.key];
-    const fromWinner = parsePieces(w.filter).filter((p) => keys.includes(p.key));
+    const fromWinner = parsePieces(w.filter).filter((p) => keys.includes(p.key) && p.key !== 'data');
     const merged = pieces.filter((p) => !keys.includes(p.key)).concat(fromWinner);
     const parts = w.mutation.kind === 'combo' ? w.mutation.parts : [w.mutation];
     push(merged, { kind: 'combo', key: keys.join('+'), label: `juntar o que deu certo: ${parts.map((p) => `${p.key} ${p.label}`).join(' + ')}`, parts });
@@ -359,6 +371,8 @@ const KIND_LABEL = { tighten: 'Apertar', loosen: 'Afrouxar', remove: 'Tirar', ad
 module.exports = {
   parsePieces,
   serialize,
+  stripData,
+  hasDataFilter,
   normalizeFilter,
   rangesOf,
   openMaxByKey,

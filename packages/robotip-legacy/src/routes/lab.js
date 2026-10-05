@@ -263,7 +263,9 @@ router.post('/campaigns', async (req, res) => {
       if (!r) return res.status(404).json({ error: 'Relatório não encontrado.' });
       if (!r.done || r.error || !r.count) return res.status(409).json({ error: 'Relatório sem resultado pra partir dele.' });
       ({ market, query_filter: filter, termex, is_live: isLive, name } = r);
-      championReportId = r.id;
+      // Com filtro de data não serve de ponto de partida: o primeiro teste
+      // roda o mesmo robô sem a data.
+      championReportId = engine.hasDataFilter(filter) ? null : r.id;
     } else if (botId != null) {
       const { rows } = await pool.query('SELECT * FROM rt_bots WHERE id = $1 AND deleted_at IS NULL', [Number(botId)]);
       const b = rows[0];
@@ -279,11 +281,12 @@ router.post('/campaigns', async (req, res) => {
         [market]
       );
       const sig = engine.normalizeFilter(filter, { ignoreData: true });
-      const match = reps.find((r) => engine.normalizeFilter(r.query_filter, { ignoreData: true }) === sig);
+      const match = reps.find((r) => !engine.hasDataFilter(r.query_filter) && engine.normalizeFilter(r.query_filter) === sig);
       if (match) { championReportId = match.id; filter = match.query_filter; }
     } else {
       return res.status(400).json({ error: 'Informe report_id ou bot_id.' });
     }
+    filter = engine.stripData(filter);
     const margin = Number.isFinite(Number(req.body.odd_margin)) ? Number(req.body.odd_margin) : 0.2;
     const { rows } = await pool.query(
       `INSERT INTO rt_lab_campaigns (name, market, is_live, termex, origin_bot_id, origin_report_id,
