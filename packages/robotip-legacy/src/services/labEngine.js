@@ -335,11 +335,7 @@ function generateCandidates({ championFilter, marketReports, winners = [], teste
   return out;
 }
 
-/**
- * Ordena candidatos pelo ganho esperado em stake/dia. Mutação com evidência
- * (pares reais) vale cheio; palpite (sem par parecido) vale metade, pra
- * evidência real ir na frente sem matar a exploração.
- */
+/** Ordena candidatos pelo ganho previsto em stake/dia (maior primeiro). */
 // ── Calibração: previsto × real dos testes já feitos ────────────────────────
 
 // Quantos testes valem "metade" da correção (com poucos testes corrige pouco).
@@ -420,9 +416,9 @@ function rankCandidates(candidates, { championMetrics, effects, margin, calibrat
       const base = { acc: championMetrics.acc, odd: championMetrics.odd, perDay: championMetrics.perDay, score: championMetrics.score };
       const predicted = { ...predict(championMetrics, effect, margin), base };
       const gain = predicted.score - championMetrics.score;
-      // Combo de duas mudanças vencedoras vai pra frente da fila.
-      const weight = c.mutation.kind === 'combo' ? 1.5 : evidence ? 1 : 0.5;
-      return { ...c, predicted, evidence, gain, priority: gain * weight + (c.mutation.kind === 'combo' ? Math.abs(championMetrics.score) * 0.05 : 0) };
+      // Fila = maior aumento previsto de stake/dia primeiro (pedido do
+      // operador); a evidência só aparece na tela, não muda a ordem.
+      return { ...c, predicted, evidence, gain, priority: gain };
     })
     .sort((a, b) => b.priority - a.priority);
 }
