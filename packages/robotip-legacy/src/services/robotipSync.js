@@ -14,6 +14,7 @@ const robotip = require('./robotipApi');
 const LOOP_INTERVAL_MS = 30 * 60 * 1000;
 const DETAILS_PER_PASS = 20;
 const PAUSE_BETWEEN_DETAILS_MS = 2000;
+const MAX_DETAIL_ATTEMPTS = 5;
 
 const log = (...args) => console.log(`[robotip-legacy] [${new Date().toISOString()}] [LAB-SYNC]`, ...args);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -39,7 +40,7 @@ function parseJsonField(value) {
 }
 
 async function syncBots() {
-  const bots = await robotip.fetchBots();
+  const bots = dedupeById(await robotip.fetchBots());
   const rows = bots.map((b) => ({
     id: b.id,
     name: b.name ?? '',
@@ -67,8 +68,13 @@ async function syncBots() {
   return rows.length;
 }
 
+const toInt = (v) => (v != null && Number.isFinite(Number(v)) ? Math.round(Number(v)) : null);
+
+// Um id repetido faria o upsert inteiro falhar ("affect row a second time").
+const dedupeById = (list) => [...new Map(list.filter((x) => x && x.id != null).map((x) => [x.id, x])).values()];
+
 async function syncReports() {
-  const reports = await robotip.fetchReports();
+  const reports = dedupeById(await robotip.fetchReports());
   const rows = reports.map((r) => ({
     id: r.id,
     name: r.name ?? '',
@@ -79,14 +85,14 @@ async function syncReports() {
     lay_bet: Boolean(r.lay_bet),
     done: Boolean(r.done),
     error: Boolean(r.error),
-    count: r.count != null ? Math.round(r.count) : null,
-    greens: r.greens != null ? Math.round(r.greens) : null,
+    count: toInt(r.count),
+    greens: toInt(r.greens),
     green_rate: r.green_rate ?? null,
     mean_odd: r.mean_odd ?? null,
     profit: r.profit ?? null,
     max_drawdown: r.max_drawdown ?? null,
     pval: r.pval ?? null,
-    months: r.months ?? null,
+    months: toInt(r.months),
     created_at: toTimestamp(r.created_at),
     scheduled_to: toTimestamp(r.scheduled_to),
   }));
@@ -150,7 +156,7 @@ function buildLeagues(detail) {
       mean_odd: l.mean_odd ?? null,
       profit: l.profit ?? null,
       pval: l.pval ?? null,
-      months: l.months ?? null,
+      months: toInt(l.months),
     });
   }
   return [...byId.values()];
@@ -161,6 +167,9 @@ async function syncReportDetail(id) {
   if (!detail) throw new Error(`relatório ${id} veio vazio`);
   const days = buildDays(detail);
   const leagues = buildLeagues(detail);
+  // Relatório com entradas mas sem nenhum dia legível = formato mudou ou veio
+  // incompleto; não marca como baixado pra tentar de novo depois.
+  if (toInt(detail.count) > 0 && days.length === 0) throw new Error(`relatório ${id} veio sem dias legíveis`);
 
   const client = await pool.connect();
   try {
@@ -202,9 +211,10 @@ async function syncPendingDetails(limit = DETAILS_PER_PASS) {
   const { rows } = await pool.query(
     `SELECT id FROM rt_reports
      WHERE done AND NOT error AND detail_synced_at IS NULL AND deleted_at IS NULL
-     ORDER BY created_at DESC NULLS LAST
+       AND detail_attempts < $2
+     ORDER BY detail_attempts, created_at DESC NULLS LAST
      LIMIT $1`,
-    [limit]
+    [limit, MAX_DETAIL_ATTEMPTS]
   );
   let ok = 0;
   for (const { id } of rows) {
@@ -213,6 +223,7 @@ async function syncPendingDetails(limit = DETAILS_PER_PASS) {
       ok++;
     } catch (err) {
       log(`detalhe do relatório ${id} falhou:`, err.message);
+      await pool.query('UPDATE rt_reports SET detail_attempts = detail_attempts + 1 WHERE id = $1', [id]).catch(() => {});
     }
     await sleep(PAUSE_BETWEEN_DETAILS_MS);
   }
@@ -220,6 +231,17 @@ async function syncPendingDetails(limit = DETAILS_PER_PASS) {
 }
 
 let running = null;
+let listRunning = null;
+
+// Só robôs + relatórios (rápido) — o botão "Sincronizar agora" espera isso e
+// deixa os detalhes rodando em segundo plano.
+function runListSync() {
+  if (!listRunning) {
+    listRunning = (async () => ({ bots: await syncBots(), reports: await syncReports() }))()
+      .finally(() => { listRunning = null; });
+  }
+  return listRunning;
+}
 
 // Uma passada completa; chamadas concorrentes (loop + botão manual) reaproveitam a mesma.
 function runSyncPass() {
@@ -245,4 +267,4 @@ function startRobotipSync() {
   setInterval(tick, LOOP_INTERVAL_MS);
 }
 
-module.exports = { startRobotipSync, runSyncPass, syncReportDetail };
+module.exports = { startRobotipSync, runSyncPass, runListSync, syncPendingDetails, syncReportDetail };

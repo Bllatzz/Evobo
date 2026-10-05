@@ -5,18 +5,20 @@
 
 const express = require('express');
 const pool = require('../db/pool');
-const { runSyncPass, syncReportDetail } = require('../services/robotipSync');
+const { runListSync, syncPendingDetails, syncReportDetail } = require('../services/robotipSync');
 
 const router = express.Router();
 
 // Relatório ↔ robô: o site não liga um ao outro, então casa pela query string
 // de parâmetros (ignorando o "&" final que às vezes vem sobrando).
 const REPORT_SELECT = `
-  SELECT r.id, r.name, r.market, r.query_filter, r.termex, r.is_live, r.done, r.error,
+  SELECT r.id, r.name, r.market, r.query_filter, r.termex, r.is_live, r.lay_bet, r.done, r.error,
          r.count, r.greens, r.green_rate::float, r.mean_odd::float, r.profit::float,
          r.max_drawdown::float, r.pval::float, r.months, r.first_day::text, r.last_day::text, r.active_days,
+         -- Período = primeiro→último dia COM entrada; com poucas entradas isso
+         -- encolhe e infla jogos/dia, então nunca usa menos que os meses do relatório.
          CASE WHEN r.first_day IS NOT NULL
-              THEN r.count::float / (r.last_day - r.first_day + 1)
+              THEN r.count::float / GREATEST(r.last_day - r.first_day + 1, COALESCE(r.months, 0) * 30.44, 1)
          END AS per_day,
          r.created_at, r.scheduled_to, r.detail_synced_at,
          b.id AS bot_id, b.name AS bot_name
@@ -45,10 +47,13 @@ router.get('/status', async (req, res) => {
 });
 
 // ── POST /api/lab/sync ────────────────────────────────────────────────────────
-// Roda uma passada de sincronização agora (em vez de esperar o loop).
+// Atualiza robôs e relatórios agora; os detalhes pendentes seguem em segundo
+// plano (podem levar minutos) em vez de segurar o request.
 router.post('/sync', async (req, res) => {
   try {
-    res.json(await runSyncPass());
+    const result = await runListSync();
+    syncPendingDetails().catch((err) => console.error('POST /api/lab/sync detalhes:', err.message));
+    res.json(result);
   } catch (err) {
     console.error('POST /api/lab/sync error:', err);
     res.status(502).json({ error: `Falha ao sincronizar com o Robotip: ${err.message}` });
