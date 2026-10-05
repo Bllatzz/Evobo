@@ -18,7 +18,14 @@ const labRouter               = require('./src/routes/lab');
 const { startTelegramListener: connectTelegramOnce } = require('./src/services/telegram');
 const { startCornerAutoChecker } = require('./src/services/cornerAutoChecker');
 const { startHomeWinAutoChecker } = require('./src/services/homeWinAutoChecker');
-const { startRobotipSync } = require('./src/services/robotipSync');
+const { startRobotipSync: startSync } = require('./src/services/robotipSync');
+const { startLabOptimizer } = require('./src/services/labOptimizer');
+
+// Laboratório: sync dos backtests do Robotip + loop do otimizador.
+function startRobotipSync() {
+  startSync();
+  startLabOptimizer();
+}
 
 // Evita que erros não tratados aqui derrubem o processo do evobo-api inteiro
 // (mesmo comportamento de proteção que o robotip-analyzer original tinha).
