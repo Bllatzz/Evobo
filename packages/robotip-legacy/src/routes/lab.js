@@ -5,7 +5,7 @@
 
 const express = require('express');
 const pool = require('../db/pool');
-const { runSyncPass } = require('../services/robotipSync');
+const { runSyncPass, syncReportDetail } = require('../services/robotipSync');
 
 const router = express.Router();
 
@@ -110,6 +110,23 @@ router.get('/reports/:id', async (req, res) => {
   } catch (err) {
     console.error('GET /api/lab/reports/:id error:', err);
     res.status(500).json({ error: 'Erro interno.' });
+  }
+});
+
+// ── POST /api/lab/reports/:id/sync ────────────────────────────────────────────
+// Baixa o detalhe (dias/ligas) deste relatório agora, sem esperar o backfill.
+router.post('/reports/:id/sync', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'id inválido.' });
+  try {
+    const { rows } = await pool.query('SELECT done, error FROM rt_reports WHERE id = $1', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Relatório não encontrado.' });
+    if (!rows[0].done || rows[0].error) return res.status(409).json({ error: 'Relatório ainda não foi processado no Robotip.' });
+    await syncReportDetail(id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/lab/reports/:id/sync error:', err);
+    res.status(502).json({ error: `Falha ao baixar do Robotip: ${err.message}` });
   }
 });
 
