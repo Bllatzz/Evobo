@@ -7,3 +7,4 @@ export function createApp(): RequestListener;
 export function startTelegramListener(): Promise<never>;
 export function startCornerAutoChecker(): void;
 export function startHomeWinAutoChecker(): void;
+export function startRobotipSync(): void;

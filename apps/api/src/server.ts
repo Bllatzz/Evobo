@@ -197,6 +197,9 @@ if (process.env.TELEGRAM_API_ID) {
 if (process.env.ROBOTIP_DATABASE_URL) {
   robotipLegacy.startCornerAutoChecker();
   robotipLegacy.startHomeWinAutoChecker();
+  // Laboratório: espelha robôs/relatórios de backtest do robotip.com.br
+  // (read-only). Se desliga sozinho sem ROBOTIP_EMAIL/ROBOTIP_PASSWORD.
+  robotipLegacy.startRobotipSync();
 }
 
 // Listener de Telegram do robotip (sessão PRÓPRIA, distinta da usada acima

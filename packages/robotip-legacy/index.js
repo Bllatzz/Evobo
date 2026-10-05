@@ -14,9 +14,11 @@ const gestaoRouter            = require('./src/routes/gestao');
 const botConfigsRouter        = require('./src/routes/botConfigs');
 const botFilterProfilesRouter = require('./src/routes/botFilterProfiles');
 const gestaoSettingsRouter    = require('./src/routes/gestaoSettings');
+const labRouter               = require('./src/routes/lab');
 const { startTelegramListener: connectTelegramOnce } = require('./src/services/telegram');
 const { startCornerAutoChecker } = require('./src/services/cornerAutoChecker');
 const { startHomeWinAutoChecker } = require('./src/services/homeWinAutoChecker');
+const { startRobotipSync } = require('./src/services/robotipSync');
 
 // Evita que erros não tratados aqui derrubem o processo do evobo-api inteiro
 // (mesmo comportamento de proteção que o robotip-analyzer original tinha).
@@ -61,6 +63,7 @@ function createApp() {
   app.use('/api/bot-configs', botConfigsRouter);
   app.use('/api/bot-filter-profiles', botFilterProfilesRouter);
   app.use('/api/gestao-settings', gestaoSettingsRouter);
+  app.use('/api/lab', labRouter);
 
   return app;
 }
@@ -93,4 +96,5 @@ module.exports = {
   startTelegramListener,
   startCornerAutoChecker,
   startHomeWinAutoChecker,
+  startRobotipSync,
 };
