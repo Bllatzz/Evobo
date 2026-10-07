@@ -151,7 +151,29 @@ async function marketCalibration(market, reports, rule) {
 
 // ── Enviar / acompanhar ─────────────────────────────────────────────────────
 
-const KIND_SHORT = { tighten: '↑', loosen: '↓', remove: '−', add: '+', combo: '⊕', baseline: 'base' };
+
+/**
+ * Nome do backtest: "Otimização 1.N - {robô}", N = ordem do teste na campanha
+ * (o primeiro é 1.0). O run é ligado ao relatório pelo nome, então ele tem que
+ * ser único — se já existir (ex.: campanha do mesmo robô recriada), sobe a
+ * versão maior (2.N, 3.N…).
+ */
+async function reportNameFor(campaign, runId) {
+  const { rows } = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM rt_lab_runs WHERE campaign_id = $1 AND id < $2',
+    [campaign.id, runId]
+  );
+  const robot = String(campaign.name).trim();
+  for (let major = 1; ; major++) {
+    const name = `Otimização ${major}.${rows[0].n} - ${robot}`.slice(0, 120);
+    const { rows: taken } = await pool.query(
+      `SELECT 1 FROM rt_lab_runs WHERE report_name = $1
+       UNION ALL SELECT 1 FROM rt_reports WHERE name = $1 LIMIT 1`,
+      [name]
+    );
+    if (!taken.length) return name;
+  }
+}
 
 /** Gera o backtest de um candidato no Robotip e registra o run. */
 async function submitCandidate(campaign, candidate) {
@@ -168,8 +190,7 @@ async function submitCandidate(campaign, candidate) {
       JSON.stringify(candidate.mutation), candidate.predicted ? JSON.stringify(candidate.predicted) : null]
   );
   const runId = rows[0].id;
-  const m = candidate.mutation;
-  const name = `LAB ${campaign.id}.${runId} ${KIND_SHORT[m.kind] ?? ''} ${m.key ?? ''}`.trim().slice(0, 60);
+  const name = await reportNameFor(campaign, runId);
   await pool.query('UPDATE rt_lab_runs SET report_name = $2 WHERE id = $1', [runId, name]);
 
   try {
