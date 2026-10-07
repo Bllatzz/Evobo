@@ -289,6 +289,9 @@ function fmtVal(v) {
  * Vizinhos do campeão. Cada candidato: { filter, sig, mutation: { kind, key,
  * label, parts? } }. Não repete filtros já testados (`testedSigs`).
  */
+// Odd mínima que vale a pena (pedido do operador): abaixo disso não compensa.
+const MIN_USEFUL_ODD = 1.6;
+
 function generateCandidates({ championFilter, marketReports, winners = [], testedSigs, openMax }) {
   const pieces = parsePieces(championFilter).filter((p) => p.key !== 'data');
   const ranges = rangesOf(pieces);
@@ -306,9 +309,12 @@ function generateCandidates({ championFilter, marketReports, winners = [], teste
     const top = openMax.get(r.key);
     const ref = r.min ?? r.max ?? 1;
     const step = stepFor(r.key, ref);
-    const floor = r.key.startsWith('dif_') ? -10 : 0;
+    const isOdd = r.key.includes('_odd');
+    // Odd abaixo de 1,6 não compensa (e abaixo de 1 nem existe): mínimo de
+    // odd nunca desce de 1,6, e um mínimo que já está abaixo sobe direto pra 1,6.
+    const floor = isOdd ? MIN_USEFUL_ODD : r.key.startsWith('dif_') ? -10 : 0;
     if (r.min != null) {
-      const up = round(r.min + step, step);
+      const up = isOdd && r.min < MIN_USEFUL_ODD ? MIN_USEFUL_ODD : round(r.min + step, step);
       const down = round(r.min - step, step);
       if (r.max == null || up <= r.max) push(setValue(r.key, LOWER_OPS, up), { kind: 'tighten', key: r.key, label: `mínimo ${fmtVal(r.min)} → ${fmtVal(up)}` });
       if (down >= floor) push(setValue(r.key, LOWER_OPS, down), { kind: 'loosen', key: r.key, label: `mínimo ${fmtVal(r.min)} → ${fmtVal(down)}` });
@@ -318,7 +324,7 @@ function generateCandidates({ championFilter, marketReports, winners = [], teste
       const down = round(r.max - maxStep, maxStep);
       const up = round(r.max + maxStep, maxStep);
       if (r.key === 'tm' ? up <= 90 : true) push(setValue(r.key, UPPER_OPS, up), { kind: 'loosen', key: r.key, label: `máximo ${fmtVal(r.max)} → ${fmtVal(up)}` });
-      if (r.min == null || down >= r.min) push(setValue(r.key, UPPER_OPS, down), { kind: 'tighten', key: r.key, label: `máximo ${fmtVal(r.max)} → ${fmtVal(down)}` });
+      if ((r.min == null || down >= r.min) && (!isOdd || down >= MIN_USEFUL_ODD)) push(setValue(r.key, UPPER_OPS, down), { kind: 'tighten', key: r.key, label: `máximo ${fmtVal(r.max)} → ${fmtVal(down)}` });
     }
   }
 
