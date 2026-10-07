@@ -67,7 +67,7 @@ async function reportById(id) {
 }
 
 async function campaignById(id, client = pool) {
-  const { rows } = await client.query('SELECT *, odd_margin::float FROM rt_lab_campaigns WHERE id = $1', [id]);
+  const { rows } = await client.query('SELECT *, odd_margin::float, target_odd::float FROM rt_lab_campaigns WHERE id = $1', [id]);
   return rows[0] ?? null;
 }
 
@@ -81,12 +81,12 @@ async function planCampaign(campaign, { limit = 20 } = {}) {
     pool.query('SELECT * FROM rt_lab_runs WHERE campaign_id = $1 ORDER BY submitted_at DESC', [campaign.id]),
   ]);
   const runs = runsRes.rows;
-  const margin = campaign.odd_margin;
-  const calibration = await marketCalibration(campaign.market, reports, margin);
+  const rule = engine.campaignOddRule(campaign);
+  const calibration = await marketCalibration(campaign.market, reports, rule);
   // Campeão com filtro de data não vale como ponto de partida (período
   // diferente dos testes, que nunca levam data) — roda o robô de novo sem.
   const champion = reports.find((r) => r.id === campaign.champion_report_id && !engine.hasDataFilter(r.query_filter)) ?? null;
-  const championMetrics = engine.metricsOf(champion, margin);
+  const championMetrics = engine.metricsOf(champion, rule);
 
   // Já testado = qualquer relatório do mercado com o mesmo filtro, ou run
   // desta campanha ainda rodando/que falhou de verdade no envio.
@@ -110,7 +110,7 @@ async function planCampaign(campaign, { limit = 20 } = {}) {
   const effects = engine.learnEffects(reports);
   const ranked = reports
     .filter((r) => r.count >= campaign.min_count)
-    .map((r) => ({ r, score: engine.metricsOf(r, margin).score }))
+    .map((r) => ({ r, score: engine.metricsOf(r, rule).score }))
     .filter((x) => x.score != null)
     .sort((a, b) => b.score - a.score)
     .map((x) => x.r);
@@ -123,7 +123,7 @@ async function planCampaign(campaign, { limit = 20 } = {}) {
       testedSigs,
       openMax: engine.openMaxByKey(reports),
     }),
-    { championMetrics, effects, margin, calibration }
+    { championMetrics, effects, oddRule: rule, calibration }
   ).slice(0, limit);
   return { champion, championMetrics, candidates, runs, effects, calibration };
 }
@@ -132,7 +132,7 @@ async function planCampaign(campaign, { limit = 20 } = {}) {
  * Previsto × real de todos os testes já avaliados neste mercado (de qualquer
  * campanha) — o motor usa o erro médio pra corrigir as próximas previsões.
  */
-async function marketCalibration(market, reports, margin) {
+async function marketCalibration(market, reports, rule) {
   const { rows } = await pool.query(
     `SELECT run.mutation, run.predicted, run.report_id, run.parent_report_id
      FROM rt_lab_runs run JOIN rt_lab_campaigns c ON c.id = run.campaign_id
@@ -144,8 +144,8 @@ async function marketCalibration(market, reports, margin) {
   return engine.calibrate(rows.map((run) => ({
     kind: run.mutation.kind,
     predicted: run.predicted,
-    parent: engine.metricsOf(byId.get(run.parent_report_id), margin),
-    result: engine.metricsOf(byId.get(run.report_id), margin),
+    parent: engine.metricsOf(byId.get(run.parent_report_id), rule),
+    result: engine.metricsOf(byId.get(run.report_id), rule),
   })));
 }
 
@@ -196,6 +196,72 @@ function verdictFor(result, parent) {
   if (result.score >= parent.score + Math.abs(parent.score) * SCORE_TOLERANCE) return 'better';
   if (result.score <= parent.score - Math.abs(parent.score) * SCORE_TOLERANCE) return 'worse';
   return 'same';
+}
+
+/**
+ * Compara dois relatórios só nos dias em que os dois existem. O Robotip corta
+ * em ~4.900 entradas contando do fim, então uma versão com mais jogos cobre
+ * um período menor — comparar o total de cada um mistura épocas diferentes.
+ * Período de cada um = dias entre 1% e 99% das entradas (ignora pontas soltas).
+ * Sem dias baixados ou sem período em comum: null (cai no total).
+ */
+async function compareOnSameDays(aId, bId, rule, client = pool) {
+  if (aId == null || bId == null) return null;
+  const { rows } = await client.query(
+    `WITH d AS (
+       SELECT report_id, day, count, greens, mean_odd,
+              SUM(count) OVER (PARTITION BY report_id ORDER BY day) AS cum,
+              SUM(count) OVER (PARTITION BY report_id) AS total
+       FROM rt_report_days WHERE report_id = ANY($1::int[])
+     ), w AS (
+       SELECT report_id,
+              MIN(day) FILTER (WHERE cum >= total * 0.01) AS a,
+              MIN(day) FILTER (WHERE cum >= total * 0.99) AS b
+       FROM d GROUP BY report_id
+     ), c AS (
+       SELECT MAX(a) AS a, MIN(b) AS b FROM w HAVING COUNT(*) = 2
+     )
+     SELECT d.report_id, c.a::text AS a, c.b::text AS b, (c.b - c.a + 1) AS days,
+            SUM(d.count)::int AS count, SUM(d.greens)::int AS greens,
+            SUM(d.mean_odd * d.count) / NULLIF(SUM(d.count), 0) AS mean_odd
+     FROM d CROSS JOIN c
+     WHERE c.a <= c.b AND d.day BETWEEN c.a AND c.b
+     GROUP BY d.report_id, c.a, c.b`,
+    [[aId, bId]]
+  );
+  const byId = new Map(rows.map((r) => [r.report_id, r]));
+  if (!byId.has(aId) || !byId.has(bId)) return null;
+  const m = (r) => engine.metricsOf({ count: r.count, greens: r.greens, mean_odd: r.mean_odd, per_day: r.count / Math.max(r.days, 7) }, rule);
+  const ra = byId.get(aId);
+  return { from: ra.a, to: ra.b, a: m(ra), b: m(byId.get(bId)) };
+}
+
+const brief = (m) => (m ? { acc: m.acc, per_day: m.perDay, score: m.score, count: m.count } : null);
+
+/**
+ * Julga um resultado: veredito contra a versão de onde saiu e se bate o
+ * campeão atual — os dois nos dias em comum.
+ */
+async function judgeRun({ run, report, parent, champion, campaign, client }) {
+  const rule = engine.campaignOddRule(campaign);
+  const total = engine.metricsOf(report, rule);
+  if (!total) return { verdict: 'worse', promote: false, comparison: null };
+  const isBaseline = !champion || engine.hasDataFilter(champion.query_filter);
+  if (isBaseline || run.mutation?.kind === 'baseline') {
+    return { verdict: 'champion', promote: true, comparison: null };
+  }
+  const vsParent = parent ? await compareOnSameDays(report.id, parent.id, rule, client) : null;
+  const result = vsParent?.a ?? total;
+  const parentM = vsParent?.b ?? engine.metricsOf(parent, rule);
+  const verdict = verdictFor(result, parentM);
+  const vsChamp = champion.id === parent?.id ? vsParent : await compareOnSameDays(report.id, champion.id, rule, client);
+  const r2 = vsChamp?.a ?? total;
+  const c2 = vsChamp?.b ?? engine.metricsOf(champion, rule);
+  const promote = report.count >= campaign.min_count && r2.score > c2.score;
+  const comparison = vsParent
+    ? { from: vsParent.from, to: vsParent.to, result: brief(result), parent: brief(parentM) }
+    : null;
+  return { verdict, promote, comparison };
 }
 
 /**
@@ -265,27 +331,17 @@ async function evaluateRun(runId, reportId) {
     const { rows } = await client.query('SELECT * FROM rt_lab_runs WHERE id = $1 FOR UPDATE', [runId]);
     const run = rows[0];
     if (!run || run.status !== 'submitted') { await client.query('ROLLBACK'); return; }
-    const { rows: cRows } = await client.query('SELECT *, odd_margin::float FROM rt_lab_campaigns WHERE id = $1 FOR UPDATE', [run.campaign_id]);
+    const { rows: cRows } = await client.query('SELECT *, odd_margin::float, target_odd::float FROM rt_lab_campaigns WHERE id = $1 FOR UPDATE', [run.campaign_id]);
     const campaign = cRows[0];
     const [report, parent, champion] = await Promise.all([
       reportById(reportId), reportById(run.parent_report_id), reportById(campaign.champion_report_id),
     ]);
-    const margin = campaign.odd_margin;
-    const result = engine.metricsOf(report, margin);
-    const parentM = engine.metricsOf(parent, margin);
-    const championM = champion && !engine.hasDataFilter(champion.query_filter) ? engine.metricsOf(champion, margin) : null;
-
-    let verdict = result ? verdictFor(result, parentM) : 'worse';
-    // Sem relatório de campeão (baseline) ou bateu o campeão atual com volume
-    // suficiente: vira o novo campeão.
-    const promote = result && report.count >= campaign.min_count && (!championM || result.score > championM.score);
-    const isBaseline = !champion || engine.hasDataFilter(champion.query_filter);
-    if (isBaseline && result) verdict = 'champion';
+    const { verdict, promote, comparison } = await judgeRun({ run, report, parent, champion, campaign, client });
     await client.query(
-      `UPDATE rt_lab_runs SET status = 'done', verdict = $2, report_id = $3, finished_at = NOW() WHERE id = $1`,
-      [runId, verdict, reportId]
+      `UPDATE rt_lab_runs SET status = 'done', verdict = $2, report_id = $3, comparison = $4, finished_at = NOW() WHERE id = $1`,
+      [runId, verdict, reportId, comparison]
     );
-    if (promote || (isBaseline && result)) {
+    if (promote) {
       await client.query(
         `UPDATE rt_lab_campaigns SET champion_filter = $2, champion_report_id = $3, updated_at = NOW() WHERE id = $1`,
         [campaign.id, run.filter, reportId]
@@ -301,10 +357,53 @@ async function evaluateRun(runId, reportId) {
   }
 }
 
+/**
+ * Refaz os vereditos e a cadeia de campeões de uma campanha com a regra de
+ * odd atual (ex.: depois de mudar a odd que o operador pega). Não gera
+ * backtest nenhum — só reavalia os que já rodaram, na ordem em que rodaram.
+ */
+async function reevaluateCampaign(campaignId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: cRows } = await client.query('SELECT *, odd_margin::float, target_odd::float FROM rt_lab_campaigns WHERE id = $1 FOR UPDATE', [campaignId]);
+    const campaign = cRows[0];
+    if (!campaign) { await client.query('ROLLBACK'); return; }
+    const { rows: runs } = await client.query(
+      `SELECT * FROM rt_lab_runs WHERE campaign_id = $1 AND status = 'done' AND report_id IS NOT NULL
+       ORDER BY finished_at, id`,
+      [campaignId]
+    );
+    let champion = null;
+    let championFilter = null;
+    for (const run of runs) {
+      const [report, parent] = await Promise.all([reportById(run.report_id), reportById(run.parent_report_id)]);
+      // Relatório com data (de antes da regra "nunca data") não entra na cadeia.
+      if (!report || engine.hasDataFilter(report.query_filter)) continue;
+      const { verdict, promote, comparison } = await judgeRun({ run, report, parent, champion, campaign, client });
+      await client.query('UPDATE rt_lab_runs SET verdict = $2, comparison = $3 WHERE id = $1', [run.id, verdict, comparison]);
+      if (promote) { champion = report; championFilter = run.filter; }
+    }
+    if (champion) {
+      await client.query(
+        'UPDATE rt_lab_campaigns SET champion_filter = $2, champion_report_id = $3, updated_at = NOW() WHERE id = $1',
+        [campaignId, championFilter, champion.id]
+      );
+    }
+    await client.query('COMMIT');
+    log(`campanha ${campaignId}: reavaliada, campeão ${champion?.id ?? 'sem mudança'}`);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 /** Modo automático: preenche os slots livres com os melhores candidatos. */
 async function fillAutoCampaigns() {
   const { rows: campaigns } = await pool.query(
-    `SELECT *, odd_margin::float FROM rt_lab_campaigns WHERE status = 'active' AND mode = 'auto' ORDER BY updated_at`
+    `SELECT *, odd_margin::float, target_odd::float FROM rt_lab_campaigns WHERE status = 'active' AND mode = 'auto' ORDER BY updated_at`
   );
   for (const campaign of campaigns) {
     const { rows } = await pool.query(
@@ -362,5 +461,6 @@ module.exports = {
   runOptimizerTick,
   checkSubmittedRuns,
   ensureDetail,
+  reevaluateCampaign,
   startLabOptimizer,
 };

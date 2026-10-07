@@ -129,11 +129,31 @@ function perDayOf(r) {
   return null;
 }
 
-/** Métricas na odd do operador (odd média do backtest + margem). */
-function metricsOf(r, margin) {
+/**
+ * Regra da odd que o operador pega: `{ fixed: 2 }` (espera a odd chegar nesse
+ * valor — o padrão das campanhas) ou `{ margin: 0.2 }` (odd do alerta +
+ * margem). Um número sozinho é margem (formato antigo).
+ */
+function oddRuleOf(rule) {
+  if (typeof rule === 'number') return { margin: rule };
+  return rule ?? { margin: 0 };
+}
+
+function oddFor(meanOdd, rule) {
+  const r = oddRuleOf(rule);
+  return r.fixed != null ? r.fixed : Number(meanOdd ?? 0) + (r.margin ?? 0);
+}
+
+/** Regra de odd de uma campanha. */
+function campaignOddRule(campaign) {
+  return campaign.target_odd != null ? { fixed: Number(campaign.target_odd) } : { margin: Number(campaign.odd_margin ?? 0) };
+}
+
+/** Métricas na odd que o operador pega. */
+function metricsOf(r, rule) {
   if (!r || !r.count) return null;
   const acc = r.greens / r.count;
-  const odd = Number(r.mean_odd ?? 0) + margin;
+  const odd = oddFor(r.mean_odd, rule);
   const perDay = perDayOf(r);
   const edge = acc * odd - 1;
   return { acc, odd, perDay, edge, score: perDay != null ? perDay * edge : null, count: r.count };
@@ -250,9 +270,11 @@ function expectedEffect(effects, key, kind) {
   };
 }
 
-function predict(base, effect, margin) {
+function predict(base, effect, rule) {
   const acc = Math.min(0.99, Math.max(0.01, base.acc + effect.dAcc));
-  const odd = Math.max(1.01, base.odd + effect.dOdd);
+  // Odd fixa: a mudança não mexe na odd que o operador pega.
+  const fixed = oddRuleOf(rule).fixed;
+  const odd = fixed != null ? fixed : Math.max(1.01, base.odd + effect.dOdd);
   const perDay = base.perDay * effect.volRatio;
   return { acc, odd, perDay, score: perDay * (acc * odd - 1) };
 }
@@ -395,7 +417,7 @@ function applyCalibration(effect, kind, calibration) {
   };
 }
 
-function rankCandidates(candidates, { championMetrics, effects, margin, calibration }) {
+function rankCandidates(candidates, { championMetrics, effects, oddRule, calibration }) {
   return candidates
     .map((c) => {
       let effect;
@@ -414,7 +436,7 @@ function rankCandidates(candidates, { championMetrics, effects, margin, calibrat
       }
       effect = applyCalibration(effect, c.mutation.kind, calibration);
       const base = { acc: championMetrics.acc, odd: championMetrics.odd, perDay: championMetrics.perDay, score: championMetrics.score };
-      const predicted = { ...predict(championMetrics, effect, margin), base };
+      const predicted = { ...predict(championMetrics, effect, oddRule), base };
       const gain = predicted.score - championMetrics.score;
       // Fila = maior aumento previsto de stake/dia primeiro (pedido do
       // operador); a evidência só aparece na tela, não muda a ordem.
@@ -434,6 +456,8 @@ module.exports = {
   rangesOf,
   openMaxByKey,
   perDayOf,
+  oddFor,
+  campaignOddRule,
   metricsOf,
   learnEffects,
   generateCandidates,

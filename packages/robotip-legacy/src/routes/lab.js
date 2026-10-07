@@ -145,9 +145,9 @@ const fail = (res, where, err) => {
 };
 
 /** Métricas que a tela mostra de um relatório, na odd do operador. */
-function reportSummary(r, margin) {
+function reportSummary(r, rule) {
   if (!r) return null;
-  const m = engine.metricsOf(r, margin);
+  const m = engine.metricsOf(r, rule);
   return {
     id: r.id, name: r.name, count: r.count, greens: r.greens, mean_odd: r.mean_odd, months: r.months,
     first_day: r.first_day, last_day: r.last_day, query_filter: r.query_filter,
@@ -197,7 +197,8 @@ router.get('/insights', async (req, res) => {
 // Cada robô com o mercado, o backtest mais recente do mesmo filtro (ignorando
 // período) e a campanha, se já tiver uma.
 router.get('/robots', async (req, res) => {
-  const margin = Number.isFinite(Number(req.query.margin)) ? Number(req.query.margin) : 0.2;
+  const rule = Number(req.query.odd) > 1 ? { fixed: Number(req.query.odd) }
+    : Number.isFinite(Number(req.query.margin)) ? { margin: Number(req.query.margin) } : { fixed: 2 };
   try {
     const [bots, reports, campaigns, marketsRes] = await Promise.all([
       pool.query('SELECT id, name, filter FROM rt_bots WHERE deleted_at IS NULL ORDER BY name'),
@@ -218,7 +219,7 @@ router.get('/robots', async (req, res) => {
       return {
         id: b.id, name: b.name, filter: b.filter, market,
         params: engine.parsePieces(b.filter).filter((p) => p.op && p.key !== 'data').length,
-        report: reportSummary(report, margin), campaign,
+        report: reportSummary(report, rule), campaign,
       };
     }));
   } catch (err) {
@@ -230,7 +231,7 @@ router.get('/robots', async (req, res) => {
 router.get('/campaigns', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT c.id, c.name, c.market, c.mode, c.status, c.odd_margin::float, c.champion_report_id,
+      SELECT c.id, c.name, c.market, c.mode, c.status, c.odd_margin::float, c.target_odd::float, c.champion_report_id,
              c.origin_bot_id, c.origin_report_id, c.created_at, c.updated_at,
              COUNT(run.id)::int AS runs,
              COUNT(run.id) FILTER (WHERE run.status = 'submitted')::int AS in_flight,
@@ -239,7 +240,7 @@ router.get('/campaigns', async (req, res) => {
       GROUP BY c.id ORDER BY c.updated_at DESC`);
     const champions = await Promise.all(rows.map((c) => pool.query(
       `${REPORT_SELECT} WHERE r.id = $1`, [c.champion_report_id]
-    ).then((r) => reportSummary(r.rows[0], c.odd_margin))));
+    ).then((r) => reportSummary(r.rows[0], engine.campaignOddRule(c)))));
     res.json(rows.map((c, i) => ({ ...c, champion: champions[i] })));
   } catch (err) {
     fail(res, 'GET /api/lab/campaigns', err);
@@ -247,7 +248,7 @@ router.get('/campaigns', async (req, res) => {
 });
 
 // ── POST /api/lab/campaigns ───────────────────────────────────────────────────
-// Body: { report_id } ou { bot_id } (+ name, odd_margin opcionais).
+// Body: { report_id } ou { bot_id } (+ name, target_odd opcionais).
 router.post('/campaigns', async (req, res) => {
   const { report_id: reportId, bot_id: botId } = req.body ?? {};
   try {
@@ -287,14 +288,14 @@ router.post('/campaigns', async (req, res) => {
       return res.status(400).json({ error: 'Informe report_id ou bot_id.' });
     }
     filter = engine.stripData(filter);
-    const margin = Number.isFinite(Number(req.body.odd_margin)) ? Number(req.body.odd_margin) : 0.2;
+    const targetOdd = Number(req.body.target_odd) > 1 && Number(req.body.target_odd) <= 10 ? Number(req.body.target_odd) : 2;
     const { rows } = await pool.query(
       `INSERT INTO rt_lab_campaigns (name, market, is_live, termex, origin_bot_id, origin_report_id,
-                                     champion_filter, champion_report_id, odd_margin)
+                                     champion_filter, champion_report_id, target_odd)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
       [String(req.body.name || name).slice(0, 120), market, isLive, termex ?? '',
         botId != null ? Number(botId) : null, reportId != null ? Number(reportId) : null,
-        filter, championReportId, margin]
+        filter, championReportId, targetOdd]
     );
     await optimizer.ensureDetail(championReportId);
     res.status(201).json({ id: rows[0].id });
@@ -316,7 +317,7 @@ router.get('/campaigns/:id', async (req, res) => {
     const campaign = await optimizer.campaignById(id);
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
     const [plan, quota] = await Promise.all([optimizer.planCampaign(campaign), optimizer.getQuota()]);
-    const margin = campaign.odd_margin;
+    const rule = engine.campaignOddRule(campaign);
     const reportIds = [...new Set(plan.runs.flatMap((r) => [r.report_id, r.parent_report_id]).filter(Boolean))];
     const { rows: runReports } = reportIds.length
       ? await pool.query(`${REPORT_SELECT} WHERE r.id = ANY($1::int[])`, [reportIds])
@@ -325,7 +326,7 @@ router.get('/campaigns/:id', async (req, res) => {
     res.json({
       ...campaign,
       quota,
-      champion: reportSummary(plan.champion, margin),
+      champion: reportSummary(plan.champion, rule),
       candidates: plan.candidates.map((c) => ({
         sig: c.sig, filter: c.filter, mutation: c.mutation, evidence: c.evidence,
         gain: Number.isFinite(c.gain) ? c.gain : null, predicted: c.predicted,
@@ -333,9 +334,9 @@ router.get('/campaigns/:id', async (req, res) => {
       runs: plan.runs.map((r) => ({
         id: r.id, status: r.status, verdict: r.verdict, error: r.error, mutation: r.mutation, predicted: r.predicted,
         filter: r.filter, report_name: r.report_name, report_id: r.report_id, parent_report_id: r.parent_report_id,
-        submitted_at: r.submitted_at, finished_at: r.finished_at,
-        result: reportSummary(byId.get(r.report_id), margin),
-        parent: reportSummary(byId.get(r.parent_report_id), margin),
+        submitted_at: r.submitted_at, finished_at: r.finished_at, comparison: r.comparison,
+        result: reportSummary(byId.get(r.report_id), rule),
+        parent: reportSummary(byId.get(r.parent_report_id), rule),
       })),
       effects: effectsList(plan.effects).slice(0, 40),
       calibration: {
@@ -374,6 +375,7 @@ router.patch('/campaigns/:id', async (req, res) => {
     return true;
   };
   if (!num('odd_margin', 'odd_margin', 0, 2, false)
+    || !num('target_odd', 'target_odd', 1.01, 10, false)
     || !num('reserve_slots', 'reserve_slots', 0, 10, true)
     || !num('max_in_flight', 'max_in_flight', 1, 10, true)
     || !num('min_count', 'min_count', 0, 100000, true)) return res.status(400).json({ error: 'valor fora da faixa.' });
@@ -382,6 +384,8 @@ router.patch('/campaigns/:id', async (req, res) => {
   try {
     const { rowCount } = await pool.query(`UPDATE rt_lab_campaigns SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $1`, params);
     if (!rowCount) return res.status(404).json({ error: 'Campanha não encontrada.' });
+    // Mudou a odd: refaz os vereditos e o campeão com a conta nova.
+    if (b.target_odd !== undefined || b.odd_margin !== undefined) await optimizer.reevaluateCampaign(id);
     res.json({ ok: true });
   } catch (err) {
     fail(res, 'PATCH /api/lab/campaigns/:id', err);
