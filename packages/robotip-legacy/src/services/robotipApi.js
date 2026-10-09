@@ -1,7 +1,8 @@
 'use strict';
 
 // Cliente da API interna do robotip.com.br (a mesma que o site usa). Só lê,
-// exceto createReport (gera um backtest — gasta 1 dos 10 slots da conta).
+// exceto createReport (gera um backtest — gasta 1 dos 10 slots da conta) e
+// createBot (cria o robô otimizado, quando o operador pede no Laboratório).
 // Login é um POST de formulário em /api/login que devolve o cookie `session`
 // (vale ~7 dias). Guarda o cookie em memória e refaz o login sozinho quando a
 // sessão cai (401/403 ou redirect pro login).
@@ -99,4 +100,21 @@ async function createReport({ name, market, filter, termex = '', isLive = true }
   return data;
 }
 
-module.exports = { isConfigured, fetchBots, fetchReports, fetchReportDetail, createReport };
+/**
+ * Cria um robô — o mesmo POST JSON que o construtor de robôs do site faz ao
+ * salvar uma cópia (`bot_ids: [-1]`). O site não devolve o id; o robô aparece
+ * em /api/filter_live com o `filter_name` enviado.
+ */
+async function createBot(fields) {
+  const data = await request('/api/filter_live', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...fields, bot_ids: [-1] }),
+  });
+  if (!data || !data.success || data.failed) {
+    throw new Error(`Robotip recusou o robô: ${data?.message || data?.error || JSON.stringify(data)}`);
+  }
+  return data;
+}
+
+module.exports = { isConfigured, fetchBots, fetchReports, fetchReportDetail, createReport, createBot };

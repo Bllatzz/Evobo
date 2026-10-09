@@ -318,11 +318,24 @@ router.get('/campaigns/:id', async (req, res) => {
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada.' });
     const [plan, quota] = await Promise.all([optimizer.planCampaign(campaign), optimizer.getQuota()]);
     const rule = engine.campaignOddRule(campaign);
-    const reportIds = [...new Set(plan.runs.flatMap((r) => [r.report_id, r.parent_report_id]).filter(Boolean))];
+    const baselineId = optimizer.baselineReportId(campaign, plan.runs);
+    const improved = plan.champion != null && baselineId != null && plan.champion.id !== baselineId;
+    const reportIds = [...new Set([...plan.runs.flatMap((r) => [r.report_id, r.parent_report_id]), baselineId].filter(Boolean))];
     const { rows: runReports } = reportIds.length
       ? await pool.query(`${REPORT_SELECT} WHERE r.id = ANY($1::int[])`, [reportIds])
       : { rows: [] };
     const byId = new Map(runReports.map((r) => [r.id, r]));
+    // Atual × Melhorado: robô de partida contra o campeão, nos dias em comum.
+    const [sameDays, promotions, next] = await Promise.all([
+      improved ? optimizer.compareOnSameDays(plan.champion.id, baselineId, rule) : null,
+      pool.query(
+        `SELECT id, bot_name, bot_id, version, report_id, created_at FROM rt_lab_promotions
+         WHERE campaign_id = $1 ORDER BY created_at DESC`,
+        [id]
+      ),
+      improved ? optimizer.nextPromotion(campaign) : null,
+    ]);
+    const brief = (m) => (m ? { acc: m.acc, per_day: m.perDay, score: m.score, count: m.count } : null);
     res.json({
       ...campaign,
       quota,
@@ -338,6 +351,15 @@ router.get('/campaigns/:id', async (req, res) => {
         result: reportSummary(byId.get(r.report_id), rule),
         parent: reportSummary(byId.get(r.parent_report_id), rule),
       })),
+      baseline: reportSummary(byId.get(baselineId), rule),
+      improvement: improved ? {
+        from: sameDays?.from ?? null,
+        to: sameDays?.to ?? null,
+        current: brief(sameDays?.b),
+        improved: brief(sameDays?.a),
+        next_bot_name: next.botName,
+      } : null,
+      promotions: promotions.rows,
       effects: effectsList(plan.effects).slice(0, 40),
       calibration: {
         n: plan.calibration.n,
@@ -423,6 +445,18 @@ router.post('/campaigns/:id/submit', async (req, res) => {
   } catch (err) {
     if (!err.status) return res.status(502).json({ error: err.message });
     fail(res, 'POST /api/lab/campaigns/:id/submit', err);
+  }
+});
+
+// ── POST /api/lab/campaigns/:id/promote ───────────────────────────────────────
+// Cria no Robotip o robô "Otimizado V{N} - {original}" com o filtro do campeão.
+router.post('/campaigns/:id/promote', async (req, res) => {
+  const id = campaignId(req);
+  if (!id) return res.status(400).json({ error: 'id inválido.' });
+  try {
+    res.status(201).json(await optimizer.promoteChampion(id));
+  } catch (err) {
+    fail(res, 'POST /api/lab/campaigns/:id/promote', err);
   }
 });
 

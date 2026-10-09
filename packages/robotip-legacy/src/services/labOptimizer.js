@@ -431,6 +431,138 @@ async function reevaluateCampaign(campaignId) {
   }
 }
 
+// ── Atual × Melhorado ───────────────────────────────────────────────────────
+
+/**
+ * Relatório do robô como ele era quando a campanha começou: o baseline (se o
+ * primeiro teste foi rodar o robô como está) ou o campeão de onde o primeiro
+ * teste saiu. Sem testes, é o próprio campeão.
+ */
+function baselineReportId(campaign, runs) {
+  const ordered = [...runs].sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at) || a.id - b.id);
+  for (const run of ordered) {
+    if (run.mutation?.kind === 'baseline') {
+      if (run.status === 'done' && run.report_id) return run.report_id;
+      continue;
+    }
+    if (run.parent_report_id) return run.parent_report_id;
+  }
+  return campaign.champion_report_id;
+}
+
+const PROMOTED_RE = /^Otimizado V(\d+) - (.+)$/i;
+
+/** Robô original da campanha (pelo id, ou pelo filtro do relatório de origem). */
+async function originBot(campaign) {
+  if (campaign.origin_bot_id != null) {
+    const { rows } = await pool.query('SELECT id, name FROM rt_bots WHERE id = $1', [campaign.origin_bot_id]);
+    if (rows[0]) return rows[0];
+  }
+  if (campaign.origin_report_id != null) {
+    const { rows } = await pool.query(
+      `SELECT b.id, b.name FROM rt_reports r
+       JOIN rt_bots b ON b.deleted_at IS NULL AND rtrim(b.filter, '&') = rtrim(r.query_filter, '&')
+       WHERE r.id = $1 ORDER BY b.id DESC LIMIT 1`,
+      [campaign.origin_report_id]
+    );
+    if (rows[0]) return rows[0];
+  }
+  return null;
+}
+
+/**
+ * Nome do próximo robô otimizado: "Otimizado V{N} - {robô original}", N = 1 +
+ * quantos já foram criados desse robô (contando também robôs com esse nome
+ * que já existam no Robotip). Otimizar um "Otimizado V1 - X" continua em X.
+ */
+async function nextPromotion(campaign) {
+  const origin = await originBot(campaign);
+  const raw = String(origin?.name || campaign.name).trim();
+  const baseName = (PROMOTED_RE.exec(raw)?.[2] ?? raw).trim().slice(0, 100);
+  const [promos, bots] = await Promise.all([
+    pool.query('SELECT COALESCE(MAX(version), 0)::int AS v FROM rt_lab_promotions WHERE base_name = $1', [baseName]),
+    pool.query(`SELECT name FROM rt_bots WHERE deleted_at IS NULL AND name ILIKE 'Otimizado V%'`),
+  ]);
+  let version = promos.rows[0].v;
+  for (const b of bots.rows) {
+    const m = PROMOTED_RE.exec(b.name.trim());
+    if (m && m[2].trim().toLowerCase() === baseName.toLowerCase()) version = Math.max(version, Number(m[1]));
+  }
+  version += 1;
+  return { origin, baseName, version, botName: `Otimizado V${version} - ${baseName}` };
+}
+
+/**
+ * Cria no Robotip o robô com o filtro do campeão, com as mesmas configurações
+ * do original (Telegram, Gestão, stake, links), pra ele já gerar alertas e
+ * entrar na Gestão de Banca. Aposta automática e webhook ficam de fora, como
+ * na cópia do próprio site.
+ */
+async function promoteChampion(campaignId) {
+  const campaign = await campaignById(campaignId);
+  if (!campaign) throw Object.assign(new Error('Campanha não encontrada.'), { status: 404 });
+  const { rows: runs } = await pool.query('SELECT * FROM rt_lab_runs WHERE campaign_id = $1', [campaign.id]);
+  const champion = await reportById(campaign.champion_report_id);
+  if (!champion || champion.id === baselineReportId(campaign, runs)) {
+    throw Object.assign(new Error('Ainda não tem versão melhorada pra criar.'), { status: 409 });
+  }
+
+  const { origin, baseName, version, botName } = await nextPromotion(campaign);
+  // Reserva a versão antes de chamar o site: dois cliques seguidos não criam
+  // dois robôs com o mesmo nome (o segundo bate no UNIQUE).
+  const { rows } = await pool.query(
+    `INSERT INTO rt_lab_promotions (campaign_id, base_name, version, bot_name, origin_bot_id, report_id, filter)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (base_name, version) DO NOTHING RETURNING id`,
+    [campaign.id, baseName, version, botName, origin?.id ?? null, champion.id, champion.query_filter]
+  );
+  if (!rows[0]) throw Object.assign(new Error(`"${botName}" já está sendo criado.`), { status: 409 });
+  const promotionId = rows[0].id;
+
+  try {
+    const src = origin ? (await robotip.fetchBots()).find((b) => b.id === origin.id) ?? {} : {};
+    await robotip.createBot({
+      filter_name: botName,
+      filter_query: champion.query_filter,
+      registrar_gestao: src.registrar_gestao ?? true,
+      send_telegram: src.send_telegram ?? true,
+      send_finished: src.send_finished ?? true,
+      bookmaker_links: src.bookmaker_links ?? '',
+      description: `Otimizado no Laboratório a partir de ${baseName}`,
+      send_stats: src.send_stats ?? true,
+      termex: campaign.termex ?? '',
+      send_link_robotip: src.send_link_robotip ?? true,
+      stake: Number(src.stake) > 0 ? Number(src.stake) : 1,
+      betting_enabled: false,
+      send_bet_placed: null,
+      betting_provider: null,
+      lay_bet: false,
+      allowed_ticks_slippage: src.allowed_ticks_slippage ?? 3,
+      webhook_url: null,
+      webhook_enabled: null,
+      for_sale: false,
+    });
+  } catch (err) {
+    await pool.query('DELETE FROM rt_lab_promotions WHERE id = $1', [promotionId]);
+    throw Object.assign(err, { status: err.status ?? 502 });
+  }
+  log(`campanha ${campaign.id}: criou o robô "${botName}"`);
+
+  // Liga ao id do robô novo (o site não devolve).
+  try {
+    await runListSync();
+    await pool.query(
+      `UPDATE rt_lab_promotions p SET bot_id = b.id
+       FROM (SELECT id FROM rt_bots WHERE deleted_at IS NULL AND name = $2 ORDER BY id DESC LIMIT 1) b
+       WHERE p.id = $1`,
+      [promotionId, botName]
+    );
+  } catch (err) {
+    log(`robô "${botName}" criado, mas o sync falhou:`, err.message);
+  }
+  return { id: promotionId, bot_name: botName, version };
+}
+
 /** Modo automático: preenche os slots livres com os melhores candidatos. */
 async function fillAutoCampaigns() {
   const { rows: campaigns } = await pool.query(
@@ -493,5 +625,9 @@ module.exports = {
   checkSubmittedRuns,
   ensureDetail,
   reevaluateCampaign,
+  compareOnSameDays,
+  baselineReportId,
+  nextPromotion,
+  promoteChampion,
   startLabOptimizer,
 };
