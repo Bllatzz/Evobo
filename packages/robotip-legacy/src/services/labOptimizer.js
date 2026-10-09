@@ -617,6 +617,7 @@ function startLabOptimizer() {
 
 module.exports = {
   QUOTA_TOTAL,
+  SCORE_TOLERANCE,
   getQuota,
   campaignById,
   planCampaign,

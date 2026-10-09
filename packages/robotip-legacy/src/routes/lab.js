@@ -357,6 +357,12 @@ router.get('/campaigns/:id', async (req, res) => {
         to: sameDays?.to ?? null,
         current: brief(sameDays?.b),
         improved: brief(sameDays?.a),
+        // Melhora menor que a margem de ruído do otimizador = na prática empate.
+        within_noise: (() => {
+          const a = sameDays?.a ?? engine.metricsOf(plan.champion, rule);
+          const b = sameDays?.b ?? engine.metricsOf(byId.get(baselineId), rule);
+          return a?.score != null && b?.score != null && a.score < b.score + Math.abs(b.score) * optimizer.SCORE_TOLERANCE;
+        })(),
         next_bot_name: next.botName,
       } : null,
       promotions: promotions.rows,
