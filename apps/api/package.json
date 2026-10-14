@@ -12,7 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@evobo/design-tokens": "*",
     "@evobo/robotip-legacy": "*",
     "@evobo/shared-types": "*",
     "@evobo/worker": "*",

@@ -12,7 +12,6 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/shared-types/package.json packages/shared-types/package.json
-COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/robotip-legacy/package.json packages/robotip-legacy/package.json
 # apps/worker/src/betAnalytix uses playwright's JS API, but only to call a
 # fetch server running on the user's own PC (reached through a tunnel, same
@@ -27,7 +26,6 @@ COPY tsconfig.base.json ./
 COPY apps/api apps/api
 COPY apps/worker apps/worker
 COPY packages/shared-types packages/shared-types
-COPY packages/design-tokens packages/design-tokens
 COPY packages/robotip-legacy packages/robotip-legacy
 RUN npx prisma generate --schema apps/api/prisma/schema.prisma
 RUN npm run build --workspace=apps/api
@@ -35,7 +33,7 @@ RUN npm run build --workspace=apps/worker
 
 # Node 24 runs the workspace packages' raw .ts (no build step for those) via
 # native type-stripping, so apps/api/dist/server.js can import
-# @evobo/shared-types and @evobo/design-tokens directly at runtime.
+# @evobo/shared-types directly at runtime.
 FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production

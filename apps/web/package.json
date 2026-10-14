@@ -14,7 +14,6 @@
     "build:extension": "node scripts/build-extension.mjs"
   },
   "dependencies": {
-    "@evobo/design-tokens": "*",
     "@evobo/shared-types": "*",
     "@supabase/supabase-js": "^2.110.0",
     "@tailwindcss/vite": "^4.3.2",

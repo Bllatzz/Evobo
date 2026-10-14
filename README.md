@@ -41,7 +41,6 @@ flowchart LR
 | `apps/worker` | Listener do Telegram, OCR, conferência de resultados e jobs | GramJS, BullMQ, Playwright |
 | `apps/betting-extension` | Extensão de navegador para a aposta automática | Chrome Extensions MV3, JS puro |
 | `packages/shared-types` | Schemas Zod e tipos usados pela API e pelo web | Zod |
-| `packages/design-tokens` | Tokens de design (cores, status) | TypeScript |
 | `packages/robotip-legacy` | Serviço legado (Express) migrado para dentro da API | Express, pg |
 
 ## Segurança
