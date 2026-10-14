@@ -108,7 +108,9 @@ async function findRecentDuplicateAlert({ bot_name, home_team, away_team, roboti
   return rows[0] ?? null;
 }
 
-async function saveAlert(parsed, rawMessage, telegramMessageId) {
+// receivedAt: data da mensagem no Telegram, só pro CATCHUP — sem ela o alerta
+// recuperado horas depois cai no dia errado na gestão/análise.
+async function saveAlert(parsed, rawMessage, telegramMessageId, receivedAt = null) {
   const {
     bot_name, odds, bet_odds, home_team, away_team, robotip_url, bet365_url, game_minute,
     home_odds, draw_odds, away_odds, competition, score_home, score_away,
@@ -141,11 +143,11 @@ async function saveAlert(parsed, rawMessage, telegramMessageId) {
       red_home, red_away,
       shots_side_home, shots_side_away, last_shot_side_minute_home, last_shot_side_minute_away,
       shots_target_home, shots_target_away, last_shot_target_minute_home, last_shot_target_minute_away,
-      possession_home, possession_away, pi1, pi2, raw_message, telegram_message_id
+      possession_home, possession_away, pi1, pi2, raw_message, telegram_message_id, received_at
     ) VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
       $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
-      $36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47
+      $36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,COALESCE($48::timestamptz, NOW())
     ) RETURNING *`,
     [
       bot_name, odds, bet_odds, home_team, away_team, robotip_url, bet365_url, game_minute,
@@ -158,7 +160,7 @@ async function saveAlert(parsed, rawMessage, telegramMessageId) {
       red_home, red_away,
       shots_side_home, shots_side_away, last_shot_side_minute_home, last_shot_side_minute_away,
       shots_target_home, shots_target_away, last_shot_target_minute_home, last_shot_target_minute_away,
-      possession_home, possession_away, pi1, pi2, rawMessage, telegramMessageId,
+      possession_home, possession_away, pi1, pi2, rawMessage, telegramMessageId, receivedAt,
     ]
   );
   broadcast('new-alert', rows[0]);
@@ -412,32 +414,51 @@ async function startTelegramListener() {
   // boot, antes do 1º update chegar.
   let lastUpdateAt = Date.now();
 
-  // Recupera alertas perdidos durante downtime (últimas 2h)
+  // Recupera alertas perdidos durante downtime: do último alerta salvo
+  // (margem de 10min) até agora, no mínimo 2h e no máximo 7 dias. Não dispara
+  // auto-aposta — entrada de horas atrás não vale mais.
   if (botSource) {
     try {
       // Resolve entity primeiro — sessão nova pode não ter o cache ainda
       await client.getEntity(botSource).catch(() => null);
-      const twoHoursAgo = Math.floor(Date.now() / 1000) - 2 * 3600;
-      const history = await client.getMessages(botSource, { limit: 50 });
-      const missed = history.filter(m => m.date >= twoHoursAgo && m.message);
+      const nowUnix = Math.floor(Date.now() / 1000);
+      const { rows: [last] } = await pool.query(
+        `SELECT EXTRACT(EPOCH FROM MAX(received_at))::bigint AS ts FROM alerts`
+      );
+      const sinceUnix = Math.max(
+        nowUnix - 7 * 86400,
+        Math.min(nowUnix - 2 * 3600, Number(last?.ts ?? 0) - 600)
+      );
+      const missed = [];
+      let offsetId = 0;
+      while (true) {
+        const batch = await client.getMessages(botSource, { limit: 100, ...(offsetId ? { offsetId } : {}) });
+        if (!batch || batch.length === 0) break;
+        const fresh = batch.filter((m) => m.date >= sinceUnix);
+        missed.push(...fresh.filter((m) => m.message));
+        if (fresh.length < batch.length) break;
+        offsetId = batch[batch.length - 1].id;
+      }
       if (missed.length > 0) {
-        console.log(`[CATCHUP] Processando ${missed.length} mensagens das últimas 2h...`);
+        console.log(`[CATCHUP] Processando ${missed.length} mensagens desde ${new Date(sinceUnix * 1000).toISOString()}...`);
+        let recovered = 0;
         for (const m of missed.reverse()) {
           const raw = m.message;
           const parsed = parseAlert(raw);
           if (!parsed) continue;
 
           const { rows } = await pool.query(
-            `SELECT id FROM alerts WHERE raw_message = $1 LIMIT 1`, [raw]
+            `SELECT id FROM alerts WHERE telegram_message_id = $1 OR raw_message = $2 LIMIT 1`, [m.id, raw]
           );
           if (rows.length > 0) continue;
 
           await fillCornerBaseline(parsed);
-          await saveAlert(parsed, raw, m.id).catch(err =>
+          const saved = await saveAlert(parsed, raw, m.id, new Date(m.date * 1000)).catch(err =>
             console.error('[CATCHUP] Erro ao salvar alerta:', err.message)
           );
-          console.log(`[CATCHUP] Alerta recuperado: ${parsed.home_team} x ${parsed.away_team}`);
+          if (saved) recovered++;
         }
+        console.log(`[CATCHUP] ${recovered} alertas recuperados.`);
       }
     } catch (err) {
       console.warn('[CATCHUP] Falha ao buscar histórico:', err.message);
