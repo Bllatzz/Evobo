@@ -251,6 +251,20 @@ async function syncGestaoBanca(alert, result) {
  * sobrevive a reconexões dentro do mesmo processo) pra não martelar a API
  * do Telegram se o listener cair e reconectar em loop.
  */
+// Chamada ao Telegram que nunca resolve (socket meio-morto: o GramJS só loga
+// "Error: TIMEOUT" no updateLoop) travava o listener inteiro sem erro nenhum
+// — em 13/10 travou rodando (01:40 UTC) e de novo no boot (04:44), ~25h
+// sem alerta. Com timeout, a falha vira exceção e o loop de reconexão age.
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timeout de ${ms / 1000}s em ${label}`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 const BACKFILL_LOOKBACK_DAYS = 7;
 const BACKFILL_MIN_INTERVAL_MS = 30 * 60_000;
 let lastBackfillRunAt = 0;
@@ -386,7 +400,7 @@ async function startTelegramListener() {
     console.log('Login realizado com sucesso. Session salva.');
   } else {
     try {
-      await client.connect();
+      await withTimeout(client.connect(), 60_000, 'connect');
     } catch (err) {
       await client.disconnect().catch(() => {});
       throw err;
@@ -400,7 +414,7 @@ async function startTelegramListener() {
   // abaixo). Carrega os diálogos uma vez pra popular esse cache antes de
   // qualquer resolução por ID.
   try {
-    await client.getDialogs({ limit: 100 });
+    await withTimeout(client.getDialogs({ limit: 100 }), 60_000, 'getDialogs');
   } catch (err) {
     console.warn('Falha ao pré-carregar diálogos:', err.message);
   }
@@ -420,7 +434,7 @@ async function startTelegramListener() {
   if (botSource) {
     try {
       // Resolve entity primeiro — sessão nova pode não ter o cache ainda
-      await client.getEntity(botSource).catch(() => null);
+      await withTimeout(client.getEntity(botSource), 30_000, 'getEntity').catch(() => null);
       const nowUnix = Math.floor(Date.now() / 1000);
       const { rows: [last] } = await pool.query(
         `SELECT EXTRACT(EPOCH FROM MAX(received_at))::bigint AS ts FROM alerts`
@@ -432,7 +446,9 @@ async function startTelegramListener() {
       const missed = [];
       let offsetId = 0;
       while (true) {
-        const batch = await client.getMessages(botSource, { limit: 100, ...(offsetId ? { offsetId } : {}) });
+        const batch = await withTimeout(
+          client.getMessages(botSource, { limit: 100, ...(offsetId ? { offsetId } : {}) }), 30_000, 'CATCHUP'
+        );
         if (!batch || batch.length === 0) break;
         const fresh = batch.filter((m) => m.date >= sinceUnix);
         missed.push(...fresh.filter((m) => m.message));
@@ -465,7 +481,8 @@ async function startTelegramListener() {
     }
   }
 
-  await backfillMissedResults(client, botSource);
+  // Sem catch: se travar, o listener reconecta (o throttle de 30min evita refazer a varredura).
+  await withTimeout(backfillMissedResults(client, botSource), 10 * 60_000, 'backfill');
 
   async function processMessage(rawText, messageId) {
     if (!rawText) return;
@@ -520,7 +537,7 @@ async function startTelegramListener() {
   let baselineId = 0;
   if (botSource) {
     try {
-      const latest = await client.getMessages(botSource, { limit: 1 });
+      const latest = await withTimeout(client.getMessages(botSource, { limit: 1 }), 30_000, 'baseline');
       baselineId = latest[0]?.id ?? 0;
     } catch (err) {
       console.warn('[POLL] Falha ao ler baseline:', err.message);
@@ -553,10 +570,12 @@ async function startTelegramListener() {
     }
   }, new NewMessage({}));
 
+  let lastPollOkAt = Date.now();
   const pollTimer = botSource
     ? setInterval(async () => {
         try {
-          const batch = await client.getMessages(botSource, { limit: 20 });
+          const batch = await withTimeout(client.getMessages(botSource, { limit: 20 }), 30_000, 'poll');
+          lastPollOkAt = Date.now();
           const missed = batch
             .filter((m) => m.message && m.id > baselineId && claim(m.id))
             .sort((a, b) => a.id - b.id);
@@ -630,6 +649,11 @@ async function startTelegramListener() {
       if (!client.connected) {
         throw new Error('Conexão com o Telegram caiu (client.connected = false).');
       }
+      // Poll sem sucesso por 3min = conexão travada, mesmo com push "vivo".
+      const pollStaleMs = Date.now() - lastPollOkAt;
+      if (botSource && pollStaleMs > 3 * 60_000) {
+        throw new Error(`Poll sem resposta do Telegram há ${Math.round(pollStaleMs / 60_000)}min.`);
+      }
       const silentForMs = Date.now() - lastUpdateAt;
       if (silentForMs > STALE_THRESHOLD_MS) {
         throw new Error(
@@ -644,7 +668,9 @@ async function startTelegramListener() {
     // sessão, e os dois passam a processar a mesma mensagem (alerta
     // duplicado, aposta automática em dobro), além do risco de
     // AUTH_KEY_DUPLICATED.
-    await client.disconnect().catch(() => {});
+    // disconnect() também pode travar no socket morto — sem o timeout o
+    // finally nunca termina e o loop de reconexão nunca roda.
+    await withTimeout(client.disconnect(), 15_000, 'disconnect').catch(() => {});
   }
 }
 
