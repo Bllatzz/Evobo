@@ -543,8 +543,13 @@ async function promoteChampion(campaignId) {
       for_sale: false,
     });
   } catch (err) {
-    await pool.query('DELETE FROM rt_lab_promotions WHERE id = $1', [promotionId]);
-    throw Object.assign(err, { status: err.status ?? 502 });
+    // O site às vezes cria o robô e ainda responde erro ("Some properties could not be changed").
+    const created = (await robotip.fetchBots().catch(() => [])).some((b) => b.name === botName);
+    if (!created) {
+      await pool.query('DELETE FROM rt_lab_promotions WHERE id = $1', [promotionId]);
+      throw Object.assign(err, { status: err.status ?? 502 });
+    }
+    log(`campanha ${campaign.id}: "${botName}" criado, mas o Robotip avisou: ${err.message}`);
   }
   log(`campanha ${campaign.id}: criou o robô "${botName}"`);
 
