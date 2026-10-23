@@ -46,7 +46,8 @@ function safeEqual(a, b) {
 
 function createApp() {
   const app = express();
-  app.use(cors());
+  // Mesmas origens que o CORS do Fastify (server.ts) libera pra /robotip.
+  app.use(cors({ origin: [process.env.CORS_ORIGIN, 'https://robotip-analyzer.vercel.app'].filter(Boolean) }));
   app.use(express.json());
 
   app.get('/health', (req, res) => res.json({ ok: true }));

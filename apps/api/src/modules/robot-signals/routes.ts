@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { authGuard } from "../../middleware/authGuard.js";
+import { roleGuard } from "../../middleware/roleGuard.js";
 import { normalizeMarket } from "./marketNormalizer.js";
 import { prisma } from "../../db/prisma.js";
 
@@ -335,6 +336,7 @@ export async function robotSignalsRoutes(app: FastifyInstance) {
   // frontend hides it from logged-out users, but the backend must enforce
   // that too, not just proxy robotip's (itself unauthenticated) API to anyone.
   app.addHook("preHandler", authGuard);
+  app.addHook("preHandler", roleGuard("robo_apostas"));
 
   app.get<{ Querystring: { result?: string } }>("/", async (request) => {
     // "Alertas" means active signals — resolved (green/red/reembolso) rows

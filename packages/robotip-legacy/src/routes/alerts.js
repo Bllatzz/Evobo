@@ -35,7 +35,11 @@ async function cached(key, fn) {
 }
 
 // ── GET /api/alerts/events ────────────────────────────────────────────────────
+// Teto de conexões SSE: cada uma é um socket aberto pra sempre.
+const MAX_SSE_CLIENTS = 50;
+
 router.get('/events', (req, res) => {
+  if (sseClients.size >= MAX_SSE_CLIENTS) return res.status(503).json({ error: 'too_many_streams' });
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -397,7 +401,7 @@ router.get('/competitions', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const page   = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit  = Math.max(1, parseInt(req.query.limit, 10) || 20);
+    const limit  = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const offset = (page - 1) * limit;
     const { competition, result, bot_name, bot_names, date_from, date_to, search } = req.query;
     const botList = bot_names

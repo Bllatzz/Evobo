@@ -103,7 +103,7 @@ async function fetchPredictions(
 
 /** Same asset host the ev_table page itself renders team crests from (`b` = the only size confirmed live). */
 function teamImageUrl(teamId: string): string {
-  return `${ROBOTIP_PUBLIC_URL}/robotip_imgs/teams_imgs/b/${teamId}.png`;
+  return `${ROBOTIP_PUBLIC_URL}/robotip_imgs/teams_imgs/b/${encodeURIComponent(teamId)}.png`;
 }
 
 const BOOKIE_LABELS: Record<string, string> = {

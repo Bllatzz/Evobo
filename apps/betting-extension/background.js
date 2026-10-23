@@ -402,6 +402,9 @@ async function ensureLoggedIn(tabId, config, st, bookmaker = "betano") {
   const falhou = (r, passo) => ({ ok: false, ...r, falhouEm: passo, passos });
   // Pede o ponto do alvo AGORA (nunca guardado de antes) e o usa na hora.
   const ponto = async (alvo) => askTab(tabId, { acao: "login_ponto", alvo });
+  // Login e senha só são digitados se a aba ainda estiver na casa (ela pode
+  // ter navegado entre pedir o ponto e digitar).
+  const naCasa = async () => bookmakerOf((await chrome.tabs.get(tabId)).url) === bookmaker;
   try {
     const botao = await askTab(tabId, { acao: "login_botao" });
     if (!botao) return falhou({ motivo: "botao_entrar_nao_encontrado" }, "entrar");
@@ -427,11 +430,13 @@ async function ensureLoggedIn(tabId, config, st, bookmaker = "betano") {
 
     const u = await ponto("usuario");
     if (!u?.ok) return falhou(u, "usuario");
+    if (!(await naCasa())) return falhou({ motivo: "aba_saiu_da_casa" }, "usuario");
     await trustedType(tabId, u.ponto, cred.username);
     passos.push({ passo: "usuario", alvo: u.alvo, ponto: u.ponto });
 
     const s = await ponto("senha");
     if (!s?.ok) return falhou(s, "senha");
+    if (!(await naCasa())) return falhou({ motivo: "aba_saiu_da_casa" }, "senha");
     await trustedType(tabId, s.ponto, cred.password);
     passos.push({ passo: "senha", alvo: s.alvo, ponto: s.ponto });
   } finally {

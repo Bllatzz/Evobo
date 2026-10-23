@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { Prisma } from "@prisma/client";
 import { CreateTipInput } from "@evobo/shared-types";
 import { authGuard, optionalAuthGuard } from "../../middleware/authGuard.js";
+import { roleGuard } from "../../middleware/roleGuard.js";
 import { prisma } from "../../db/prisma.js";
 
 // Never matches a real row — lets the "did I take this" include always have
@@ -84,7 +85,8 @@ export async function tipsRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post("/", { preHandler: authGuard }, async (request, reply) => {
+  // Mesma tela que a página "Nova tip" exige (RouteGuard nova_tip).
+  app.post("/", { preHandler: [authGuard, roleGuard("nova_tip")] }, async (request, reply) => {
     const parsed = CreateTipInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });

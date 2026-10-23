@@ -41,7 +41,10 @@ export async function usersRoutes(app: FastifyInstance) {
     // Só aceita foto enviada pro bucket "avatars" do nosso Supabase (é o que
     // uploadAvatar devolve) — URL arbitrária viraria pixel de rastreamento
     // carregado no navegador de todo mundo que vê o perfil.
-    if (avatarUrl && !avatarUrl.startsWith(`${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/public/avatars/`)) {
+    // Checa a URL já normalizada: "avatars/../outro-bucket/x" passaria no
+    // startsWith da string crua.
+    const avatarPrefix = `${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/public/avatars/`;
+    if (avatarUrl && !(URL.canParse(avatarUrl) && new URL(avatarUrl).href.startsWith(avatarPrefix))) {
       return reply.code(400).send({ error: "invalid_avatar_url" });
     }
     // Unique constraint violations (username taken) fall through to the

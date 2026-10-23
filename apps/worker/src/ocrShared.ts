@@ -21,6 +21,9 @@ export type MarketTypeCategory = (typeof MARKET_TYPE_CATEGORIES)[number];
  * que nenhuma seleção individual recebe da OCR (ver comentário acima). */
 export type MarketType = MarketTypeCategory | "Combinada";
 
+// Odd plausível: acima de 1 e com teto pra descartar número absurdo do modelo.
+const isOdd = (v: unknown): v is number => typeof v === "number" && v > 1 && v <= 10000;
+
 export type OcrSelection = { market: string | null; game: string | null; odd: number | null; marketType: MarketTypeCategory | null };
 export type OcrResult = { selections: OcrSelection[]; totalOdd: number | null };
 
@@ -132,11 +135,11 @@ export function parseOcrResponseText(text: string | null | undefined): OcrResult
       return {
         market: asTextOrNull(row.market),
         game: asTextOrNull(row.game),
-        odd: typeof row.odd === "number" && row.odd > 1 ? row.odd : null,
+        odd: isOdd(row.odd) ? row.odd : null,
         marketType: asMarketType(row.marketType),
       };
     });
-    const totalOdd = typeof parsed.totalOdd === "number" && parsed.totalOdd > 1 ? parsed.totalOdd : null;
+    const totalOdd = isOdd(parsed.totalOdd) ? parsed.totalOdd : null;
 
     return { selections, totalOdd };
   } catch (err) {

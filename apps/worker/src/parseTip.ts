@@ -343,7 +343,8 @@ function parsePadovanMessage(lines: string[], entities: TextEntity[] | undefined
     // ordem em que os nomes aparecem no texto — "🔗 Betfair · 🔗 Betnacional"
     // com dois hyperlinks escondidos vira dois pares reais, não só o
     // primeiro (senão a 2ª casa nunca tem link próprio pra trocar).
-    urls.push(...(entities ?? []).map((e) => e.url).filter((u): u is string => !!u));
+    // Só http(s), como em extractLink: text-link pode ter qualquer esquema.
+    urls.push(...(entities ?? []).map((e) => e.url).filter((u): u is string => !!u && /^https?:\/\//i.test(u)));
   }
 
   // Casa/link únicos (o comum) viram 1 par; quando a tip lista mais de uma

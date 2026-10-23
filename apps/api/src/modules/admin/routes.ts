@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { authGuard } from "../../middleware/authGuard.js";
 import { roleGuard } from "../../middleware/roleGuard.js";
 import { recordAuditLog } from "../../middleware/auditLog.js";
@@ -122,9 +123,11 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.patch<{ Params: { groupKey: string }; Body: { indicatedOdd: number | null } }>(
     "/robot-market-odds/:groupKey",
-    async (request) => {
+    async (request, reply) => {
       const groupKey = decodeURIComponent(request.params.groupKey);
-      const { indicatedOdd } = request.body;
+      const parsed = z.object({ indicatedOdd: z.number().gt(1).lt(1000).nullable() }).safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "invalid_input" });
+      const { indicatedOdd } = parsed.data;
       if (indicatedOdd === null) {
         await prisma.robotMarketOdd.deleteMany({ where: { groupKey } });
         return { groupKey, indicatedOdd: null };

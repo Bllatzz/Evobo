@@ -197,7 +197,8 @@ export async function rolesRoutes(app: FastifyInstance) {
         ],
       },
       take: 10,
-      include: { role: true },
+      // Só o que a tela de roles mostra — não a linha inteira de users.
+      select: { id: true, username: true, displayName: true, role: { select: { id: true, name: true } } },
     });
   });
 

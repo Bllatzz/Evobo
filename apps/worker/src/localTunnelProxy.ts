@@ -51,8 +51,10 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // O segredo do túnel não segue pro backend local.
+  const { [TUNNEL_SECRET_HEADER]: _secret, ...headers } = req.headers;
   const proxyReq = httpRequest(
-    { host: "127.0.0.1", port: targetPort, path: req.url, method: req.method, headers: req.headers },
+    { host: "127.0.0.1", port: targetPort, path: req.url, method: req.method, headers },
     (proxyRes) => {
       res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
       proxyRes.pipe(res);

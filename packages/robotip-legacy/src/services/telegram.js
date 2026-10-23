@@ -4,7 +4,7 @@
 // startup do host) — não recarrega aqui como o robotip-analyzer original
 // fazia, pra não arriscar sobrescrever variáveis já resolvidas pelo host.
 
-const { TelegramClient, Api } = require('telegram');
+const { TelegramClient, Api, utils } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { NewMessage, Raw } = require('telegram/events');
 
@@ -255,6 +255,19 @@ async function syncGestaoBanca(alert, result) {
 // "Error: TIMEOUT" no updateLoop) travava o listener inteiro sem erro nenhum
 // — em 13/10 travou rodando (01:40 UTC) e de novo no boot (04:44), ~25h
 // sem alerta. Com timeout, a falha vira exceção e o loop de reconexão age.
+// Id (marcado, igual ao Message.senderId) do ROBOTIP_TELEGRAM_BOT_SOURCE. O
+// push filtra pelo remetente; poll, CATCHUP, backfill e reações também
+// precisam, senão qualquer outro membro do chat forjaria alerta/resultado.
+let botSourceId = null;
+async function resolveBotSourceId(client, botSource) {
+  if (!botSourceId && botSource) {
+    const ent = await withTimeout(client.getEntity(botSource), 30_000, 'getEntity').catch(() => null);
+    if (ent) botSourceId = utils.getPeerId(ent);
+  }
+  return botSourceId;
+}
+const sentByBotSource = (m) => botSourceId !== null && m.senderId != null && String(m.senderId) === botSourceId;
+
 function withTimeout(promise, ms, label) {
   let timer;
   return Promise.race([
@@ -270,7 +283,7 @@ const BACKFILL_MIN_INTERVAL_MS = 30 * 60_000;
 let lastBackfillRunAt = 0;
 
 async function backfillMissedResults(client, botSource) {
-  if (!botSource) return;
+  if (!botSource || !(await resolveBotSourceId(client, botSource))) return;
   if (Date.now() - lastBackfillRunAt < BACKFILL_MIN_INTERVAL_MS) return;
   lastBackfillRunAt = Date.now();
 
@@ -294,7 +307,7 @@ async function backfillMissedResults(client, botSource) {
       for (const m of batch) {
         if (m.date < cutoffUnix) { hitCutoff = true; break; }
         scanned++;
-        if (!m.message) continue;
+        if (!m.message || !sentByBotSource(m)) continue;
 
         const parsedResult = parseResult(m.message);
         if (!parsedResult) continue;
@@ -336,7 +349,8 @@ async function dispararAutoAposta(botName, rawMessage) {
     const autoBet = rows.length > 0 && rows[0].auto_bet === true;
     if (!autoBet) return;
 
-    const bridgeUrl    = process.env.ROBOTIP_BETTING_BRIDGE_URL || 'http://localhost:3002';
+    const bridgeUrl    = process.env.ROBOTIP_BETTING_BRIDGE_URL;
+    if (!bridgeUrl) return console.warn(`[AUTO-APOSTA] ROBOTIP_BETTING_BRIDGE_URL não configurada — alerta de "${botName}" não enviado`);
     const bridgeSecret = process.env.ROBOTIP_BRIDGE_SECRET || '';
     const endpoint     = `${bridgeUrl}/apostar-from-alert`;
 
@@ -349,6 +363,7 @@ async function dispararAutoAposta(botName, rawMessage) {
       method:  'POST',
       headers,
       body:    JSON.stringify({ raw_message: rawMessage, bot_name: botName }),
+      signal:  AbortSignal.timeout(15_000),
     });
 
     const json = await response.json().catch(() => ({}));
@@ -434,7 +449,7 @@ async function startTelegramListener() {
   if (botSource) {
     try {
       // Resolve entity primeiro — sessão nova pode não ter o cache ainda
-      await withTimeout(client.getEntity(botSource), 30_000, 'getEntity').catch(() => null);
+      await resolveBotSourceId(client, botSource);
       const nowUnix = Math.floor(Date.now() / 1000);
       const { rows: [last] } = await pool.query(
         `SELECT EXTRACT(EPOCH FROM MAX(received_at))::bigint AS ts FROM alerts`
@@ -451,7 +466,7 @@ async function startTelegramListener() {
         );
         if (!batch || batch.length === 0) break;
         const fresh = batch.filter((m) => m.date >= sinceUnix);
-        missed.push(...fresh.filter((m) => m.message));
+        missed.push(...fresh.filter((m) => m.message && sentByBotSource(m)));
         if (fresh.length < batch.length) break;
         offsetId = batch[batch.length - 1].id;
       }
@@ -576,8 +591,9 @@ async function startTelegramListener() {
         try {
           const batch = await withTimeout(client.getMessages(botSource, { limit: 20 }), 30_000, 'poll');
           lastPollOkAt = Date.now();
+          await resolveBotSourceId(client, botSource);
           const missed = batch
-            .filter((m) => m.message && m.id > baselineId && claim(m.id))
+            .filter((m) => m.message && m.id > baselineId && sentByBotSource(m) && claim(m.id))
             .sort((a, b) => a.id - b.id);
           for (const m of missed) {
             console.log(`[POLL] msg ${m.id} recuperada, push não entregou (atraso ${Math.round(Date.now() / 1000 - m.date)}s)`);
@@ -600,6 +616,8 @@ async function startTelegramListener() {
 
       const results = update.reactions && update.reactions.results;
       if (!results) return;
+      // msgId só é único dentro do chat: reação em outro chat não conta.
+      if (!botSourceId || !update.peer || utils.getPeerId(update.peer) !== botSourceId) return;
 
       const myEmojis = results
         .filter((r) => r.chosenOrder !== undefined)

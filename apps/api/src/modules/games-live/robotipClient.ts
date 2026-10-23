@@ -54,7 +54,7 @@ export async function fetchNextGames(isoDate: string): Promise<Record<string, { 
 
 export async function fetchStats(gameId: string): Promise<StatsFeedData | null> {
   try {
-    const res = await fetch(`${ROBOTIP_PUBLIC_URL}/api/transfer/StatsFeed?game_id=${gameId}`, {
+    const res = await fetch(`${ROBOTIP_PUBLIC_URL}/api/transfer/StatsFeed?game_id=${encodeURIComponent(gameId)}`, {
       signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return null;
