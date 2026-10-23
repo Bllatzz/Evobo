@@ -29,13 +29,16 @@ import { evPlusRoutes } from "./modules/ev-plus/routes.js";
 import { adminRoutes } from "./modules/admin/routes.js";
 import { searchRoutes } from "./modules/search/routes.js";
 
+const TRUST_PROXY = ["172.16.0.0/12", "66.241.125.24", "2a09:8280:1::14b:167f:0"];
+
 const app = Fastify({
   // The API sits behind exactly one proxy hop (Fly's edge). Without this,
   // request.ip is the proxy's address, so the rate limiter below puts every
-  // client in a single bucket. Trust only Fly's proxy peer (private 172.16/12,
-  // measured in prod logs) so a client can't dodge the limit by sending its own
-  // X-Forwarded-For. Fastify >=5.12 makes a numeric hop count trust nothing.
-  trustProxy: "172.16.0.0/12",
+  // client in a single bucket. Trust only Fly's proxy peer (private 172.16/12)
+  // and the app's own ingress IPs, which Fly appends as the rightmost
+  // X-Forwarded-For entry (`fly ips list`), so a client can't dodge the limit
+  // with its own X-Forwarded-For. Fastify >=5.12 makes a hop count trust nothing.
+  trustProxy: TRUST_PROXY,
   logger: {
     level: env.NODE_ENV === "production" ? "info" : "debug",
     // Never log Authorization headers, tokens, or payment/proof payloads.
