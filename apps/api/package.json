@@ -9,7 +9,7 @@
     "start": "node -r dotenv/config dist/server.js",
     "lint": "oxlint",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --dir src"
   },
   "dependencies": {
     "@evobo/robotip-legacy": "*",
@@ -34,6 +34,6 @@
     "prisma": "^6.19.1",
     "tsx": "^4.22.4",
     "typescript": "~5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^5.0.5"
   }
 }

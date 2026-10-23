@@ -32,9 +32,10 @@ import { searchRoutes } from "./modules/search/routes.js";
 const app = Fastify({
   // The API sits behind exactly one proxy hop (Fly's edge). Without this,
   // request.ip is the proxy's address, so the rate limiter below puts every
-  // client in a single bucket. `1` (not `true`) trusts only that last hop, so
-  // a client can't dodge the limit by sending its own X-Forwarded-For.
-  trustProxy: 1,
+  // client in a single bucket. Trust only Fly's proxy peer (private 172.16/12,
+  // measured in prod logs) so a client can't dodge the limit by sending its own
+  // X-Forwarded-For. Fastify >=5.12 makes a numeric hop count trust nothing.
+  trustProxy: "172.16.0.0/12",
   logger: {
     level: env.NODE_ENV === "production" ? "info" : "debug",
     // Never log Authorization headers, tokens, or payment/proof payloads.
