@@ -41,8 +41,18 @@ const DEFAULT_CONFIG = { extensionKey: "" };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Casas suportadas e como reconhecer cada uma pelo link/aba.
-const HOSTS = { betano: /^https:\/\/([^/]+\.)?betano\.bet\.br\//, bet365: /^https:\/\/([^/]+\.)?bet365\.bet\.br\// };
-const bookmakerOf = (url) => Object.keys(HOSTS).find((b) => HOSTS[b].test(url ?? "")) ?? null;
+// Pelo hostname já parseado: regex na URL crua aceitava
+// https://outro.site?.betano.bet.br/ como Betano.
+const HOSTS = { betano: "betano.bet.br", bet365: "bet365.bet.br" };
+const bookmakerOf = (url) => {
+  try {
+    const u = new URL(url ?? "");
+    if (u.protocol !== "https:") return null;
+    return Object.keys(HOSTS).find((b) => u.hostname === HOSTS[b] || u.hostname.endsWith(`.${HOSTS[b]}`)) ?? null;
+  } catch {
+    return null;
+  }
+};
 const LABEL = { betano: "Betano", bet365: "Bet365" };
 
 // Bet365 ainda NÃO clica em "Fazer aposta", nem com "Apostar de verdade"
@@ -143,6 +153,12 @@ async function runInTab(tabId, runnerTask) {
 async function openAndRun(task, settings, config, esperouOcrMs = 0) {
   const runnerTask = toRunnerTask(task, settings);
   const dryRun = !runnerTask.placeReal;
+  // Link da fila vem de mensagem do Telegram: só abre aba se for mesmo da casa.
+  const casaDoLink = bookmakerOf(task.betUrl);
+  if (!casaDoLink || (task.bookmaker && casaDoLink !== task.bookmaker)) {
+    await finish(task, { ok: false, abort: "link_fora_da_casa" }, null, config, dryRun);
+    return null;
+  }
   // Quanto tempo se passou da mensagem no Telegram até a aba abrir (e
   // quanto disso foi esperando a OCR preencher odd/unidade) — pra saber
   // onde está a demora em vez de chutar.

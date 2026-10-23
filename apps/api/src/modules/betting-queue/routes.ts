@@ -25,16 +25,29 @@ const MAX_LOOKBACK_MS = 24 * 60 * 60 * 1000;
  * Bet365: "/dl/sportsbookredirect?…&bs=…" (Padovan) e o curto "/s/r/…"
  * (Lemos), que redireciona pra ele. Link de página de jogo ("/#/AC/…")
  * não monta bilhete e fica de fora. */
-const SLIP_LINKS: Record<AutoBetBookmaker, (url: string) => boolean> = {
-  betano: (url) => url.includes("betano.bet.br"),
-  bet365: (url) => /bet365\.bet\.br\/(dl\/sportsbookredirect|s\/r\/)/.test(url),
-};
 const HOST: Record<AutoBetBookmaker, string> = { betano: "betano.bet.br", bet365: "bet365.bet.br" };
+
+/** URL https cujo hostname é a casa ou um subdomínio dela — nunca só
+ * "contém" o domínio (https://outro.site/?x=betano.bet.br abriria na extensão). */
+function parsedOn(url: string, bookmaker: AutoBetBookmaker): URL | null {
+  try {
+    const u = new URL(url);
+    const host = HOST[bookmaker];
+    return u.protocol === "https:" && (u.hostname === host || u.hostname.endsWith(`.${host}`)) ? u : null;
+  } catch {
+    return null;
+  }
+}
+
+const SLIP_LINKS: Record<AutoBetBookmaker, (url: string) => boolean> = {
+  betano: (url) => parsedOn(url, "betano") !== null,
+  bet365: (url) => /^\/(dl\/sportsbookredirect|s\/r\/)/.test(parsedOn(url, "bet365")?.pathname ?? ""),
+};
 
 /** Casa de um link de tip (pro "peguei"), ou null. */
 export function bookmakerOfUrl(url: string | null): AutoBetBookmaker | null {
   if (!url) return null;
-  return (AUTO_BET_BOOKMAKERS.find((b) => url.includes(HOST[b])) ?? null) as AutoBetBookmaker | null;
+  return (AUTO_BET_BOOKMAKERS.find((b) => parsedOn(url, b)) ?? null) as AutoBetBookmaker | null;
 }
 
 export type BettingTaskLeg = {

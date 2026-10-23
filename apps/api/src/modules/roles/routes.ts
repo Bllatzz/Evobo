@@ -139,6 +139,11 @@ export async function rolesRoutes(app: FastifyInstance) {
   app.put<{ Params: { id: string }; Querystring: { tier?: string } }>(
     "/:id/screen-access",
     async (request, reply) => {
+      // Any screen (admin included) can be granted here, so a non-admin
+      // admin_roles holder could otherwise raise its own role.
+      if (request.authUser!.roleName !== "admin") {
+        return reply.code(403).send({ error: "admin_only" });
+      }
       const parsed = UpdateRoleScreenAccessInput.safeParse(request.body);
       if (!parsed.success) {
         return reply.code(400).send({ error: "invalid_input", details: parsed.error.flatten() });
@@ -209,9 +214,15 @@ export async function rolesRoutes(app: FastifyInstance) {
     if (!user) return reply.code(404).send({ error: "user_not_found" });
     if (!role) return reply.code(404).send({ error: "role_not_found" });
 
-    // Taking the admin role away (moving an admin to any other role) is
-    // reserved for the owner — see adminProtectionFor.
-    if (role.name !== "admin") {
+    // Granting admin is as sensitive as taking it away: owner only, or an
+    // admin_roles holder could promote itself. Taking the admin role away
+    // (moving an admin to any other role) is reserved for the owner — see
+    // adminProtectionFor.
+    if (role.name === "admin") {
+      if (!env.OWNER_USER_ID || request.authUser!.id !== env.OWNER_USER_ID) {
+        return reply.code(403).send({ error: "owner_only" });
+      }
+    } else {
       const blocked = adminProtectionFor(env.OWNER_USER_ID, request.authUser!.id, { id: user.id, roleName: user.role.name });
       if (blocked) return reply.code(403).send({ error: blocked });
     }
